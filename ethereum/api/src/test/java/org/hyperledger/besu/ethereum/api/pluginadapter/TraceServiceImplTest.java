@@ -16,12 +16,16 @@ package org.hyperledger.besu.ethereum.api.pluginadapter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldState;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -29,11 +33,20 @@ import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -42,6 +55,7 @@ import org.hyperledger.besu.plugin.data.TransactionTraceResult;
 import org.hyperledger.besu.plugin.services.TraceService;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.HashSet;
 import java.util.List;
@@ -53,6 +67,9 @@ import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -82,6 +99,87 @@ class TraceServiceImplTest {
             MiningConfiguration.newDefault());
     traceService =
         new TraceServiceImpl(blockchainQueries, blockchainSetupUtil.getProtocolSchedule());
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void shouldRunPreExecutionOnceAfterTraceStartBlock(final boolean traceRange) {
+    final var parentHeader = new BlockHeaderTestFixture().number(1).buildHeader();
+    final var header =
+        new BlockHeaderTestFixture().number(2).parentHash(parentHeader.getHash()).buildHeader();
+    final Block block = new Block(header, org.hyperledger.besu.ethereum.core.BlockBody.empty());
+    final Address preExecutionAddress = Address.fromHexString("0x1234");
+    final long preExecutionNonce = 42L;
+    final MutableWorldState worldState = createInMemoryWorldState();
+    final Blockchain blockchain = mock(Blockchain.class);
+    final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
+    final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
+    final MiningBeneficiaryCalculator beneficiaryCalculator =
+        mock(MiningBeneficiaryCalculator.class);
+    final BlockHashLookup blockHashLookup = mock(BlockHashLookup.class);
+    final BlockAwareOperationTracer tracer = mock(BlockAwareOperationTracer.class);
+    final TraceService traceService =
+        new TraceServiceImpl(
+            new BlockchainQueries(
+                protocolSchedule, blockchain, worldStateArchive, MiningConfiguration.newDefault()),
+            protocolSchedule);
+
+    if (traceRange) {
+      when(blockchain.getBlockByNumber(header.getNumber())).thenReturn(Optional.of(block));
+    } else {
+      when(blockchain.getBlockByHash(block.getHash())).thenReturn(Optional.of(block));
+    }
+    when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
+    when(worldStateArchive.getWorldState(any(WorldStateQueryParams.class)))
+        .thenReturn(Optional.of(worldState));
+    when(protocolSchedule.getByBlockHeader(header)).thenReturn(protocolSpec);
+    when(protocolSpec.getMiningBeneficiaryCalculator()).thenReturn(beneficiaryCalculator);
+    when(beneficiaryCalculator.calculateBeneficiary(header)).thenReturn(Address.ZERO);
+    when(protocolSpec.getPreExecutionProcessor()).thenReturn(preExecutionProcessor);
+    when(preExecutionProcessor.createBlockHashLookup(blockchain, header))
+        .thenReturn(blockHashLookup);
+    doAnswer(
+            invocation -> {
+              final BlockProcessingContext context = invocation.getArgument(0);
+              final var updater = context.getWorldState().updater();
+              updater.getOrCreate(preExecutionAddress).setNonce(preExecutionNonce);
+              updater.commit();
+              return null;
+            })
+        .when(preExecutionProcessor)
+        .process(any(), eq(Optional.empty()));
+    doAnswer(
+            invocation -> {
+              final WorldView worldView = invocation.getArgument(0);
+              assertThat(worldView.get(preExecutionAddress)).isNull();
+              return null;
+            })
+        .when(tracer)
+        .traceStartBlock(any(), eq(header), eq(block.getBody()), eq(Address.ZERO));
+    doAnswer(
+            invocation -> {
+              assertThat(worldState.get(preExecutionAddress).getNonce())
+                  .isEqualTo(preExecutionNonce);
+              return null;
+            })
+        .when(tracer)
+        .traceEndBlock(header, block.getBody());
+
+    if (traceRange) {
+      traceService.trace(
+          header.getNumber(), header.getNumber(), unused -> {}, unused -> {}, tracer);
+    } else {
+      traceService.traceBlock(block.getHash(), tracer);
+    }
+
+    verify(tracer).traceStartBlock(any(), eq(header), eq(block.getBody()), eq(Address.ZERO));
+    verify(tracer).traceEndBlock(header, block.getBody());
+    final ArgumentCaptor<BlockProcessingContext> contextCaptor =
+        ArgumentCaptor.forClass(BlockProcessingContext.class);
+    verify(preExecutionProcessor).process(contextCaptor.capture(), eq(Optional.empty()));
+    assertThat(contextCaptor.getValue().getOperationTracer()).isSameAs(tracer);
   }
 
   @Test
