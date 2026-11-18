@@ -27,17 +27,15 @@ RUN set -eu; \
     if $KEYTOOL -J-Duser.language=en -list -v $STORE | grep -qE '^Owner:.*CN=(emSign ECC Root CA - G3|emSign Root CA - G1|emSign Root CA - G2|AAA Certificate Services)(,|$)'; then echo "A distrusted root is still in cacerts" >&2; exit 1; fi
 
 # Stage: Final Besu image
-# Ubuntu 24.04.5 LTS (Noble Numbat), image built 2026-10-25
-FROM mirror.gcr.io/library/ubuntu:noble-20261024.1@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
+# Ubuntu 24.04.5 LTS (Noble Numbat), image built 2026-11-10
+FROM mirror.gcr.io/library/ubuntu:noble-20261110@sha256:c1c5d8818eca0a4fd0c6c187d459a7af264e7fbf8561bde85e93be2a3bbc8f4a
 ARG VERSION="dev"
-# Acquire::Retries=0 mitigates CVE-2026-109518 (apt < 2.8.4ubuntu0.1 can install an unverified package
-# when a download is retried). Remove once the ubuntu:24.04 base ships apt >= 2.8.4ubuntu0.1.
-ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0"
+ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
 
 # Update and install dependencies without using any cache
 RUN apt-get update $NO_PROXY_CACHE  && \
   # $NO_PROXY_CACHE must not be used here or otherwise will trigger a hadolint error
-  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 -o Acquire::Retries=0 \
+  apt-get -o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0 \
     --no-install-recommends -q --assume-yes install libjemalloc-dev=5.* && \
   # Clean apt cache
   apt-get clean  && \
