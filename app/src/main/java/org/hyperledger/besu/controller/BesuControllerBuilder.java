@@ -963,7 +963,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             snapMessages,
             scheduler,
             synchronizer);
-    // a SNAP2 node that syncs with SNAP serves block access lists over snap/2 from the fork on
+    // a SNAP2 node that syncs with SNAP serves block access lists over snap/2 once it holds them
     if (snap2Requested && syncConfig.getSyncMode() == SyncMode.SNAP) {
       maybeSnapProtocolManager.ifPresent(
           snapProtocolManager -> Snap2Advertiser.start(snapProtocolManager, syncState, blockchain));
@@ -1467,8 +1467,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /**
    * Returns the sync configuration with SNAP in place of SNAP2 until an hour after the fork that
    * adds block access lists, which the SNAP2 sync moves its pivot with, and while a SNAP sync from
-   * an earlier start is unfinished. A node that syncs with SNAP then advertises snap/2 once its
-   * chain reaches that fork.
+   * an earlier start is unfinished. A node that syncs with SNAP then advertises snap/2 once it
+   * executed enough blocks past that fork to serve a SNAP2 pivot.
    *
    * @param syncConfig the configured sync
    * @param protocolSchedule the protocol schedule

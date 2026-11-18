@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -33,26 +34,46 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class Snap2AdvertiserTest {
 
+  private static final int PIVOT_DISTANCE = 64;
   private static final long SYNC_SUBSCRIPTION = 7L;
   private static final long CHAIN_SUBSCRIPTION = 5L;
 
   private final Blockchain blockchain = mock(Blockchain.class);
   private final SnapProtocolManager snapProtocolManager = mock(SnapProtocolManager.class);
   private final SyncState syncState = mock(SyncState.class);
+  private final Map<Long, BlockHeader> canonical = new HashMap<>();
+  private final Set<Hash> storedAccessLists = new HashSet<>();
+  private BlockHeader head;
   private BlockAddedObserver chain;
   private InitialSyncCompletionListener syncCompletion;
-  private long nextBlock = 1;
 
   @BeforeEach
   void setUp() {
-    setHead(header(false));
+    final BlockHeader genesis = new BlockHeaderTestFixture().number(0).buildHeader();
+    canonical.put(0L, genesis);
+    setHead(genesis);
+    when(blockchain.getBlockHeader(anyLong()))
+        .thenAnswer(
+            invocation -> Optional.ofNullable(canonical.get(invocation.<Long>getArgument(0))));
+    when(blockchain.getBlockAccessListRlp(any()))
+        .thenAnswer(
+            invocation ->
+                storedAccessLists.contains(invocation.<Hash>getArgument(0))
+                    ? Optional.of(Bytes.EMPTY)
+                    : Optional.empty());
     when(snapProtocolManager.advertiseSnap2()).thenReturn(true);
     when(blockchain.observeBlockAdded(any()))
         .thenAnswer(
@@ -69,9 +90,9 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void waitsForTheSyncOnceTheHeadHasABlockAccessList() {
+  void waitsForTheSyncOnceItHoldsTheBlockAccessLists() {
     final Snap2Advertiser advertiser = start();
-    moveHead(true);
+    execute(PIVOT_DISTANCE);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
     syncDone();
@@ -83,14 +104,15 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void advertisesWhenTheSyncedHeadGetsABlockAccessList() {
+  void advertisesOnceTheBlockAfterAPivot64BlocksBehindHasABlockAccessList() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
     final Snap2Advertiser advertiser = start();
-    moveHead(false);
+    executeBeforeTheFork(10);
+    execute(PIVOT_DISTANCE - 1);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
-    moveHead(true);
-    moveHead(true);
+    execute(1);
+    execute(1);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
@@ -98,19 +120,21 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void advertisesWhenTheSyncEndsPastTheFork() {
+  void waitsForBlocksExecutedPastThoseTheSyncDownloaded() {
     start();
-
-    // the sync sets the head at its pivot without a block added event
-    setHead(header(true));
+    download(100);
     syncDone();
+    execute(PIVOT_DISTANCE - 1);
+    verify(snapProtocolManager, never()).advertiseSnap2();
+
+    execute(1);
 
     verify(snapProtocolManager).advertiseSnap2();
   }
 
   @Test
-  void advertisesAtOnceWhenSyncedPastTheFork() {
-    setHead(header(true));
+  void advertisesAtOnceWhenSyncedWithTheBlockAccessLists() {
+    execute(PIVOT_DISTANCE);
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
 
     final Snap2Advertiser advertiser = start();
@@ -120,8 +144,9 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void waitsWhileTheSyncedHeadHasNoBlockAccessList() {
+  void waitsWhileTheSyncedChainIsBeforeTheFork() {
     start();
+    executeBeforeTheFork(100);
 
     syncDone();
 
@@ -132,21 +157,29 @@ class Snap2AdvertiserTest {
   void ignoresABlockOffTheCanonicalChain() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
     start();
+    execute(PIVOT_DISTANCE - 1);
 
-    chain.onBlockAdded(BlockAddedEvent.createForFork(new Block(header(true), BlockBody.empty())));
+    final BlockHeader forkBlock = block(true);
+    storedAccessLists.add(forkBlock.getHash());
+    chain.onBlockAdded(BlockAddedEvent.createForFork(new Block(forkBlock, BlockBody.empty())));
 
     verify(snapProtocolManager, never()).advertiseSnap2();
   }
 
   @Test
-  void catchesUpOnTheNextHeadAfterAReorgReachedTheForkAsTheSyncEnded() {
+  void catchesUpOnTheNextHeadAfterAReorgReachedTheBlocksAsTheSyncEnded() {
     start();
+    execute(PIVOT_DISTANCE - 1);
     // a reorg tells the new head before the chain head reads it
-    chain.onBlockAdded(headAdvancement(header(true)));
+    final BlockHeader reorgHead = block(true);
+    canonical.put(reorgHead.getNumber(), reorgHead);
+    storedAccessLists.add(reorgHead.getHash());
+    chain.onBlockAdded(headAdvancement(reorgHead));
     syncDone();
     verify(snapProtocolManager, never()).advertiseSnap2();
 
-    moveHead(true);
+    setHead(reorgHead);
+    execute(1);
 
     verify(snapProtocolManager).advertiseSnap2();
   }
@@ -155,10 +188,10 @@ class Snap2AdvertiserTest {
   void survivesAFailedAdvertisement() {
     when(snapProtocolManager.advertiseSnap2()).thenThrow(new IllegalStateException("no network"));
     final Snap2Advertiser advertiser = start();
-    moveHead(true);
+    execute(PIVOT_DISTANCE);
 
     syncDone();
-    moveHead(true);
+    execute(1);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
@@ -173,20 +206,48 @@ class Snap2AdvertiserTest {
     syncCompletion.onInitialSyncCompleted();
   }
 
-  private void moveHead(final boolean withBlockAccessList) {
-    final BlockHeader head = header(withBlockAccessList);
-    setHead(head);
-    chain.onBlockAdded(headAdvancement(head));
+  // blocks the node executed past the fork, which stores their block access lists
+  private void execute(final int count) {
+    for (int i = 0; i < count; i++) {
+      final BlockHeader block = block(true);
+      storedAccessLists.add(block.getHash());
+      moveHead(block);
+    }
   }
 
-  private void setHead(final BlockHeader head) {
-    when(blockchain.getChainHeadHeader()).thenReturn(head);
+  private void executeBeforeTheFork(final int count) {
+    for (int i = 0; i < count; i++) {
+      moveHead(block(false));
+    }
   }
 
-  private BlockHeader header(final boolean withBlockAccessList) {
+  // blocks the SNAP sync downloaded past the fork, without their block access lists or an event
+  private void download(final int count) {
+    for (int i = 0; i < count; i++) {
+      final BlockHeader block = block(true);
+      canonical.put(block.getNumber(), block);
+      setHead(block);
+    }
+  }
+
+  private void moveHead(final BlockHeader block) {
+    canonical.put(block.getNumber(), block);
+    setHead(block);
+    if (chain != null) {
+      chain.onBlockAdded(headAdvancement(block));
+    }
+  }
+
+  private void setHead(final BlockHeader block) {
+    head = block;
+    when(blockchain.getChainHeadHeader()).thenReturn(block);
+  }
+
+  private BlockHeader block(final boolean pastTheFork) {
     return new BlockHeaderTestFixture()
-        .number(nextBlock++)
-        .balHash(withBlockAccessList ? Hash.EMPTY : null)
+        .number(head.getNumber() + 1)
+        .parentHash(head.getHash())
+        .balHash(pastTheFork ? Hash.EMPTY : null)
         .buildHeader();
   }
 

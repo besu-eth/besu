@@ -26,12 +26,16 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Advertises snap/2 on a node asked to sync with SNAP2 that synced with SNAP, as the chain had no
- * block access lists yet: once the sync is done and the chain head has a block access list. Before,
- * peers would agree on snap/2, which drops the trie node requests the SNAP sync heals with.
+ * block access lists yet: once the sync is done and the node holds the block access lists a SNAP2
+ * peer needs, those after a pivot 64 blocks behind the head. Before, peers would agree on snap/2,
+ * which drops the trie node requests the SNAP sync heals with.
  */
 public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCompletionListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(Snap2Advertiser.class);
+  // a SNAP2 peer syncs to a pivot this far behind the head, and moves it with the block access
+  // lists of the blocks after it
+  private static final int PIVOT_DISTANCE = 64;
 
   private final SnapProtocolManager snapProtocolManager;
   private final SyncState syncState;
@@ -51,8 +55,8 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   /**
-   * Advertises snap/2 once the node synced and its chain head has a block access list, now when
-   * both already hold.
+   * Advertises snap/2 once the node synced and holds the block access lists of the last 64 blocks,
+   * now when both already hold.
    *
    * @param snapProtocolManager the manager that advertises snap/2
    * @param syncState tells when the initial sync is done
@@ -95,7 +99,7 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   private synchronized void check(final BlockHeader head) {
-    if (done || !syncState.isInitialSyncPhaseDone() || head.getBalHash().isEmpty()) {
+    if (done || !syncState.isInitialSyncPhaseDone() || !servesPivotBelow(head)) {
       return;
     }
     done = true;
@@ -104,11 +108,22 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
     try {
       if (snapProtocolManager.advertiseSnap2()) {
         LOG.info(
-            "Chain head {} has a block access list, advertising snap/2 to new connections",
+            "Blocks {} to {} have block access lists, advertising snap/2 to new connections",
+            head.getNumber() - PIVOT_DISTANCE + 1,
             head.getNumber());
       }
     } catch (final RuntimeException e) {
       LOG.warn("Could not advertise snap/2, peers syncing with SNAP2 cannot use this node", e);
     }
+  }
+
+  // the SNAP sync stores no block access lists, so only blocks executed past the fork have one
+  private boolean servesPivotBelow(final BlockHeader head) {
+    final long afterPivot = head.getNumber() - PIVOT_DISTANCE + 1;
+    return afterPivot > 0
+        && blockchain
+            .getBlockHeader(afterPivot)
+            .flatMap(header -> blockchain.getBlockAccessListRlp(header.getHash()))
+            .isPresent();
   }
 }
