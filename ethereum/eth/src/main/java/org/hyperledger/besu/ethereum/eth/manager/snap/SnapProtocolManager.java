@@ -65,6 +65,7 @@ public class SnapProtocolManager implements ProtocolManager {
   private final EthPeers ethPeers;
   private final EthMessages snapMessages;
   private final EthScheduler ethScheduler;
+  private final SnapServer snapServer;
 
   private final int maxConcurrentRequestsPerPeer;
   private final int maxConcurrentRequestsGlobal;
@@ -89,8 +90,9 @@ public class SnapProtocolManager implements ProtocolManager {
     this.supportedCapabilities = calculateCapabilities(advertiseSnap2);
     this.maxConcurrentRequestsPerPeer = snapConfig.getMaxConcurrentSnapRequestsPerPeer();
     this.maxConcurrentRequestsGlobal = snapConfig.getMaxConcurrentSnapRequestsGlobal();
-    new SnapServer(
-        snapConfig, snapMessages, worldStateStorageCoordinator, protocolContext, synchronizer);
+    this.snapServer =
+        new SnapServer(
+            snapConfig, snapMessages, worldStateStorageCoordinator, protocolContext, synchronizer);
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.PEERS,
@@ -127,6 +129,11 @@ public class SnapProtocolManager implements ProtocolManager {
   @Override
   public void subscribeCapabilityAdded(final Consumer<Capability> listener) {
     capabilityAddedListeners.subscribe(listener);
+  }
+
+  /** Returns whether the snap server answers requests. */
+  boolean isServing() {
+    return snapServer.isStarted();
   }
 
   /**

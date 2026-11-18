@@ -78,6 +78,7 @@ class Snap2AdvertiserTest {
                     ? Optional.of(Bytes.EMPTY)
                     : Optional.empty());
     when(snapProtocolManager.advertiseSnap2()).thenReturn(true);
+    when(snapProtocolManager.isServing()).thenReturn(true);
     when(blockchain.observeBlockAdded(any()))
         .thenAnswer(
             invocation -> {
@@ -130,6 +131,20 @@ class Snap2AdvertiserTest {
     execute(SERVED_BLOCKS - 1);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
+    execute(1);
+
+    verify(snapProtocolManager).advertiseSnap2();
+  }
+
+  @Test
+  void waitsForTheSnapServer() {
+    when(snapProtocolManager.isServing()).thenReturn(false);
+    when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
+    start();
+    execute(SERVED_BLOCKS);
+    verify(snapProtocolManager, never()).advertiseSnap2();
+
+    when(snapProtocolManager.isServing()).thenReturn(true);
     execute(1);
 
     verify(snapProtocolManager).advertiseSnap2();

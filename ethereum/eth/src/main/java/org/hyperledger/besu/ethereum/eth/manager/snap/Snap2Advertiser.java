@@ -26,9 +26,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Advertises snap/2 on a node asked to sync with SNAP2 that synced with SNAP, as the chain had no
- * block access lists yet: once the sync is done and the node holds the block access lists SNAP2
- * peers ask for, those of the last 128 blocks. Before, peers would agree on snap/2, which drops the
- * trie node requests the SNAP sync heals with.
+ * block access lists yet: once the sync is done, the snap server runs and the node holds the block
+ * access lists SNAP2 peers ask for, those of the last 128 blocks. Before, peers would agree on
+ * snap/2, which drops the trie node requests the SNAP sync heals with.
  */
 public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCompletionListener {
 
@@ -55,8 +55,8 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   /**
-   * Advertises snap/2 once the node synced and holds the block access lists of the last 128 blocks,
-   * now when both already hold.
+   * Advertises snap/2 once the node synced, serves snap requests and holds the block access lists
+   * of the last 128 blocks, now when all already hold.
    *
    * @param snapProtocolManager the manager that advertises snap/2
    * @param syncState tells when the initial sync is done
@@ -99,7 +99,11 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   private synchronized void check(final BlockHeader head) {
-    if (done || !syncState.isInitialSyncPhaseDone() || head.getBalHash().isEmpty()) {
+    // without a snap server, SNAP2 peers would send it requests it answers empty
+    if (done
+        || !syncState.isInitialSyncPhaseDone()
+        || head.getBalHash().isEmpty()
+        || !snapProtocolManager.isServing()) {
       return;
     }
     // a failure here would fail the import of a block already stored, or the end of the sync
