@@ -47,14 +47,19 @@ final class TopLevelTransactionSupport {
   private final GasCalculator gasCalculator;
   private final MessageCallProcessor messageCallProcessor;
   private final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator;
+  // False before Prague (EIP-7702): a delegation designator is then ordinary code, which halts on
+  // the undefined opcode 0xef.
+  private final boolean followsCodeDelegation;
 
   TopLevelTransactionSupport(
       final GasCalculator gasCalculator,
       final MessageCallProcessor messageCallProcessor,
-      final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator) {
+      final CoinbaseFeePriceCalculator coinbaseFeePriceCalculator,
+      final boolean followsCodeDelegation) {
     this.gasCalculator = gasCalculator;
     this.messageCallProcessor = messageCallProcessor;
     this.coinbaseFeePriceCalculator = coinbaseFeePriceCalculator;
+    this.followsCodeDelegation = followsCodeDelegation;
   }
 
   /**
@@ -75,7 +80,7 @@ final class TopLevelTransactionSupport {
       return Code.EMPTY_CODE;
     }
 
-    if (hasCodeDelegation(account.getCode())) {
+    if (followsCodeDelegation && hasCodeDelegation(account.getCode())) {
       return delegatedCode.apply(account);
     }
 

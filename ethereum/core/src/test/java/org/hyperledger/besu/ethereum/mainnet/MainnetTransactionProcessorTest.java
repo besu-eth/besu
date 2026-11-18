@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -33,6 +34,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -41,15 +43,18 @@ import org.hyperledger.besu.evm.gascalculator.LondonGasCalculator;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -67,6 +72,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class MainnetTransactionProcessorTest {
 
   private static final int MAX_STACK_SIZE = 1024;
+  private static final Address DELEGATION_TARGET =
+      Address.fromHexString("0x3333333333333333333333333333333333333333");
+  private static final Bytes DELEGATION_CODE =
+      Bytes.concatenate(CodeDelegationHelper.CODE_DELEGATION_PREFIX, DELEGATION_TARGET.getBytes());
 
   private final GasCalculator gasCalculator = new LondonGasCalculator();
 
@@ -368,6 +377,93 @@ class MainnetTransactionProcessorTest {
     assertThat(result.isInvalid()).isTrue();
     assertThat(result.getValidationResult().getInvalidReason())
         .isEqualTo(TransactionInvalidReason.INSUFFICIENT_FUNDS_FOR_TRANSFER);
+  }
+
+  @Test
+  void callToDelegatedAccountWithoutCodeDelegationRunsTheDesignatorAsCode() {
+    when(messageCallProcessor.getOrCreateCachedJumpDest(
+            Hash.hash(DELEGATION_CODE), DELEGATION_CODE))
+        .thenReturn(new Code(DELEGATION_CODE));
+
+    final Bytes code = topLevelCodeOfDelegatedRecipient(null, Map.of());
+
+    assertThat(code).isEqualTo(DELEGATION_CODE);
+  }
+
+  @Test
+  void callToDelegatedAccountWithCodeDelegationRunsTheTargetCode() {
+    final Bytes targetCode = Bytes.fromHexString("0x6001600055");
+    final MutableAccount targetAccount = mock(MutableAccount.class);
+    when(targetAccount.getOrCreateCachedCode()).thenReturn(new Code(targetCode));
+
+    final Bytes code =
+        topLevelCodeOfDelegatedRecipient(
+            new CodeDelegationProcessor(ChainId.of(1), BigInteger.TEN, new CodeDelegationService()),
+            Map.of(DELEGATION_TARGET, targetAccount));
+
+    assertThat(code).isEqualTo(targetCode);
+  }
+
+  private Bytes topLevelCodeOfDelegatedRecipient(
+      final CodeDelegationProcessor codeDelegationProcessor,
+      final Map<Address, MutableAccount> otherAccounts) {
+    final Address toAddress = Address.fromHexString("0x2222222222222222222222222222222222222222");
+    final Address senderAddress =
+        Address.fromHexString("0x5555555555555555555555555555555555555555");
+
+    when(transaction.getType()).thenReturn(TransactionType.EIP1559);
+    when(transaction.getTo()).thenReturn(Optional.of(toAddress));
+    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getGasLimit()).thenReturn(100_000L);
+    when(transaction.getSender()).thenReturn(senderAddress);
+    when(transaction.getValue()).thenReturn(Wei.ZERO);
+    when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
+    when(transactionValidatorFactory.get().validateForSender(any(), any(), any()))
+        .thenReturn(ValidationResult.valid());
+    when(worldState.getOrCreateSenderAccount(any())).thenReturn(senderAccount);
+    when(worldState.updater()).thenReturn(worldState);
+    when(receiverAccount.getCodeHash()).thenReturn(Hash.hash(DELEGATION_CODE));
+    when(receiverAccount.getCode()).thenReturn(DELEGATION_CODE);
+    when(worldState.get(any()))
+        .thenAnswer(
+            invocation -> {
+              final Address address = invocation.getArgument(0);
+              return toAddress.equals(address) ? receiverAccount : otherAccounts.get(address);
+            });
+    final AtomicReference<Bytes> code = new AtomicReference<>();
+    doAnswer(
+            invocation -> {
+              final MessageFrame messageFrame = invocation.getArgument(0);
+              code.set(messageFrame.getCode().getBytes());
+              messageFrame.getMessageFrameStack().pop();
+              return null;
+            })
+        .when(messageCallProcessor)
+        .process(any(), any());
+
+    MainnetTransactionProcessor.builder()
+        .gasCalculator(gasCalculator)
+        .transactionValidatorFactory(transactionValidatorFactory)
+        .contractCreationProcessor(contractCreationProcessor)
+        .messageCallProcessor(messageCallProcessor)
+        .clearEmptyAccounts(false)
+        .warmCoinbase(false)
+        .maxStackSize(MAX_STACK_SIZE)
+        .feeMarket(FeeMarket.legacy())
+        .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.frontier())
+        .codeDelegationProcessor(codeDelegationProcessor)
+        .build()
+        .processTransaction(
+            worldState,
+            blockHeader,
+            transaction,
+            Address.fromHexString("0x4242424242424242424242424242424242424242"),
+            blockHashLookup,
+            ImmutableTransactionValidationParams.builder().build(),
+            Wei.ZERO);
+
+    return code.get();
   }
 
   private ArgumentCaptor<TransactionValidationParams> transactionValidationParamCaptor() {
