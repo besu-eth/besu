@@ -26,16 +26,16 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Advertises snap/2 on a node asked to sync with SNAP2 that synced with SNAP, as the chain had no
- * block access lists yet: once the sync is done and the node holds the block access lists a SNAP2
- * peer needs, those after a pivot 64 blocks behind the head. Before, peers would agree on snap/2,
- * which drops the trie node requests the SNAP sync heals with.
+ * block access lists yet: once the sync is done and the node holds the block access lists SNAP2
+ * peers ask for, those of the last 128 blocks. Before, peers would agree on snap/2, which drops the
+ * trie node requests the SNAP sync heals with.
  */
 public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCompletionListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(Snap2Advertiser.class);
-  // a SNAP2 peer syncs to a pivot this far behind the head, and moves it with the block access
-  // lists of the blocks after it
-  private static final int PIVOT_DISTANCE = 64;
+  // a SNAP2 peer picks a pivot 64 blocks behind the head, and moves it once the head is up to about
+  // 120 blocks ahead, with the block access lists of the blocks after it
+  private static final int SERVED_BLOCKS = 128;
 
   private final SnapProtocolManager snapProtocolManager;
   private final SyncState syncState;
@@ -55,7 +55,7 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   /**
-   * Advertises snap/2 once the node synced and holds the block access lists of the last 64 blocks,
+   * Advertises snap/2 once the node synced and holds the block access lists of the last 128 blocks,
    * now when both already hold.
    *
    * @param snapProtocolManager the manager that advertises snap/2
@@ -99,17 +99,21 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   private synchronized void check(final BlockHeader head) {
-    if (done || !syncState.isInitialSyncPhaseDone() || !servesPivotBelow(head)) {
+    if (done || !syncState.isInitialSyncPhaseDone() || head.getBalHash().isEmpty()) {
       return;
     }
-    done = true;
-    blockchain.removeObserver(chainSubscription);
-    syncState.unsubscribeInitialConditionReached(syncSubscription);
+    // a failure here would fail the import of a block already stored, or the end of the sync
     try {
+      if (!holdsTheBlockAccessListsBelow(head)) {
+        return;
+      }
+      done = true;
+      blockchain.removeObserver(chainSubscription);
+      syncState.unsubscribeInitialConditionReached(syncSubscription);
       if (snapProtocolManager.advertiseSnap2()) {
         LOG.info(
             "Blocks {} to {} have block access lists, advertising snap/2 to new connections",
-            head.getNumber() - PIVOT_DISTANCE + 1,
+            head.getNumber() - SERVED_BLOCKS + 1,
             head.getNumber());
       }
     } catch (final RuntimeException e) {
@@ -118,11 +122,11 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   }
 
   // the SNAP sync stores no block access lists, so only blocks executed past the fork have one
-  private boolean servesPivotBelow(final BlockHeader head) {
-    final long afterPivot = head.getNumber() - PIVOT_DISTANCE + 1;
-    return afterPivot > 0
+  private boolean holdsTheBlockAccessListsBelow(final BlockHeader head) {
+    final long oldest = head.getNumber() - SERVED_BLOCKS + 1;
+    return oldest > 0
         && blockchain
-            .getBlockHeader(afterPivot)
+            .getBlockHeader(oldest)
             .flatMap(header -> blockchain.getBlockAccessListRlp(header.getHash()))
             .isPresent();
   }

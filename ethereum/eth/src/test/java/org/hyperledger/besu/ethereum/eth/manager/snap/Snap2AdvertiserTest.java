@@ -15,8 +15,11 @@
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -47,7 +50,7 @@ import org.junit.jupiter.api.Test;
 
 class Snap2AdvertiserTest {
 
-  private static final int PIVOT_DISTANCE = 64;
+  private static final int SERVED_BLOCKS = 128;
   private static final long SYNC_SUBSCRIPTION = 7L;
   private static final long CHAIN_SUBSCRIPTION = 5L;
 
@@ -92,7 +95,7 @@ class Snap2AdvertiserTest {
   @Test
   void waitsForTheSyncOnceItHoldsTheBlockAccessLists() {
     final Snap2Advertiser advertiser = start();
-    execute(PIVOT_DISTANCE);
+    execute(SERVED_BLOCKS);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
     syncDone();
@@ -104,11 +107,11 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void advertisesOnceTheBlockAfterAPivot64BlocksBehindHasABlockAccessList() {
+  void advertisesOnceItHoldsTheBlockAccessListsOfTheLast128Blocks() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
     final Snap2Advertiser advertiser = start();
     executeBeforeTheFork(10);
-    execute(PIVOT_DISTANCE - 1);
+    execute(SERVED_BLOCKS - 1);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
     execute(1);
@@ -124,7 +127,7 @@ class Snap2AdvertiserTest {
     start();
     download(100);
     syncDone();
-    execute(PIVOT_DISTANCE - 1);
+    execute(SERVED_BLOCKS - 1);
     verify(snapProtocolManager, never()).advertiseSnap2();
 
     execute(1);
@@ -134,7 +137,7 @@ class Snap2AdvertiserTest {
 
   @Test
   void advertisesAtOnceWhenSyncedWithTheBlockAccessLists() {
-    execute(PIVOT_DISTANCE);
+    execute(SERVED_BLOCKS);
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
 
     final Snap2Advertiser advertiser = start();
@@ -144,20 +147,21 @@ class Snap2AdvertiserTest {
   }
 
   @Test
-  void waitsWhileTheSyncedChainIsBeforeTheFork() {
+  void waitsWithoutReadingWhileTheSyncedChainIsBeforeTheFork() {
     start();
-    executeBeforeTheFork(100);
+    executeBeforeTheFork(200);
 
     syncDone();
 
     verify(snapProtocolManager, never()).advertiseSnap2();
+    verify(blockchain, never()).getBlockHeader(anyLong());
   }
 
   @Test
   void ignoresABlockOffTheCanonicalChain() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
     start();
-    execute(PIVOT_DISTANCE - 1);
+    execute(SERVED_BLOCKS - 1);
 
     final BlockHeader forkBlock = block(true);
     storedAccessLists.add(forkBlock.getHash());
@@ -169,7 +173,7 @@ class Snap2AdvertiserTest {
   @Test
   void catchesUpOnTheNextHeadAfterAReorgReachedTheBlocksAsTheSyncEnded() {
     start();
-    execute(PIVOT_DISTANCE - 1);
+    execute(SERVED_BLOCKS - 1);
     // a reorg tells the new head before the chain head reads it
     final BlockHeader reorgHead = block(true);
     canonical.put(reorgHead.getNumber(), reorgHead);
@@ -188,13 +192,29 @@ class Snap2AdvertiserTest {
   void survivesAFailedAdvertisement() {
     when(snapProtocolManager.advertiseSnap2()).thenThrow(new IllegalStateException("no network"));
     final Snap2Advertiser advertiser = start();
-    execute(PIVOT_DISTANCE);
+    execute(SERVED_BLOCKS);
 
     syncDone();
     execute(1);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
+  }
+
+  @Test
+  void triesTheNextHeadWhenReadingTheBlockAccessListsFails() {
+    when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
+    start();
+    execute(SERVED_BLOCKS - 1);
+    doThrow(new IllegalStateException("closed")).when(blockchain).getBlockAccessListRlp(any());
+
+    assertThatCode(() -> execute(1)).doesNotThrowAnyException();
+    verify(snapProtocolManager, never()).advertiseSnap2();
+
+    doReturn(Optional.of(Bytes.EMPTY)).when(blockchain).getBlockAccessListRlp(any());
+    execute(1);
+
+    verify(snapProtocolManager).advertiseSnap2();
   }
 
   private Snap2Advertiser start() {

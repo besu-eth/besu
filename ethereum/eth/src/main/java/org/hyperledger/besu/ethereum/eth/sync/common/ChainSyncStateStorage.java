@@ -50,17 +50,6 @@ public class ChainSyncStateStorage {
   }
 
   /**
-   * Returns whether a chain sync state is stored.
-   *
-   * @return true when a state is stored
-   */
-  public boolean hasState() {
-    synchronized (writeLock) {
-      return stateFile.exists();
-    }
-  }
-
-  /**
    * Loads the chain sync state from storage.
    *
    * @param headerReader function to deserialize block headers

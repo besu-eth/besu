@@ -23,8 +23,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.io.IOException;
@@ -147,13 +151,28 @@ class BesuControllerBuilderTest {
   @Test
   void snap2OrSnapFinishesAnUnfinishedSnapSyncAfterTheFork() throws IOException {
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
-    Files.createDirectories(dataDirectory.resolve("syncFolder"));
-    Files.createFile(dataDirectory.resolve("syncFolder").resolve("chain-sync-state.rlp"));
+    final BlockHeader pivot = new BlockHeaderTestFixture().number(1_000).buildHeader();
+    new ChainSyncStateStorage(Files.createDirectories(dataDirectory.resolve("syncFolder")))
+        .storeState(new ChainSyncState(pivot, pivot, pivot, false));
 
     assertThat(
             BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory)
                 .getSyncMode())
         .isEqualTo(SyncMode.SNAP);
+  }
+
+  @Test
+  void snap2OrSnapKeepsSnap2OverSyncProgressTheSnapSyncCannotResume() throws IOException {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+    // a list holding only a format version the sync no longer reads
+    Files.write(
+        Files.createDirectories(dataDirectory.resolve("syncFolder"))
+            .resolve("chain-sync-state.rlp"),
+        new byte[] {(byte) 0xc1, 0x01});
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory))
+        .isSameAs(snap2);
   }
 
   @Test

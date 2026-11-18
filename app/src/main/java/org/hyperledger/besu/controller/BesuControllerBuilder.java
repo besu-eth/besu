@@ -1480,7 +1480,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     if (syncConfig.getSyncMode() != SyncMode.SNAP2) {
       return syncConfig;
     }
-    if (SnapDownloaderFactory.isSyncInProgress(dataDirectory)) {
+    if (SnapDownloaderFactory.isSyncInProgress(dataDirectory, protocolSchedule)) {
       // SNAP2 cannot resume it, and would take the chain it imported for a finished sync
       LOG.info("A SNAP sync from an earlier start did not finish: finishing it with SNAP");
       return snapInstead(syncConfig, dataDirectory);
