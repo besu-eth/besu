@@ -93,13 +93,15 @@ class EngineTestSubCommandTest {
   }
 
   @Test
-  void payloadRejectedForAnotherReasonPassesAndReportsTheError() throws IOException {
+  void payloadRejectedForAnotherReasonPassesUnderOutcomeOnlyAndReportsTheError()
+      throws IOException {
     final Path otherReason =
         withFirstPayload(
             payload ->
                 payload.put("validationError", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
 
-    final JsonNode result = result(otherReason, false);
+    final JsonNode result =
+        MAPPER.readTree(run("--json-array", "--outcome-only", otherReason.toString())).get(0);
 
     assertThat(result.get("pass").asBoolean()).isTrue();
     assertThat(result.get("rejections").get(0).get("error").asText())
@@ -107,13 +109,13 @@ class EngineTestSubCommandTest {
   }
 
   @Test
-  void payloadRejectedForAnotherReasonStillFailsEngineTestsOwnCheckWithoutJsonArray()
-      throws IOException {
+  void payloadRejectedForAnotherReasonFailsWithoutOutcomeOnly() throws IOException {
     final Path otherReason =
         withFirstPayload(
             payload ->
                 payload.put("validationError", "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS"));
 
+    assertThat(result(otherReason, false).get("pass").asBoolean()).isFalse();
     assertThat(exitStatus(System.in, otherReason.toString())).isEqualTo(1);
   }
 
