@@ -95,6 +95,7 @@
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
 - Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
+- The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
 
 ## 26.11.1
 
