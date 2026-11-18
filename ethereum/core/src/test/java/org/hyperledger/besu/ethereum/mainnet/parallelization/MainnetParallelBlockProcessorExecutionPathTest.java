@@ -16,18 +16,16 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
-import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
-import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -43,7 +41,6 @@ import org.junit.jupiter.api.Test;
 class MainnetParallelBlockProcessorExecutionPathTest {
 
   private final BlockHeader header = new BlockHeaderTestFixture().number(1).buildHeader();
-  private final BlockExecutionPathListener listener = mock(BlockExecutionPathListener.class);
   private final ProtocolContext protocolContext = mock(ProtocolContext.class);
   private final MainnetParallelBlockProcessor processor =
       new MainnetParallelBlockProcessor(
@@ -51,40 +48,37 @@ class MainnetParallelBlockProcessorExecutionPathTest {
           mock(TransactionReceiptFactory.class),
           BlockHeader::getCoinbase,
           mock(ProtocolSchedule.class),
-          ImmutableBalConfiguration.builder().executionPathListener(listener).build(),
+          BalConfiguration.DEFAULT,
           new NoOpMetricsSystem(),
           Runnable::run);
 
   @Test
-  void reportsBalSchedulerWhenAccessListIsDelivered() {
+  void schedulesFromTheAccessListWhenOneIsDelivered() {
     when(protocolContext.getWorldStateArchive())
         .thenReturn(mock(PathBasedWorldStateProvider.class));
 
-    assertThat(run(Optional.of(new BlockAccessList(List.of())))).isPresent();
-
-    verify(listener).onParallel(header, "bal");
-    verifyNoMoreInteractions(listener);
+    assertThat(run(Optional.of(new BlockAccessList(List.of()))))
+        .map(ParallelBlockTransactionProcessor::getExecutionPath)
+        .contains(ExecutionPath.PARALLEL_BAL);
   }
 
   @Test
-  void reportsOptimisticSchedulerWithoutAccessList() {
+  void schedulesOptimisticallyWithoutAccessList() {
     when(protocolContext.getWorldStateArchive())
         .thenReturn(mock(PathBasedWorldStateProvider.class));
 
-    assertThat(run(Optional.empty())).isPresent();
-
-    verify(listener).onParallel(header, "optimistic");
-    verifyNoMoreInteractions(listener);
+    assertThat(run(Optional.empty()))
+        .map(ParallelBlockTransactionProcessor::getExecutionPath)
+        .contains(ExecutionPath.PARALLEL_OPTIMISTIC);
   }
 
   @Test
-  void reportsSequentialWhenWorldStateIsNotPathBased() {
+  void runsSequentiallyWhenWorldStateIsNotPathBased() {
     when(protocolContext.getWorldStateArchive()).thenReturn(mock(WorldStateArchive.class));
 
     assertThat(run(Optional.of(new BlockAccessList(List.of())))).isEmpty();
-
-    verify(listener).onSequential(header, "not-path-based");
-    verifyNoMoreInteractions(listener);
+    assertThat(processor.getSequentialExecutionPath(protocolContext))
+        .isEqualTo(ExecutionPath.SEQUENTIAL_NOT_PATH_BASED);
   }
 
   private Optional<ParallelBlockTransactionProcessor> run(

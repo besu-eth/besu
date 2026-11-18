@@ -16,10 +16,8 @@ package org.hyperledger.besu.evmtool;
 
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 
 import java.io.PrintStream;
-import java.util.function.Supplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -30,18 +28,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  * and it was run again sequentially, so a fixture's verdict can be tied to the path that produced
  * it. Lines from different workers interleave; the block hash ties each to its block.
  */
-final class BalExecutionReporter implements BlockExecutionPathListener {
+final class BalExecutionReporter {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
   static final String BAD_ACCESS_LIST = "bad-access-list";
 
   static final String WITHHELD = "withheld";
-
-  // Set while block-test imports a block without its delivered access list, to the reason it went
-  // without. The listener is called on the importing thread, so a worker's reason never reaches
-  // another worker's block.
-  private static final ThreadLocal<String> ACCESS_LIST_MISSING = ThreadLocal.withInitial(() -> "");
 
   private final PrintStream err;
 
@@ -50,53 +43,59 @@ final class BalExecutionReporter implements BlockExecutionPathListener {
   }
 
   /**
-   * Runs a block import, reporting its block with the given reason whatever path runs it: {@code
-   * bad-access-list} when the runner dropped the block's delivered access list, {@code withheld}
-   * when it withheld it under --bal-withhold.
+   * Reports the executor that ran a block, read from the result of processing it. A block rejected
+   * before its transactions ran has no execution path and is not reported.
    *
-   * @param accessListMissing why the runner imports the block without its delivered access list, or
-   *     empty when it does not
-   * @param importBlock the import
-   * @return the import's result
+   * @param header the block's header
+   * @param result the result of processing the block
+   * @param accessListMissing why the runner imported the block without its delivered access list,
+   *     {@link #BAD_ACCESS_LIST} or {@link #WITHHELD}, or empty when it did not
    */
-  static <T> T importing(final String accessListMissing, final Supplier<T> importBlock) {
-    ACCESS_LIST_MISSING.set(accessListMissing);
-    try {
-      return importBlock.get();
-    } finally {
-      ACCESS_LIST_MISSING.remove();
-    }
+  void report(
+      final BlockHeader header,
+      final BlockProcessingResult result,
+      final String accessListMissing) {
+    result
+        .getExecutionPath()
+        .ifPresent(
+            path -> {
+              switch (path) {
+                case PARALLEL_BAL -> printParallel(header, "bal", accessListMissing);
+                case PARALLEL_OPTIMISTIC -> printParallel(header, "optimistic", accessListMissing);
+                case SEQUENTIAL -> printSequential(header, "disabled", accessListMissing);
+                case SEQUENTIAL_NOT_PATH_BASED ->
+                    printSequential(header, "not-path-based", accessListMissing);
+                case SEQUENTIAL_FALLBACK -> {
+                  // Only an optimistic parallel attempt is rerun sequentially.
+                  printParallel(header, "optimistic", accessListMissing);
+                  printFallback(header, result);
+                }
+              }
+            });
   }
 
-  @Override
-  public void onParallel(final BlockHeader header, final String scheduler) {
+  private void printParallel(
+      final BlockHeader header, final String scheduler, final String accessListMissing) {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "parallel");
-    line.put("reason", ACCESS_LIST_MISSING.get());
+    line.put("reason", accessListMissing);
     line.put("scheduler", scheduler);
     print(line);
   }
 
-  @Override
-  public void onSequential(final BlockHeader header, final String reason) {
+  private void printSequential(
+      final BlockHeader header, final String reason, final String accessListMissing) {
     final ObjectNode line = event("balExecution", header);
     line.put("path", "sequential");
-    final String accessListMissing = ACCESS_LIST_MISSING.get();
     line.put("reason", accessListMissing.isEmpty() ? reason : accessListMissing);
     print(line);
   }
 
-  @Override
-  public void onSequentialFallback(
-      final BlockHeader header,
-      final BlockProcessingResult parallelResult,
-      final BlockProcessingResult sequentialResult) {
+  private void printFallback(final BlockHeader header, final BlockProcessingResult result) {
     final ObjectNode line = event("balFallback", header);
-    line.put("parallelError", parallelResult.errorMessage.orElse(""));
-    line.put("sequentialResult", sequentialResult.isSuccessful() ? "valid" : "invalid");
-    line.put(
-        "sequentialError",
-        sequentialResult.isSuccessful() ? "" : sequentialResult.errorMessage.orElse(""));
+    line.put("parallelError", result.getParallelErrorMessage().orElse(""));
+    line.put("sequentialResult", result.isSuccessful() ? "valid" : "invalid");
+    line.put("sequentialError", result.isSuccessful() ? "" : result.errorMessage.orElse(""));
     print(line);
   }
 

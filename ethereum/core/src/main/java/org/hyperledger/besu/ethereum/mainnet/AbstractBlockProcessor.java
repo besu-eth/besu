@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -63,6 +64,8 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
@@ -153,6 +156,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
   @Override
   public BlockProcessingResult processBlock(final BlockExecutionContext context) {
+    final AtomicReference<ExecutionPath> executionPath = new AtomicReference<>();
+    final BlockProcessingResult result = processBlock(context, executionPath::set);
+    return executionPath.get() == null ? result : result.withExecutionPath(executionPath.get());
+  }
+
+  private BlockProcessingResult processBlock(
+      final BlockExecutionContext context, final Consumer<ExecutionPath> executionPathRecorder) {
     final ProtocolContext protocolContext = context.getProtocolContext();
     final Blockchain blockchain = protocolContext.getBlockchain();
     final MutableWorldState worldState = context.getWorldState();
@@ -243,6 +253,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockAccessList,
                 maybeParentHeader);
       }
+      executionPathRecorder.accept(
+          parallelProcessor
+              .map(ParallelBlockTransactionProcessor::getExecutionPath)
+              .orElseGet(() -> getSequentialExecutionPath(protocolContext)));
 
       boolean parallelizedTxFound = false;
       int nbParallelTx = 0;
@@ -583,8 +597,19 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockHeader> maybeParentHeader) {
-    balConfiguration.getExecutionPathListener().onSequential(blockHeader, "disabled");
     return Optional.empty();
+  }
+
+  /**
+   * Returns the executor that runs the block's transactions when {@link #startParallelExecution}
+   * starts no parallel processor, or when sequential execution is requested.
+   *
+   * @param protocolContext the protocol context the block is processed in
+   * @return the execution path
+   */
+  @SuppressWarnings("unused") // the parameter is used by subclasses
+  protected ExecutionPath getSequentialExecutionPath(final ProtocolContext protocolContext) {
+    return ExecutionPath.SEQUENTIAL;
   }
 
   /**

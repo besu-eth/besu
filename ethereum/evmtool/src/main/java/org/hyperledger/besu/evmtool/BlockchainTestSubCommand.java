@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
-import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
@@ -195,7 +194,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " path, and the parallel block processor schedules optimistically. Off by default.")
   private boolean balWithhold = false;
 
-  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
+  private Optional<BalExecutionReporter> reporter = Optional.empty();
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
@@ -257,7 +256,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
     boolean setupFailed = false;
     if (balReport) {
-      executionPathListener = new BalExecutionReporter(System.err);
+      reporter = Optional.of(new BalExecutionReporter(System.err));
     }
     try {
       if (blockchainTestFiles.isEmpty()) {
@@ -424,8 +423,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         ReferenceTestProtocolSchedules.cached(
                 parentCommand.getEvmConfiguration(),
                 spec.getBlobScheduleOptions().orElse(null),
-                !balSequential,
-                executionPathListener)
+                !balSequential)
             .getByName(spec.getNetwork());
     if (schedule == null) {
       // Recorded against this test, as engine-test does. Left to throw, it escaped the whole file,
@@ -508,11 +506,14 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
           accessListMissing = "";
         }
         final BlockImportResult importResult =
-            BalExecutionReporter.importing(
-                accessListMissing,
-                () ->
-                    blockImporter.importBlock(
-                        context, block, validationMode, validationMode, accessList));
+            blockImporter.importBlock(context, block, validationMode, validationMode, accessList);
+        reporter.ifPresent(
+            balReporter ->
+                importResult
+                    .getProcessingResult()
+                    .ifPresent(
+                        result ->
+                            balReporter.report(block.getHeader(), result, accessListMissing)));
 
         timer.stop();
 

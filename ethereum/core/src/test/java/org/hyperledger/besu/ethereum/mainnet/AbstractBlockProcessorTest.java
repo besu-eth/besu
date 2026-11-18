@@ -29,6 +29,8 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -211,25 +213,18 @@ abstract class AbstractBlockProcessorTest {
   }
 
   @Test
-  void sequentialImport_ReportsDisabledExecutionPath() {
-    final BlockExecutionPathListener listener = mock(BlockExecutionPathListener.class);
-    final TestBlockProcessor reportingProcessor =
-        new TestBlockProcessor(
-            transactionProcessor,
-            transactionReceiptFactory,
-            BlockHeader::getCoinbase,
-            protocolSchedule,
-            ImmutableBalConfiguration.builder().executionPathListener(listener).build());
+  void sequentialImport_RecordsSequentialExecutionPath() {
     when(protocolSpec.getWithdrawalsProcessor()).thenReturn(Optional.empty());
     final Block block = testBlockBuilder(emptyList());
-    reportingProcessor.processBlock(
-        BlockExecutionContext.builder()
-            .protocolContext(protocolContext)
-            .worldState(worldState)
-            .block(block)
-            .blockAccessList(Optional.empty())
-            .build());
-    verify(listener).onSequential(block.getHeader(), "disabled");
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
+    assertThat(result.getExecutionPath()).contains(ExecutionPath.SEQUENTIAL);
   }
 
   @Test
