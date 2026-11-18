@@ -247,9 +247,13 @@ public final class StateSync {
           try {
             return exclusively(
                 () -> {
+                  final List<Bytes32> adoptedCodes = new ArrayList<>();
                   final StateDiffApplier.Outcome outcome =
-                      StateDiffApplier.apply(diff, storage, coverage, trieUpdater::changed);
+                      StateDiffApplier.apply(
+                          diff, storage, coverage, trieUpdater::changed, adoptedCodes::add);
                   switchPivot(newPivot);
+                  // the loop owns the queue, which skips the codes stored already
+                  execute(() -> adoptedCodes.forEach(codeQueue::add));
                   return outcome;
                 });
           } catch (final Throwable e) {
