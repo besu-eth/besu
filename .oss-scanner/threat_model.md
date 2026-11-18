@@ -25,6 +25,8 @@ Local administrator control, deliberate edits to trusted configuration and an al
 
 The native libraries from `besu-native` (secp256k1, BLS12-381, BN254, KZG, gnark, Arithmetic) live in another repository. Their internals are out of scope here, but the Java code that calls them is in scope, and so is a crash or wrong result in a native library that attacker input reaches, for example through a precompile. Report it against the Java call site. Several operations have both a native and a Java implementation, chosen at runtime; the native one is the default. Any input on which the two give different results is a consensus bug, because two Besu nodes with different settings would disagree about a block.
 
+The Java runtime is third-party code too, but Besu runs on it and hands attacker input to it. A vulnerability or bug in the JDK is in scope when attacker input reaches it through Besu or one of Besu's libraries, whether in the HotSpot JIT compilers and their intrinsics, the class library or the garbage collector. Report it against the Besu entry point, with the JDK versions, CPU features and JVM options it needs. An example is CVE-2026-114938, a heap overflow in HotSpot's AVX-512 Base64 decode intrinsic: Besu disabled the intrinsic by default in its start scripts until a fixed JDK is available.
+
 ## Components that matter most
 
 - `ethereum/core`, `evm`, `datatypes`, `crypto`: transaction processing and validation, the world state (Bonsai) and its trie logs, block import, gas accounting, the EVM and precompiles.
@@ -38,7 +40,7 @@ Lower priority: `ethereum/evmtool`, `ethereum/ethstats`, `ethereum/stratum`, `co
 
 ## Classes we care about
 
-- **Consensus divergence.** Besu accepts a block, transaction or state transition that the other execution clients reject, rejects one they accept, or computes a different state root, receipt or gas result. This also covers two Besu nodes disagreeing with each other: because of different backends or settings, because parallel transaction processing or another world-state optimisation gives a different result from plain sequential execution, or because of the CPU architecture (x86-64 and ARM64 are both supported).
+- **Consensus divergence.** Besu accepts a block, transaction or state transition that the other execution clients reject, rejects one they accept, or computes a different state root, receipt or gas result. This also covers two Besu nodes disagreeing with each other: because of different backends or settings, because parallel transaction processing or another world-state optimisation gives a different result from plain sequential execution, or because of the CPU architecture (x86-64 and ARM64 are both supported), its features or the JDK build.
 - **Remote crash, hang or exhaustion** from peer or RPC input. This means uncaught exceptions on network threads, unbounded memory, threads, queues, file descriptors or disk/log growth, and work that grows faster than the input.
 - **Excess work on valid input.** A block or transaction that obeys every protocol rule and pays its gas can still make Besu spend far more time than its gas represents, for example through the worst case of a data structure, or work that is not cancelled when a block is rejected. This consumes the time budget for `engine_newPayload` and the slot. Gas pays for opcodes, not for Besu's data structures, so gas does not bound it.
 - **Transaction pool abuse.** Transactions that can never pay, or that cost the sender little, fill the pool or evict other users' transactions. This also covers checks that diverge between pool admission and block execution.
@@ -48,6 +50,12 @@ Lower priority: `ethereum/evmtool`, `ethereum/ethstats`, `ethereum/stratum`, `co
 - **Authentication and authorisation:** Engine API JWT handling, RPC authentication (`/login`, credential files, JWT), and node and account permissioning.
 - **Sync accepting incomplete or wrong data,** such as state that passes the cryptographic checks but is incomplete, or blocks and receipts that full import would reject; and peers steering or stalling sync.
 - **Secrets in logs or responses:** keys, the JWT secret, credentials.
+- **Java runtime vulnerabilities and bugs reached from attacker input.** For a published JDK advisory, work out whether attacker input reaches the affected API or intrinsic, through which entry point, and on which configurations. Look also for the kinds of bug behind such advisories:
+  - JIT-compiled code or an intrinsic (Base64, `BigInteger`, array and string operations, cryptography) that corrupts memory, crashes the JVM or returns a wrong result on attacker-chosen data;
+  - class-library methods whose cost grows faster than their input, such as regular expressions, or `BigInteger` and `BigDecimal` parsing and arithmetic on huge values;
+  - a `StackOverflowError` or `OutOfMemoryError` that attacker input can trigger. The start scripts set `-XX:+ExitOnOutOfMemoryError`, so an `OutOfMemoryError` stops the node.
+
+  A result that depends on the JDK version or vendor, the JIT tier, an intrinsic or the CPU features is a consensus bug, as in the first class.
 
 ## Upcoming network upgrades
 
@@ -81,6 +89,12 @@ Further notes:
   Add other options as the finding needs. The account in `alloc` is funded, and you can set its private key to any test key you control. A finding that needs a proof-of-stake chain is better reproduced with a unit test, since a consensus client is not available offline. A log4j `Could not determine local host name` error at startup is expected without a network and harmless.
 - `ethereum/evmtool/build/install/evmtool/bin/evmtool` runs bytecode and state tests directly.
 - `testfuzz/` holds Jazzer fuzz targets.
+- For a Java runtime finding, record:
+  - the output of `java -version`;
+  - the JVM options the start script passes: `applicationDefaultJvmArgs` and the per-JDK options in `build.gradle`;
+  - the CPU features listed in `/proc/cpuinfo`.
+
+  The official Docker image's JDK is pinned in `docker/Dockerfile`. This image's JDK comes from `eclipse-temurin:25` at build time and may differ from it. `java -XX:+PrintFlagsFinal -version` shows which intrinsics are on. To show that a result depends on an intrinsic or on the JIT, run the same test again with the intrinsic off (for example `-XX:-UseBASE64Intrinsics`, or `-XX:+UnlockDiagnosticVMOptions -XX:DisableIntrinsic=<id>`), and again with `-Xint`. Pass these options through `JAVA_TOOL_OPTIONS`, which every JVM reads, Gradle's test workers included, or through `BESU_OPTS` for the node. If this machine's CPU lacks a feature the bug needs, say so, and give the evidence from the code path instead.
 
 Use local fixtures and local nodes only. Do not contact public peers, DNS discovery lists or live networks.
 
@@ -106,9 +120,11 @@ Rate on realistic reachability, default exposure, the privilege needed and the i
 
 A performance difference alone is not a denial of service. Measure attacker cost against the victim's time, memory or CPU, and compare with a control input of the same size. Say which configuration, flags and network type a finding needs.
 
+Rate a Java runtime issue on the same scale, by its impact through Besu. Say whether it affects the JDK builds and hardware that operators commonly run, including the official Docker image.
+
 ## Anything to leave alone
 
-- Dependency version bumps or CVEs in libraries, unless you show the vulnerable code is reachable from Besu with attacker input.
+- Dependency or JDK version bumps, and CVEs in libraries or the JDK, unless you show the vulnerable code is reachable from Besu with attacker input.
 - Behaviour that the Ethereum specifications or EIPs require, even if it looks unsafe. Report it as a spec issue only when Besu differs from the specification or from the other clients.
 - Missing hardening of the build, the Docker image or CI configuration, unless it lets an attacker change what is built.
 - Issues that require a malicious plugin, a modified binary, or write access to the data directory or configuration.

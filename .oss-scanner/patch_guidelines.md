@@ -9,6 +9,11 @@
 - No new dependencies, and no changes to `plugin-api` unless needed: its compatibility is checked against the last release.
 - Target the `main` branch.
 
+## Problems in the Java runtime
+- Until a fixed JDK is released, mitigate in Besu. Cover every path to the affected code, including paths through libraries: changing Besu's own call site is enough only when no other path reaches it.
+- Put a JVM option in `applicationDefaultJvmArgs` in `build.gradle`; both start scripts and the official Docker image use it. `evmtool` has its own options. Prefer a product option that does not need `-XX:+UnlockDiagnosticVMOptions`, and check that operators can override it through `BESU_OPTS`. Say what the option costs, such as the speed lost by turning off an intrinsic.
+- Once a fixed JDK is available, update the `eclipse-temurin` tag and digest in `docker/Dockerfile` and `ethereum/evmtool/src/main/docker/Dockerfile`, and remove the workaround the update makes unnecessary.
+
 ## Code style
 - Follow the style of the surrounding code. Format with `./gradlew spotlessApply`.
 - The code must compile with Error Prone and NullAway, whose warnings are errors in this build.

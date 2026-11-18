@@ -15,6 +15,10 @@
 - Measurements for resource exhaustion and slow processing. Give the attacker's cost (messages, bytes, peers, gas), the victim's time, memory or CPU, and a control input of the same size.
 - For consensus and relay problems, what the other execution clients (go-ethereum, Nethermind, Reth, Erigon) do with the same input, or what the specification requires, with a reference.
 - Whether the finding is a gap in the fix for one of our published advisories, and if so which one.
+- For a problem in the Java runtime, give:
+  - the JDK vendor and version, the CPU architecture and features, and the JVM options it needs;
+  - whether Besu's start script and the official Docker image are affected;
+  - whether a JVM option or a JDK upgrade avoids it.
 - What was confirmed by running code, and what comes from reading it only.
 
 ## Reproduction
