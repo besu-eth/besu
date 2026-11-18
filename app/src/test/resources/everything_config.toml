@@ -184,6 +184,7 @@ plugin-block-txs-selection-max-time=50
 Xpos-block-creation-max-time=5
 max-blobs-per-transaction=4
 max-blobs-per-block=8
+mempool-prewarm-enabled=false
 
 # Permissioning
 permissions-nodes-config-file-enabled=false
