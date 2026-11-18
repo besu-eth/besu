@@ -965,6 +965,34 @@ public abstract class AbstractPendingTransactionsTestBase {
   }
 
   @Test
+  public void shouldSelectPenalizedPriorityTransactionAfterNonPriorityOnes() {
+    transactionsLarge.addTransaction(
+        createRemotePendingTransaction(zeroGasPriceTX1Sdr1), Optional.empty());
+    transactionsLarge.addTransaction(
+        createLocalPendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
+
+    // the priority tx is selected first, even if it is the newest, and it takes too long
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr2, zeroGasPriceTX1Sdr1);
+              return Map.of(pendingTxs.get(0), TX_EVALUATION_TOO_LONG);
+            }));
+
+    assertThat(getScore(transactionsLarge, zeroGasPriceTX1Sdr2)).isEqualTo((byte) (MAX_SCORE - 1));
+
+    // once penalized, having priority does not keep it ahead of the not penalized txs
+    transactionsLarge.selectTransactions(
+        completedResults(
+            pendingTxs -> {
+              assertThat(pendingTxs.stream().map(PendingTransaction::getTransaction))
+                  .containsExactly(zeroGasPriceTX1Sdr1, zeroGasPriceTX1Sdr2);
+              return Map.of();
+            }));
+  }
+
+  @Test
   public void shouldPenalizeTransactionWhenItsLateSelectionResultCompletes() {
     transactionsLarge.addTransaction(
         createRemotePendingTransaction(zeroGasPriceTX1Sdr2), Optional.empty());
