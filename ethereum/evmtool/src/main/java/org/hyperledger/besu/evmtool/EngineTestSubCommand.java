@@ -78,7 +78,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
-import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -200,7 +199,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               + " sequentially. Off by default.")
   private boolean balReport = false;
 
-  private BlockExecutionPathListener executionPathListener = BlockExecutionPathListener.NONE;
+  private Optional<BalExecutionReporter> reporter = Optional.empty();
 
   @Option(
       names = {"--verbose"},
@@ -247,7 +246,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
 
     boolean setupFailed = false;
     if (balReport) {
-      executionPathListener = new BalExecutionReporter(System.err);
+      reporter = Optional.of(new BalExecutionReporter(System.err));
     }
     try {
       if (engineTestFiles.isEmpty()) {
@@ -493,8 +492,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           ReferenceTestProtocolSchedules.cached(
                   parentCommand.getEvmConfiguration(),
                   spec.getBlobScheduleOptions().orElse(null),
-                  !balSequential,
-                  executionPathListener)
+                  !balSequential)
               .getByName(spec.getNetwork());
     } catch (final RuntimeException e) {
       recordResult(
@@ -530,7 +528,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
    * built.
    */
   private static MergeCoordinator newMergeCoordinator(
-      final ProtocolContext context, final ProtocolSchedule schedule) {
+      final ProtocolContext context,
+      final ProtocolSchedule schedule,
+      final Optional<BalExecutionReporter> reporter) {
     final BackwardSyncContext backwardSyncContext =
         new BackwardSyncContext(
             context,
@@ -563,8 +563,10 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           final Optional<BlockAccessList> blockAccessList,
           final InclusionListTransactions inclusionListTransactions,
           final Executor blockWriter) {
-        return super.rememberBlock(
-            block, blockAccessList, inclusionListTransactions, Runnable::run);
+        final BlockProcessingResult result =
+            super.rememberBlock(block, blockAccessList, inclusionListTransactions, Runnable::run);
+        reporter.ifPresent(balReporter -> balReporter.report(block.getHeader(), result, ""));
+        return result;
       }
     };
   }
@@ -581,7 +583,7 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
     // Use shared static instances to avoid thread exhaustion across tests. Recorded so run() knows
     // whether there is anything to shut down without touching the holder and initialising it.
     harnessUsed = true;
-    final MergeCoordinator coordinator = newMergeCoordinator(context, schedule);
+    final MergeCoordinator coordinator = newMergeCoordinator(context, schedule, reporter);
 
     // Lazily create engine methods — most tests use only 1-2 versions, not all 9
     final ExecutionEngineJsonRpcMethod.ConstructorArguments ctorArgs =

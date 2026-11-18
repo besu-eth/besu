@@ -21,6 +21,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.io.ByteArrayOutputStream;
@@ -46,7 +47,7 @@ class BalExecutionReporterTest {
 
   @Test
   void parallelBlockIsOneLineWithAnEmptyReason() {
-    reporter.onParallel(header, "bal");
+    reporter.report(header, executedOn(ExecutionPath.PARALLEL_BAL), "");
 
     assertThat(lines())
         .containsExactly(
@@ -57,25 +58,26 @@ class BalExecutionReporterTest {
 
   @Test
   void sequentialBlockCarriesItsReason() {
-    reporter.onSequential(header, "disabled");
+    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL), "");
+    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL_NOT_PATH_BASED), "");
 
     assertThat(lines())
         .containsExactly(
             "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
                 + HASH
-                + "\",\"path\":\"sequential\",\"reason\":\"disabled\"}");
+                + "\",\"path\":\"sequential\",\"reason\":\"disabled\"}",
+            "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
+                + HASH
+                + "\",\"path\":\"sequential\",\"reason\":\"not-path-based\"}");
   }
 
   @Test
-  void droppedAccessListIsTheReasonOnEitherPathOnlyDuringItsImport() {
-    BalExecutionReporter.importing(
-        BalExecutionReporter.BAD_ACCESS_LIST,
-        () -> {
-          reporter.onParallel(header, "optimistic");
-          reporter.onSequential(header, "disabled");
-          return null;
-        });
-    reporter.onSequential(header, "disabled");
+  void droppedAccessListIsTheReasonOnEitherPath() {
+    reporter.report(
+        header,
+        executedOn(ExecutionPath.PARALLEL_OPTIMISTIC),
+        BalExecutionReporter.BAD_ACCESS_LIST);
+    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL), BalExecutionReporter.WITHHELD);
 
     assertThat(lines())
         .containsExactly(
@@ -85,33 +87,49 @@ class BalExecutionReporterTest {
                 + "\"scheduler\":\"optimistic\"}",
             "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
                 + HASH
-                + "\",\"path\":\"sequential\",\"reason\":\"bad-access-list\"}",
-            "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
-                + HASH
-                + "\",\"path\":\"sequential\",\"reason\":\"disabled\"}");
+                + "\",\"path\":\"sequential\",\"reason\":\"withheld\"}");
   }
 
   @Test
-  void fallbackCarriesBothResults() {
-    reporter.onSequentialFallback(
-        header,
-        new BlockProcessingResult(Optional.empty(), "parallel failed"),
-        new BlockProcessingResult(Optional.empty(), "sequential failed"));
-    reporter.onSequentialFallback(
-        header,
-        new BlockProcessingResult(Optional.empty(), "parallel failed"),
-        new BlockProcessingResult(Optional.empty()));
+  void blockRejectedBeforeExecutionIsNotReported() {
+    reporter.report(header, new BlockProcessingResult("header invalid"), "");
 
+    assertThat(err.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  void fallbackReportsTheParallelAttemptAndBothResults() {
+    reporter.report(
+        header,
+        new BlockProcessingResult(Optional.empty(), "sequential failed")
+            .withSequentialFallback(Optional.of("parallel failed")),
+        "");
+    reporter.report(
+        header,
+        new BlockProcessingResult(Optional.empty())
+            .withSequentialFallback(Optional.of("parallel failed")),
+        "");
+
+    final String parallelLine =
+        "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
+            + HASH
+            + "\",\"path\":\"parallel\",\"reason\":\"\",\"scheduler\":\"optimistic\"}";
     assertThat(lines())
         .containsExactly(
+            parallelLine,
             "{\"event\":\"balFallback\",\"block\":12,\"hash\":\""
                 + HASH
                 + "\",\"parallelError\":\"parallel failed\",\"sequentialResult\":\"invalid\","
                 + "\"sequentialError\":\"sequential failed\"}",
+            parallelLine,
             "{\"event\":\"balFallback\",\"block\":12,\"hash\":\""
                 + HASH
                 + "\",\"parallelError\":\"parallel failed\",\"sequentialResult\":\"valid\","
                 + "\"sequentialError\":\"\"}");
+  }
+
+  private static BlockProcessingResult executedOn(final ExecutionPath path) {
+    return new BlockProcessingResult(Optional.empty()).withExecutionPath(path);
   }
 
   private String[] lines() {

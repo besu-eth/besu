@@ -73,6 +73,17 @@ public class BlockValidationResult {
   }
 
   /**
+   * Copies another result's outcome.
+   *
+   * @param source the result to copy
+   */
+  protected BlockValidationResult(final BlockValidationResult source) {
+    this.success = source.success;
+    this.errorMessage = source.errorMessage;
+    this.cause = source.cause;
+  }
+
+  /**
    * Checks if the validation was successful.
    *
    * @return true if the validation was successful, false otherwise

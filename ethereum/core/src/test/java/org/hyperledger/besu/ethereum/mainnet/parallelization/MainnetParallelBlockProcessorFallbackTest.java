@@ -17,25 +17,19 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.argThat;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
+import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
-import org.hyperledger.besu.ethereum.mainnet.BlockExecutionPathListener;
-import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -49,10 +43,8 @@ import org.junit.jupiter.api.Test;
 
 class MainnetParallelBlockProcessorFallbackTest {
 
-  private final BlockExecutionPathListener listener = mock(BlockExecutionPathListener.class);
-
   @Test
-  void reportsTheSequentialFallbackOnceWithBothResults() {
+  void recordsTheSequentialFallbackWithTheParallelError() {
     final ExecutionContextTestFixture ctx =
         ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_CONFIG))
             .dataStorageFormat(DataStorageFormat.BONSAI)
@@ -65,7 +57,7 @@ class MainnetParallelBlockProcessorFallbackTest {
             spec.getTransactionReceiptFactory(),
             BlockHeader::getCoinbase,
             ctx.getProtocolSchedule(),
-            ImmutableBalConfiguration.builder().executionPathListener(listener).build(),
+            BalConfiguration.DEFAULT,
             new NoOpMetricsSystem());
     final MutableWorldState worldState =
         ctx.getStateArchive()
@@ -84,13 +76,8 @@ class MainnetParallelBlockProcessorFallbackTest {
                 .build());
 
     assertThat(result.isFailed()).isTrue();
-    verify(listener).onParallel(block.getHeader(), "optimistic");
-    verify(listener)
-        .onSequentialFallback(
-            eq(block.getHeader()),
-            argThat(BlockProcessingResult::isFailed),
-            argThat(sequential -> sequential == result));
-    verify(listener, never()).onSequential(any(), any());
+    assertThat(result.getExecutionPath()).contains(ExecutionPath.SEQUENTIAL_FALLBACK);
+    assertThat(result.getParallelErrorMessage()).isPresent();
   }
 
   private static Block emptyBlockWithZeroStateRoot(final BlockHeader parent) {
