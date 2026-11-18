@@ -340,35 +340,39 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
 
   @Override
   public void close() {
+    final boolean first;
     synchronized (this) {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      if (accountRun != null) {
-        accountRun.discard();
-      }
-      if (storageRun != null) {
-        storageRun.discard();
-      }
-      storages.values().forEach(account -> account.streams.values().forEach(SortedRun::discard));
-      storages.clear();
-      ranges.clear();
-      storageOrder.clear();
-    }
-    for (final Runnable notStarted : finisher.shutdownNow()) {
-      if (notStarted instanceof StoreFile file) {
-        // its writer still holds native memory and a file on disk
-        file.writer.rollback();
-      } else if (notStarted instanceof Future<?> await) {
-        // a flush waiting for it would wait forever
-        await.cancel(false);
+      first = !closed;
+      if (first) {
+        closed = true;
+        if (accountRun != null) {
+          accountRun.discard();
+        }
+        if (storageRun != null) {
+          storageRun.discard();
+        }
+        storages.values().forEach(account -> account.streams.values().forEach(SortedRun::discard));
+        storages.clear();
+        ranges.clear();
+        storageOrder.clear();
       }
     }
-    // a file stored after this returns could land in the state of the next sync attempt
+    if (first) {
+      for (final Runnable notStarted : finisher.shutdownNow()) {
+        if (notStarted instanceof StoreFile file) {
+          // its writer still holds native memory and a file on disk
+          file.writer.rollback();
+        } else if (notStarted instanceof Future<?> await) {
+          // a flush waiting for it would wait forever
+          await.cancel(false);
+        }
+      }
+    }
+    // a file stored after this returns could land in the state of the next sync attempt, which
+    // wipes the state first: every call waits, not only the first
     try {
-      if (!finisher.awaitTermination(1, TimeUnit.MINUTES)) {
-        LOG.warn("A sorted SNAP2 state file is still being stored a minute after the sync stopped");
+      while (!finisher.awaitTermination(1, TimeUnit.MINUTES)) {
+        LOG.warn("Waiting for a sorted SNAP2 state file still being stored after the sync stopped");
       }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
@@ -436,6 +440,8 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
       storageRun = end(storageRun);
       account.passed = true;
       if (account.complete) {
+        // a piece that came after its storage completed opened a run of its own
+        account.endStreams();
         storages.remove(accountHash);
       }
       lastPassed = storageOrder.pollFirst();
@@ -568,9 +574,10 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
     public void run() {
       try {
         writer.commit();
-      } catch (final RuntimeException e) {
-        LOG.error("Failed to store a sorted SNAP2 state file", e);
+      } catch (final Throwable e) {
+        // an error as well, or the next flush would not know that the file is missing
         failure = e;
+        LOG.error("Failed to store a sorted SNAP2 state file", e);
       }
     }
   }

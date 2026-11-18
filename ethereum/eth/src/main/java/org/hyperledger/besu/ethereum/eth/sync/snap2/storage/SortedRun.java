@@ -26,7 +26,7 @@ import java.util.Optional;
 /**
  * A run of entries of one segment in ascending key order, written to a sorted file once it holds
  * enough to be worth one. A run that ends smaller goes through the regular write path, as does an
- * entry that is not after the one before.
+ * entry that is not after the one before, once the rest of the run is written.
  */
 final class SortedRun {
 
@@ -36,6 +36,9 @@ final class SortedRun {
   private final SortedIngestStats stats;
   private final List<byte[]> keys = new ArrayList<>();
   private final List<byte[]> values = new ArrayList<>();
+  // written after the run, so that a key handed over again keeps its later value
+  private final List<byte[]> laterKeys = new ArrayList<>();
+  private final List<byte[]> laterValues = new ArrayList<>();
   private SortedWriter writer;
   private byte[] lastKey;
   private long buffered;
@@ -55,7 +58,8 @@ final class SortedRun {
   void put(final byte[] key, final byte[] value) {
     if (lastKey != null && Arrays.compareUnsigned(key, lastKey) <= 0) {
       stats.outOfOrder();
-      writeRegular(List.of(key), List.of(value));
+      laterKeys.add(key);
+      laterValues.add(value);
       return;
     }
     lastKey = key;
@@ -97,11 +101,35 @@ final class SortedRun {
   Optional<SortedWriter> end() {
     if (writer != null) {
       stats.file(size);
-      return Optional.of(writer);
+      if (laterKeys.isEmpty()) {
+        return Optional.of(writer);
+      }
+      final SortedWriter file = writer;
+      return Optional.of(
+          new SortedWriter() {
+            @Override
+            public void put(final byte[] key, final byte[] value) {
+              file.put(key, value);
+            }
+
+            @Override
+            public void commit() {
+              file.commit();
+              writeRegular(laterKeys, laterValues);
+            }
+
+            @Override
+            public void rollback() {
+              file.rollback();
+            }
+          });
     }
     writeRegular(keys, values);
+    writeRegular(laterKeys, laterValues);
     keys.clear();
     values.clear();
+    laterKeys.clear();
+    laterValues.clear();
     buffered = 0;
     return Optional.empty();
   }
@@ -113,6 +141,8 @@ final class SortedRun {
     }
     keys.clear();
     values.clear();
+    laterKeys.clear();
+    laterValues.clear();
     buffered = 0;
   }
 

@@ -99,7 +99,9 @@ public interface SyncStateStorage {
      * Starts a download of the given account ranges.
      *
      * @param rangeLimits the last key of every account range, in key order
-     * @param storagePending whether the storage of an account is still to be downloaded
+     * @param storagePending whether the storage of an account is still to be downloaded. It has to
+     *     hold before the account is handed over to {@link #accounts}, or the account counts as
+     *     having nothing left to download
      */
     void start(List<Bytes32> rangeLimits, Predicate<Bytes32> storagePending);
 
@@ -139,7 +141,7 @@ public interface SyncStateStorage {
     /** Stores what was handed over and returns once it is readable. */
     void flush();
 
-    /** Drops what is not stored yet. */
+    /** Drops what is not stored yet, and returns once no file is being stored. */
     void close();
   }
 

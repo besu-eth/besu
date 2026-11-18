@@ -15,10 +15,12 @@
 package org.hyperledger.besu.ethereum.eth.sync.snap2.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 
 import org.hyperledger.besu.ethereum.trie.RangeManager;
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SortedWriter;
@@ -192,6 +194,79 @@ class SortedStateIngestTest {
     assertThat(storage.files.size() + storage.rolledBack.size()).isEqualTo(storage.started.get());
   }
 
+  @Test
+  void flushFailsWhenAFileIsNotStoredBecauseOfAnError() {
+    final Random random = new Random(4);
+    final World world = World.sized(random, 12_000, 20, 1_000);
+    final OutOfMemoryError error = new OutOfMemoryError("while storing a file");
+    storage.failCommitsWith(error);
+    ingest = start(Long.MAX_VALUE, world);
+    handOverAll(world, random);
+
+    assertThatThrownBy(ingest::flush).isInstanceOf(StorageException.class).cause().isSameAs(error);
+  }
+
+  @Test
+  void everyCloseWaitsForTheFileBeingStored() throws Exception {
+    final Random random = new Random(5);
+    // an account file and a storage file, the first held while being stored
+    final World world = World.sized(random, 12_000, 20, 1_000);
+    storage.holdCommits();
+    ingest = start(Long.MAX_VALUE, world);
+    handOverAll(world, random);
+    final Thread flush =
+        new Thread(
+            () -> {
+              try {
+                ingest.flush();
+              } catch (final RuntimeException e) {
+                // cancelled by the close
+              }
+            });
+    flush.start();
+    storage.awaitCommitting();
+
+    final Thread firstClose = new Thread(ingest::close);
+    firstClose.start();
+    storage.awaitRollback();
+    // the next sync attempt closes again before it wipes the state
+    final Thread secondClose = new Thread(ingest::close);
+    secondClose.start();
+    awaitParked(firstClose);
+    awaitParked(secondClose);
+    assertThat(firstClose.isAlive()).isTrue();
+    assertThat(secondClose.isAlive()).isTrue();
+
+    storage.releaseCommits();
+    firstClose.join(TimeUnit.SECONDS.toMillis(10));
+    secondClose.join(TimeUnit.SECONDS.toMillis(10));
+    flush.join(TimeUnit.SECONDS.toMillis(10));
+    assertThat(firstClose.isAlive()).isFalse();
+    assertThat(secondClose.isAlive()).isFalse();
+    assertThat(storage.files).hasSize(1);
+    assertThat(storage.rolledBack).hasSize(1);
+  }
+
+  @Test
+  void storesAPieceThatComesAfterAStorageWithFilesOfItsOwnCompleted() {
+    final Random random = new Random(6);
+    // one storage large enough to get files of its own
+    final World world = World.sized(random, 500, 1, 2_000);
+    ingest = start(64 * 1024, world);
+    final Bytes32 account = world.storage.firstKey();
+    final TreeMap<Bytes32, Bytes32> slots = world.storage.get(account);
+    final Bytes32 late = slots.lastKey();
+    handOverStorage(account, slots.headMap(late), random);
+    ingest.storage(account, new Object(), List.of(late), List.of(slots.get(late)));
+
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    ingest.flush();
+
+    assertStored(world);
+  }
+
   private SortedStateIngest start(final long memoryLimit, final World world) {
     final SortedStateIngest started =
         new SortedStateIngest(
@@ -220,6 +295,29 @@ class SortedStateIngestTest {
           response.stream().map(Map.Entry::getKey).filter(world.storage::containsKey).toList(),
           index == accounts.size());
     } while (index < accounts.size());
+  }
+
+  private void handOverAll(final World world, final Random random) {
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    for (final Map.Entry<Bytes32, TreeMap<Bytes32, Bytes32>> account : world.storage.entrySet()) {
+      handOverStorage(account.getKey(), account.getValue(), random);
+    }
+  }
+
+  // returns once the thread waits, or has ended
+  private static void awaitParked(final Thread thread) {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (System.nanoTime() < deadline) {
+      final Thread.State state = thread.getState();
+      if (state == Thread.State.WAITING
+          || state == Thread.State.TIMED_WAITING
+          || state == Thread.State.TERMINATED) {
+        return;
+      }
+      Thread.onSpinWait();
+    }
   }
 
   // a storage comes in pieces from several streams, as with the chunks of a large storage
@@ -321,7 +419,9 @@ class SortedStateIngestTest {
         Collections.synchronizedList(new ArrayList<>());
     private final AtomicInteger started = new AtomicInteger();
     private final CountDownLatch rollback = new CountDownLatch(1);
+    private final CountDownLatch committing = new CountDownLatch(1);
     private volatile CountDownLatch commits = new CountDownLatch(0);
+    private volatile Error commitError;
 
     void holdCommits() {
       commits = new CountDownLatch(1);
@@ -331,9 +431,21 @@ class SortedStateIngestTest {
       commits.countDown();
     }
 
+    void failCommitsWith(final Error error) {
+      commitError = error;
+    }
+
     void awaitRollback() {
+      await(rollback);
+    }
+
+    void awaitCommitting() {
+      await(committing);
+    }
+
+    private static void await(final CountDownLatch latch) {
       try {
-        rollback.await(10, TimeUnit.SECONDS);
+        latch.await(10, TimeUnit.SECONDS);
       } catch (final InterruptedException e) {
         Thread.currentThread().interrupt();
       }
@@ -357,8 +469,13 @@ class SortedStateIngestTest {
 
         @Override
         public void commit() {
+          committing.countDown();
           // a commit cannot be interrupted, as with the RocksDB files
           Uninterruptibles.awaitUninterruptibly(commits);
+          final Error error = commitError;
+          if (error != null) {
+            throw error;
+          }
           tx.commit();
           files.add(segment);
         }
