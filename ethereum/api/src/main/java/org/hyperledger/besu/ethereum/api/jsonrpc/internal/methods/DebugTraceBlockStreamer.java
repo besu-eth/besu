@@ -287,11 +287,15 @@ public class DebugTraceBlockStreamer {
     }
     final List<Object> results = new ArrayList<>();
     this.logIndexOffset = 0;
+    // getAndMapWorldState returns empty both when the parent state is missing and when the tracer
+    // throws. The flag keeps a trace that started from being reported as pruned history.
+    final boolean[] started = {false};
     final Optional<Boolean> traced =
         Tracer.processTracing(
             blockchainQueries,
             Optional.of(block.getHeader()),
             traceableState -> {
+              started[0] = true;
               final ProtocolSpec protocolSpec =
                   protocolSchedule.getByBlockHeader(block.getHeader());
               final MainnetTransactionProcessor transactionProcessor =
@@ -333,7 +337,8 @@ public class DebugTraceBlockStreamer {
               return Optional.of(Boolean.TRUE);
             });
     if (traced.isEmpty()) {
-      throw new UnavailableParentStateException(parentStateError());
+      throw new UnavailableParentStateException(
+          started[0] ? RpcErrorType.INTERNAL_ERROR : parentStateError());
     }
     return results;
   }

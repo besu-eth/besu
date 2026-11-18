@@ -117,19 +117,24 @@ public class TraceBlock extends AbstractBlockParameterMethod {
   }
 
   private Object traceBlockResult(final JsonRpcRequestContext request, final Block block) {
-    final Optional<ArrayNodeWrapper> traced = traceBlock(block, Optional.empty());
+    // getAndMapWorldState returns empty both when the parent state is missing and when the tracer
+    // throws. The flag keeps a trace that started from being reported as pruned history.
+    final boolean[] started = {false};
+    final Optional<ArrayNodeWrapper> traced = traceBlock(block, Optional.empty(), started);
     if (traced.isEmpty()) {
       return new JsonRpcErrorResponse(
           request.getRequest().getId(),
-          WorldStateUnavailable.error(
-              getBlockchainQueries().getBlockchain(),
-              getBlockchainQueries().getWorldStateArchive()));
+          started[0]
+              ? RpcErrorType.INTERNAL_ERROR
+              : WorldStateUnavailable.error(
+                  getBlockchainQueries().getBlockchain(),
+                  getBlockchainQueries().getWorldStateArchive()));
     }
     return traced.get().getArrayNode();
   }
 
   protected Optional<ArrayNodeWrapper> traceBlock(
-      final Block block, final Optional<FilterParameter> filterParameter) {
+      final Block block, final Optional<FilterParameter> filterParameter, final boolean[] started) {
 
     if (block == null) {
       return Optional.of(emptyResult());
@@ -140,6 +145,7 @@ public class TraceBlock extends AbstractBlockParameterMethod {
         getBlockchainQueries(),
         Optional.of(header),
         traceableState -> {
+          started[0] = true;
           ArrayNodeWrapper resultArrayNode = new ArrayNodeWrapper(MAPPER.createArrayNode());
           final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
           final MainnetTransactionProcessor transactionProcessor =

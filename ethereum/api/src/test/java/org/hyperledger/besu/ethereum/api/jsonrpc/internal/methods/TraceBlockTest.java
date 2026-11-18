@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -55,6 +56,7 @@ import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -133,6 +135,31 @@ class TraceBlockTest {
 
     assertError(response("0x1"), RpcErrorType.WORLD_STATE_UNAVAILABLE);
     assertThat(RpcErrorType.WORLD_STATE_UNAVAILABLE.getCode()).isEqualTo(-32000);
+  }
+
+  @Test
+  void shouldReturnInternalErrorWhenTracingThrowsAndStateIsAvailable() {
+    // Parent state loads, then the trace_block pipeline fails. getAndMapWorldState swallows that
+    // RuntimeException and returns empty, so this must be an internal error rather than 4444.
+    final EthScheduler failingScheduler = mock(EthScheduler.class);
+    when(failingScheduler.startPipeline(any()))
+        .thenReturn(CompletableFuture.failedFuture(new RuntimeException("trace pipeline failed")));
+    method = new TraceBlock(schedule, queries, new NoOpMetricsSystem(), failingScheduler);
+    final BlockHeader head =
+        new BlockHeaderTestFixture().number(10).stateRoot(Hash.ZERO).buildHeader();
+    when(blockchain.getChainHeadHeader()).thenReturn(head);
+    when(archive.isWorldStateAvailable(head.getStateRoot(), head.getHash())).thenReturn(true);
+
+    final JsonRpcResponse response = response("0x1");
+
+    assertThat(response)
+        .as("tracing threw while the parent state was available")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse error = (JsonRpcErrorResponse) response;
+    assertThat(error.getErrorType().getCode())
+        .as("a trace failure must not be reported as pruned history")
+        .isEqualTo(RpcErrorType.INTERNAL_ERROR.getCode());
+    assertThat(error.getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
   }
 
   @Test

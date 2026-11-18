@@ -16,7 +16,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
-/** Raised when a trace is accumulated in memory and the parent world state cannot be loaded. */
+/**
+ * Raised when in-memory trace accumulation produced no result. The carried error is either a
+ * missing parent state, or {@link RpcErrorType#INTERNAL_ERROR} when tracing started and then
+ * failed.
+ */
 final class UnavailableParentStateException extends RuntimeException {
   private final RpcErrorType errorType;
 

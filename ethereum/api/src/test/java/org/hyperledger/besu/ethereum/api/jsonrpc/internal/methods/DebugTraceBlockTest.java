@@ -18,7 +18,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -47,6 +49,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -439,6 +442,24 @@ public class DebugTraceBlockTest {
   }
 
   @Test
+  public void shouldReturnInternalErrorWhenTracingThrowsAndStateIsAvailable() {
+    final DebugTraceBlock method = traceBlockWhereTracingThrows();
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+
+    final JsonRpcResponse batch = method.response(request);
+    assertThat(batch)
+        .as("tracing threw while the parent state was available")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse error = (JsonRpcErrorResponse) batch;
+    assertThat(error.getErrorType().getCode())
+        .as("a trace failure must not be reported as pruned history")
+        .isEqualTo(RpcErrorType.INTERNAL_ERROR.getCode());
+    assertThat(error.getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
+  }
+
+  @Test
   public void shouldTraceBlockWhenParentStateIsAvailable() throws IOException {
     final Object[] params = new Object[] {testBlock.toRlp().toString()};
     final JsonRpcRequestContext request =
@@ -501,12 +522,26 @@ public class DebugTraceBlockTest {
     assertThat(streamed.get("error").get("message").asText()).isEqualTo(message);
   }
 
+  private DebugTraceBlock traceBlockWhereTracingThrows() {
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    // Head state is present, so a missing-state result would be 4444 rather than -32000.
+    doReturn(true).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
+    final MutableWorldState state = mock(MutableWorldState.class);
+    when(state.updater()).thenThrow(new RuntimeException("trace failed"));
+    doReturn(Optional.of(state)).when(archive).getWorldState(any());
+    return traceBlock(archive);
+  }
+
   private DebugTraceBlock traceBlockWithParentStateUnavailable(final boolean headStateAvailable) {
     final WorldStateArchive archive = spy(fixture.getStateArchive());
     doReturn(Optional.empty()).when(archive).getWorldState(any());
     if (!headStateAvailable) {
       doReturn(false).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
     }
+    return traceBlock(archive);
+  }
+
+  private DebugTraceBlock traceBlock(final WorldStateArchive archive) {
     final BlockchainQueries queries =
         new BlockchainQueries(
             fixture.getProtocolSchedule(),
