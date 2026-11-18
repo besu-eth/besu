@@ -143,7 +143,8 @@ import org.slf4j.LoggerFactory;
 public abstract class BesuControllerBuilder implements MiningConfigurationOverrides {
   private static final Logger LOG = LoggerFactory.getLogger(BesuControllerBuilder.class);
 
-  // a SNAP2 pivot sits 64 blocks behind the head, and the block after it needs a block access list
+  // SNAP2 waits until the block after its pivot, 64 blocks behind the head, has a block access
+  // list: 13 minutes past the fork with 12 second slots; the hour leaves room for missed slots
   private static final Duration SNAP2_AFTER_FORK = Duration.ofHours(1);
 
   /** The genesis file */
