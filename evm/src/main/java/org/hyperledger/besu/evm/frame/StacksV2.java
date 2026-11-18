@@ -15,14 +15,24 @@
 package org.hyperledger.besu.evm.frame;
 
 /**
- * The free EVM v2 stacks: those of a thread, one per call depth plus a few for deeper frames, and
- * shared ones for deeper frames. A full stack is 32 KB, too large for the thread's allocation
- * buffer, so allocating one per frame contends on the heap lock with every other allocating thread.
+ * The EVM v2 stacks used by each thread.
+ *
+ * <p>A thread keeps one stack for each frame call depth below {@link #CACHED_DEPTHS}. For deeper
+ * frames, there is a pool of stacks shared across threads. Stacks are lazily initialized. At, or
+ * above {@link #CACHED_DEPTHS}, a thread reserves up to {@link #THREAD_DEEP_STACKS} for its own use
+ * from the shared pool, or allocates them on demand if shared pool is empty. The reservation from
+ * the shared pool happens in batches of up to {@link #BATCH} stacks at a time.
+ *
+ * <p>Upon releasing, each thread spills stacks back to the shared stack pool in batches or drops
+ * stacks entirely if the shared pool has been fully filled up ({@link #sharedCount} == {@link
+ * #SHARED_STACKS}). The shared pool is lazily populated by {@link #release(int, long[])} when it is
+ * cold.
+ *
+ * <p>EVM invariant: A caller can never take more than one stack at a certain call depth.
  */
 final class StacksV2 {
 
-  // Depths 0 to 20 hold 99.99% of mainnet frames. Deeper frames share stacks across threads, so
-  // that a deep call chain does not leave megabytes of stacks on every thread that ran one.
+  // Depths 0 to 20 hold 99.99% of mainnet frames and are cached within the current running thread.
   static final int CACHED_DEPTHS = 21;
 
   // The stacks of two full call chains, up to 64 MB, which stay allocated once used. Without them,
@@ -30,16 +40,14 @@ final class StacksV2 {
   // again, allocates 32 KB for every frame.
   static final int SHARED_STACKS = 2 * 1024;
 
-  // A thread moves half of these to or from the shared stacks at a time, so a deep call chain
-  // takes the lock once per few frames, and the threads running it rarely wait for each other.
   static final int THREAD_DEEP_STACKS = 16;
 
+  // the maximum amount of stacks that can be taken at any given time from the shared stack pool
+  // when {@link #take} is called.
   private static final int BATCH = THREAD_DEEP_STACKS / 2;
 
   private static final int SHARED_LENGTH = MessageFrame.DEFAULT_MAX_STACK_SIZE * 4;
 
-  // Only stacks of completed frames are kept, so a stack is either here or used by one frame, and
-  // a transaction that aborts with frames on its frame stack leaves nothing of it behind.
   private static final ThreadLocal<ThreadStacks> STACKS =
       ThreadLocal.withInitial(ThreadStacks::new);
 
@@ -57,7 +65,7 @@ final class StacksV2 {
   private StacksV2() {}
 
   /**
-   * Returns a stack for a frame at the given call depth. Its contents are undefined.
+   * Reserves an exclusive stack for the caller at a certain depth.
    *
    * @param depth the call depth of the frame
    * @param length the length of the stack in longs
@@ -70,24 +78,20 @@ final class StacksV2 {
     }
     final long[] stack = stacks.byDepth[depth];
     if (stack == null || stack.length != length) {
-      return new long[length];
+      return (stacks.byDepth[depth] = new long[length]);
     }
-    stacks.byDepth[depth] = null;
     return stack;
   }
 
   /**
-   * Hands the stack of a completed frame to the next frame at its call depth on this thread.
+   * Releases the stack previously reserved at a certain depth so other callers can take it.
    *
    * @param depth the call depth of the frame
-   * @param stack the stack, which nothing reads or writes afterwards
+   * @param stack the stack, which nothing reads or writes after this
    */
   static void release(final int depth, final long[] stack) {
-    final ThreadStacks stacks = STACKS.get();
-    if (depth < CACHED_DEPTHS) {
-      stacks.byDepth[depth] = stack;
-    } else if (stack.length == SHARED_LENGTH) {
-      releaseDeep(stacks, stack);
+    if (depth >= CACHED_DEPTHS && stack.length == SHARED_LENGTH) {
+      releaseDeep(STACKS.get(), stack);
     }
   }
 
@@ -97,16 +101,13 @@ final class StacksV2 {
         final int moved = Math.min(BATCH, sharedCount);
         for (int i = 0; i < moved; i++) {
           stacks.deep[stacks.deepCount++] = SHARED[--sharedCount];
-          SHARED[sharedCount] = null;
         }
       }
       if (stacks.deepCount == 0) {
         return new long[SHARED_LENGTH];
       }
     }
-    final long[] stack = stacks.deep[--stacks.deepCount];
-    stacks.deep[stacks.deepCount] = null;
-    return stack;
+    return stacks.deep[--stacks.deepCount];
   }
 
   private static void releaseDeep(final ThreadStacks stacks, final long[] stack) {
@@ -114,7 +115,6 @@ final class StacksV2 {
       synchronized (SHARED) {
         for (int i = 0; i < BATCH; i++) {
           final long[] spilled = stacks.deep[--stacks.deepCount];
-          stacks.deep[stacks.deepCount] = null;
           if (sharedCount < SHARED_STACKS) {
             SHARED[sharedCount++] = spilled;
           }
