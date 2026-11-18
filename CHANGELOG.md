@@ -69,7 +69,7 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
-- A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork, and advertises snap/2 once it reaches the fork. [#11983](https://github.com/besu-eth/besu/pull/11983)
+- A node started with `--sync-mode=SNAP2` before the Amsterdam fork, or less than an hour after it, syncs with SNAP instead of waiting, and advertises snap/2 once it has synced past the fork. [#11983](https://github.com/besu-eth/besu/pull/11983)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
