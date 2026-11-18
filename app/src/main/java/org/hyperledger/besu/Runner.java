@@ -533,15 +533,6 @@ public class Runner implements AutoCloseable {
   }
 
   /**
-   * Gets the controller this runner runs and closes.
-   *
-   * @return the besu controller
-   */
-  public BesuController getBesuController() {
-    return besuController;
-  }
-
-  /**
    * Get the RPC methods that can be called in-process
    *
    * @return RPC methods by name

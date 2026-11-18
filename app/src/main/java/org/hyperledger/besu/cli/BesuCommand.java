@@ -2748,11 +2748,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   /**
    * The work of the shutdown hook, on whatever startup reached: the plugins that started are
    * stopped, then the runner is closed, which saves the transaction pool and closes the controller
-   * and with it the database. A controller the runner does not own is closed next, one built before
-   * its runner on a first start or an Ephemery restart that failed or is still under way, and then
-   * a storage provider no controller owns, one opened by a controller build that failed. The plugin
-   * class loader is closed last, once nothing can call into plugin code. Each step runs whatever
-   * the one before it threw.
+   * and with it the database. The controller, when one was built, is closed next in any case: a
+   * no-op when the runner did it, the real close when the runner's stop threw before reaching it,
+   * when no runner was built, or when an Ephemery restart had replaced the controller but not yet
+   * the runner. Then a storage provider no controller owns is closed, one opened by a controller
+   * build that failed. The plugin class loader is closed last, once nothing can call into plugin
+   * code. Each step runs whatever the one before it threw.
    */
   @VisibleForTesting
   void shutdown() {
@@ -2769,15 +2770,14 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             runnerToClose.close();
           }
         });
-    // the runner closes its own controller; a controller no runner owns is one whose startup
-    // failed before its runner was built, or is still under way: the Ephemery restart replaces the
-    // controller before the runner, so the runner field may still be the previous cycle's
+    // the runner closes its own controller at the end of its service stop, which a stop that threw
+    // on the way never reaches; a controller may also have no runner yet, on a startup that failed
+    // before the runner was built or an Ephemery restart that has replaced the controller but not
+    // the runner: the controller is closed here in every case, a second close being a no-op
     shutdownStep(
         "close the controller",
         () -> {
-          if (controllerToClose != null
-              && (runnerToClose == null
-                  || runnerToClose.getBesuController() != controllerToClose)) {
+          if (controllerToClose != null) {
             controllerToClose.close();
           }
         });

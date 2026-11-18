@@ -66,7 +66,6 @@ import org.hyperledger.besu.cli.options.LoggingFormat;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.config.NetworkDefinition;
-import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -520,17 +519,32 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void shutdownClosesTheRunnerAndTheClassLoaderWhenStoppingThePluginsThrows() {
+  public void shutdownRunsTheRemainingStepsWhenStoppingThePluginsThrows() {
     final TestBesuCommand command = parseCommand();
     doThrow(new NoClassDefFoundError("gone/Missing")).when(getBesuPluginContext()).stopPlugins();
 
     command.shutdown();
 
-    final InOrder inOrder = inOrder(mockRunner, getBesuPluginContext());
+    final InOrder inOrder = inOrder(mockRunner, mockController, getBesuPluginContext());
     inOrder.verify(getBesuPluginContext()).stopPlugins();
     inOrder.verify(mockRunner).close();
+    inOrder.verify(mockController).close();
     inOrder.verify(getBesuPluginContext()).closePluginClassLoader();
-    verify(mockController, never()).close();
+  }
+
+  @Test
+  public void shutdownClosesTheControllerWhenClosingTheRunnerThrows() {
+    final TestBesuCommand command = parseCommand();
+    doThrow(new IllegalStateException("Scheduler already stopped")).when(mockRunner).close();
+
+    command.shutdown();
+
+    // a runner stop that throws exits before its own close of the controller, leaving the database
+    // open: the hook closes the controller itself, then the class loader
+    final InOrder inOrder = inOrder(mockRunner, mockController, getBesuPluginContext());
+    inOrder.verify(mockRunner).close();
+    inOrder.verify(mockController).close();
+    inOrder.verify(getBesuPluginContext()).closePluginClassLoader();
   }
 
   @Test
@@ -552,15 +566,14 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void shutdownClosesAControllerTheRunnerDoesNotOwn() {
+  public void shutdownClosesTheControllerAfterTheRunner() {
     final TestBesuCommand command = parseCommand();
-    // the Ephemery restart assigns the new cycle's controller before it builds that cycle's
-    // runner: until then the runner field is the previous cycle's, whose controller it closes
-    final BesuController previousController = mock(BesuController.class);
-    when(mockRunner.getBesuController()).thenReturn(previousController);
 
     command.shutdown();
 
+    // the runner closes the controller it owns, so this close is a no-op after a runner stop that
+    // ran to its end; it is the real close when that stop threw first, or when an Ephemery restart
+    // has replaced the controller but not yet the runner
     final InOrder inOrder = inOrder(mockRunner, mockController, getBesuPluginContext());
     inOrder.verify(getBesuPluginContext()).stopPlugins();
     inOrder.verify(mockRunner).close();

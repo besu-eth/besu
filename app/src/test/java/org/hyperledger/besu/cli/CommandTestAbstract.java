@@ -319,7 +319,6 @@ public abstract class CommandTestAbstract {
     when(mockController.getStorageProvider()).thenReturn(storageProvider);
 
     when(mockRunnerBuilder.build()).thenReturn(mockRunner);
-    lenient().when(mockRunner.getBesuController()).thenReturn(mockController);
     when(mockBesuComponent.getMetricsSystem()).thenReturn(new NoOpMetricsSystem());
 
     lenient().when(nodeKey.getPublicKey()).thenReturn(keyPair.getPublicKey());

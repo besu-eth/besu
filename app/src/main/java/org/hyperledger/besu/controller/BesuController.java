@@ -45,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -71,6 +72,7 @@ public class BesuController implements java.io.Closeable {
   private final TransactionPool transactionPool;
   private final MiningCoordinator miningCoordinator;
   private final List<Closeable> closeables;
+  private final AtomicBoolean closed = new AtomicBoolean(false);
   private final MiningConfiguration miningConfiguration;
   private final PluginServiceFactory additionalPluginServices;
   private final SyncState syncState;
@@ -239,9 +241,15 @@ public class BesuController implements java.io.Closeable {
     return storageProvider;
   }
 
+  /**
+   * Closes the resources the controller owns, the storage provider among them. A second call does
+   * nothing, so the runner that owns the controller and the shutdown hook may both close it.
+   */
   @Override
   public void close() {
-    closeables.forEach(this::tryClose);
+    if (closed.compareAndSet(false, true)) {
+      closeables.forEach(this::tryClose);
+    }
   }
 
   private void tryClose(final Closeable closeable) {

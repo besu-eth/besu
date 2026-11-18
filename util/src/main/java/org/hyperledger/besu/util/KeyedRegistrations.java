@@ -85,19 +85,23 @@ public final class KeyedRegistrations<V> {
    */
   public void register(final String name, final V value) {
     final String registrant = registrant();
-    final String key = keyOf.apply(name);
-    final Registered<V> previous = entries.get(key);
-    if (previous != null && !previous.registrant().equals(registrant)) {
-      throw new IllegalStateException(
-          "cannot register "
-              + kind
-              + " "
-              + name
-              + ": "
-              + owner(previous.registrant())
-              + " already registered it");
-    }
-    entries.put(key, new Registered<>(registrant, value));
+    // the check and the claim run under the map's lock for the key, so two registrants racing for
+    // the same name cannot both pass the check; a throw leaves the entry as it was
+    entries.compute(
+        keyOf.apply(name),
+        (key, previous) -> {
+          if (previous != null && !previous.registrant().equals(registrant)) {
+            throw new IllegalStateException(
+                "cannot register "
+                    + kind
+                    + " "
+                    + name
+                    + ": "
+                    + owner(previous.registrant())
+                    + " already registered it");
+          }
+          return new Registered<>(registrant, value);
+        });
   }
 
   /**
