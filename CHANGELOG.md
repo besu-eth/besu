@@ -93,6 +93,11 @@
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
 - Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
 
+## 26.11.1
+
+### Bug fixes
+- Besu now starts with `-XX:-UseBASE64Intrinsics` to mitigate [CVE-2026-114938](https://www.aikido.dev/blog/java-17-rce-vulnerability-cve-2026-114938), a heap overflow in the JVM's Base64 decoder on x86-64 CPUs with AVX-512. Set `BESU_OPTS=-XX:+UseBASE64Intrinsics` to turn the intrinsic back on. [#11995](https://github.com/besu-eth/besu/pull/11995)
+
 ## 26.11.0
 
 ### Breaking Changes
@@ -141,6 +146,10 @@
 - `eth_getLogs` range-limit errors (`-32005`) now return `--rpc-max-logs-range` as `data`; the message is unchanged. [#11628](https://github.com/besu-eth/besu/pull/11628)
 
 ## 26.10.2
+
+### Security Fixes
+- [GHSA-hhgq-3gvc-4jhp](https://github.com/besu-eth/besu/security/advisories/GHSA-hhgq-3gvc-4jhp): QBFT RoundChange executes the piggybacked block before the free hash check, letting a non-validator replay one captured signature with substituted blocks
+- [GHSA-6pcq-hcgg-5q76](https://github.com/besu-eth/besu/security/advisories/GHSA-6pcq-hcgg-5q76): IBFT Accepts Oversized Base Fees that can stop block production
 
 ### Breaking Changes
 - `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
@@ -206,10 +215,8 @@ This release is identical to 26.10.0 but will not activate Glamsterdam on Hoodi 
 
 ## 26.10.0
 
-This release contains security fixes. Operators are advised to upgrade promptly.
-Details will be published in security advisories on
-https://github.com/besu-eth/besu/security/advisories after operators have had an
-opportunity to upgrade.
+### Security Fixes
+- [GHSA-x2jm-6mc4-8g78](https://github.com/besu-eth/besu/security/advisories/GHSA-x2jm-6mc4-8g78): QBFT/IBFT validator forgets its prepared certificate when the round advances by any route other than its own timer, weakening the quorum-intersection argument 
 
 ### Breaking Changes
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` has been removed; it was deprecated as a no-op since 26.6.1. [#11499](https://github.com/besu-eth/besu/pull/11499)
