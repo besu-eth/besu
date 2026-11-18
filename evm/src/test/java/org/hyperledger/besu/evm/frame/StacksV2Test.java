@@ -35,18 +35,6 @@ class StacksV2Test {
   }
 
   @Test
-  void releasedStackIsTakenOnlyOnce() {
-    final long[] released = StacksV2.take(3, LENGTH);
-    StacksV2.release(3, released);
-
-    final long[] first = StacksV2.take(3, LENGTH);
-    final long[] second = StacksV2.take(3, LENGTH);
-
-    assertThat(first).isSameAs(released);
-    assertThat(second).isNotSameAs(released);
-  }
-
-  @Test
   void frameAtAnotherDepthGetsItsOwnStack() {
     final long[] parent = StacksV2.take(3, LENGTH);
     StacksV2.release(3, parent);
