@@ -72,8 +72,13 @@ class TopLevelTransactionSupportTest {
       (coinbaseFee, gasPrice, baseFee) -> Wei.of(42);
 
   private TopLevelTransactionSupport support(final GasCalculator gasCalculator) {
+    return support(gasCalculator, true);
+  }
+
+  private TopLevelTransactionSupport support(
+      final GasCalculator gasCalculator, final boolean followsCodeDelegation) {
     return new TopLevelTransactionSupport(
-        gasCalculator, messageCallProcessor, configuredCalculator);
+        gasCalculator, messageCallProcessor, configuredCalculator, followsCodeDelegation);
   }
 
   // accountCode
@@ -123,6 +128,22 @@ class TopLevelTransactionSupportTest {
 
     assertThat(code).isSameAs(targetCode);
     verifyNoInteractions(messageCallProcessor);
+  }
+
+  @Test
+  void delegatedAccountBeforePragueRunsTheDesignatorAsCode() {
+    final Account account = mock(Account.class);
+    final Hash codeHash = Hash.hash(DELEGATION_CODE);
+    final Code designatorCode = new Code(DELEGATION_CODE);
+    when(account.getCodeHash()).thenReturn(codeHash);
+    when(account.getCode()).thenReturn(DELEGATION_CODE);
+    when(messageCallProcessor.getOrCreateCachedJumpDest(codeHash, DELEGATION_CODE))
+        .thenReturn(designatorCode);
+
+    assertThat(
+            support(london, false)
+                .accountCode(account, TopLevelTransactionSupportTest::noDelegation))
+        .isSameAs(designatorCode);
   }
 
   @Test

@@ -28,6 +28,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
+import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -236,7 +237,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     // checks ensures OOG calls don't add the delegation target to the BAL.
     if (contract != null) {
       final Bytes contractCode = contract.getCode();
-      if (hasCodeDelegation(contractCode)) {
+      if (hasCodeDelegation(contractCode) && followsCodeDelegation(evm)) {
         frame
             .getEip7928AccessList()
             .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
@@ -405,7 +406,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       code = evm.getOrCreateCachedJumpDest(codeHash, account.getCode());
     }
 
-    if (!hasCodeDelegation(code.getBytes())) {
+    if (!hasCodeDelegation(code.getBytes()) || !followsCodeDelegation(evm)) {
       return code;
     }
 
@@ -424,5 +425,11 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     // otherwise we can only use the cached jump destination analysis
     final Code targetCode = target.code();
     return evm.getOrCreateCachedJumpDest(targetCode.getCodeHash(), targetCode.getBytes());
+  }
+
+  // Before Prague (EIP-7702) a delegation designator is ordinary code that starts with the
+  // undefined opcode 0xef, so the call halts exceptionally.
+  private static boolean followsCodeDelegation(final EVM evm) {
+    return evm.getEvmVersion().compareTo(EvmSpecVersion.PRAGUE) >= 0;
   }
 }
