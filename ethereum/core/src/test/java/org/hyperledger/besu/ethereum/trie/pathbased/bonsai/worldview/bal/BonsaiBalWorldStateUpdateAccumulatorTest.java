@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.List;
@@ -50,6 +51,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class BonsaiBalWorldStateUpdateAccumulatorTest {
 
@@ -249,6 +252,52 @@ class BonsaiBalWorldStateUpdateAccumulatorTest {
           final BonsaiValue<Bytes> tracked = accumulator.getCodeToUpdate().get(ADDRESS);
           assertThat(tracked.getPrior()).isNull();
           assertThat(tracked.getUpdated()).isEqualTo(balCode);
+        });
+  }
+
+  /**
+   * A read of a slot of an account whose storage was cleared returns before the slot is loaded, so
+   * {@link BonsaiBalWorldStateUpdateAccumulator#onStorageValueLoaded} never applies the overlay.
+   * That is the expected result: the overlay holds the slot's value after the transactions before
+   * this one, and the clear was committed by this transaction, after them, so the slot reads zero.
+   */
+  @ParameterizedTest(name = "deleteAccount={0}")
+  @ValueSource(booleans = {false, true})
+  void storageReadAfterCommittedClearIgnoresBalOverlay(final boolean deleteAccount) {
+    final StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(7));
+
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                new AccountChanges(
+                    ADDRESS,
+                    List.of(
+                        new SlotChanges(
+                            slotKey, List.of(new StorageChange(0, UInt256.valueOf(99))))),
+                    List.of(),
+                    List.of(new BalanceChange(0, Wei.of(2_000))),
+                    List.of(),
+                    List.of())));
+
+    withAccumulator(
+        bal,
+        1L,
+        accumulator -> {
+          final WorldUpdater txUpdater = accumulator.updater();
+          if (deleteAccount) {
+            txUpdater.deleteAccount(ADDRESS);
+          } else {
+            txUpdater.getAccount(ADDRESS).clearStorage();
+          }
+          txUpdater.commit();
+          accumulator.commit();
+
+          assertThat(accumulator.getStorageValue(ADDRESS, UInt256.valueOf(7)))
+              .isEqualTo(UInt256.ZERO);
+          final var storage = accumulator.getStorageToUpdate().get(ADDRESS);
+          assertThat(storage == null || !storage.containsKey(slotKey))
+              .as("the slot is not loaded, so the overlay is not applied to it")
+              .isTrue();
         });
   }
 
