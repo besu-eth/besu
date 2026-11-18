@@ -65,6 +65,11 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
       // we do nothing. Our last child will eventually persist us.
       return 0;
     }
+    if (!isResponseReceived()) {
+      // the data was cleared to retry a failed write, so writing it now would store an empty
+      // value under the node's hash; the retried download persists the node
+      return 0;
+    }
     int saved = 0;
     if (requiresPersisting.getAndSet(false)) {
       checkNotNull(data, "Must set data before node can be persisted.");

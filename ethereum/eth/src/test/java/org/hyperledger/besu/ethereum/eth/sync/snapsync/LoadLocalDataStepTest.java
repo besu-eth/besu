@@ -141,6 +141,21 @@ public class LoadLocalDataStepTest {
   }
 
   @Test
+  public void shouldDownloadAStoredNodeWhoseValueIsNotTheNode() {
+    when(worldStateStorageCoordinator.getAccountStateTrieNode(any(), any()))
+        .thenReturn(Optional.of(Bytes.EMPTY));
+    when(worldStateStorageCoordinator.updater()).thenReturn(updater);
+
+    final Stream<Task<SnapDataRequest>> output =
+        loadLocalDataStep.loadLocalDataTrieNode(task, completedTasks);
+
+    assertThat(output).containsExactly(task);
+    assertThat(completedTasks.poll()).isNull();
+    assertThat(request.isResponseReceived()).isFalse();
+    verify(updater, never()).commit();
+  }
+
+  @Test
   public void shouldDownloadAStoredNodeWhenANodeBelowItIsMissing() {
     final Map<Bytes32, Bytes> nodes = new HashMap<>();
     final Map<Bytes, Bytes32> hashByLocation = new HashMap<>();

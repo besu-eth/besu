@@ -75,10 +75,10 @@ public class LoadLocalDataStep {
         if (existingData.isPresent()) {
           request.setData(existingData.get());
           final Optional<List<SnapDataRequest>> rootStorageRequests =
-              loadRootStorageRequests(request);
+              rootStorageRequestsOfCompleteNode(request);
           if (rootStorageRequests.isEmpty()) {
-            // a node below this one is missing, so this node is downloaded like an absent one and
-            // healing then walks down to the gap
+            // the stored node can't be used, so it is downloaded like an absent one and healing
+            // then walks down from it
             request.clear();
             return Stream.of(task);
           }
@@ -115,8 +115,21 @@ public class LoadLocalDataStep {
     return Stream.of(task);
   }
 
-  private Optional<List<SnapDataRequest>> loadRootStorageRequests(
+  /**
+   * Returns the storage requests of a stored node, or empty when the stored value is not the node
+   * or a node below it is missing.
+   */
+  private Optional<List<SnapDataRequest>> rootStorageRequestsOfCompleteNode(
       final TrieNodeHealingRequest request) {
+    if (!request.isResponseReceived()) {
+      // for example an empty value written under the node's hash
+      LOG.atDebug()
+          .setMessage("Stored value of trie node {} at {} is not the node, downloading it again")
+          .addArgument(request::getNodeHash)
+          .addArgument(request::getLocation)
+          .log();
+      return Optional.empty();
+    }
     try {
       return Optional.of(request.getRootStorageRequests(worldStateStorageCoordinator).toList());
     } catch (final MerkleTrieException e) {
