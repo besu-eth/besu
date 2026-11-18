@@ -343,9 +343,14 @@ share, so a harness can drive them as it drives other clients' runners: see
   the block's access list, `optimistic` when the block has none. A sequential line's `reason` is
   `disabled` under `--bal-sequential`, or `not-path-based` when the world state cannot run
   transactions in parallel.
-- Under `--json-array`, `engine-test` passes an `INVALID` payload whenever the fixture expects a
-  rejection, whatever exception it names. Without the flag, as in `consumeEngineTestsStable`, it
-  still requires Besu's error to map to that exception.
+- `engine-test` requires Besu's error for an `INVALID` payload to map to the exception the fixture
+  names. Under `--outcome-only` it passes the payload whenever the fixture expects a rejection,
+  whatever exception it names, which is how a harness that checks errors itself runs it.
+- `block-test` imports a block with the access list its fixture delivers only when the list hashes to
+  the header's `blockAccessListHash`, as sync does with a list from a peer; otherwise it drops the
+  list and the block is judged on its header. `--bal-withhold` imports every block without its list.
+- `consumeRlpTestsStableSequential` and `consumeEngineTestsStableSequential` run the stable fixtures
+  with `--bal-sequential`.
 
 > The Gradle-extracted fixtures live at `ethereum/referencetests/build/execution-spec-tests/fixtures/`
 > (stable) and `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/` (devnet), so you
