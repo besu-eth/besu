@@ -26,7 +26,8 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
@@ -189,7 +190,9 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
     final var liveStorage = worldStateStorage.getComposedWorldStateStorage();
     final var tx = liveStorage.startTransaction();
-    new ArchiveCoverageTracker(liveStorage).record(tx, queryBlockNumber);
+    new ArchiveNodeHistoryStore(liveStorage)
+        .saveArchiveProgress(
+            tx, new ArchivedBlock(queryBlockNumber, historicalHeader.getBlockHash()));
     tx.commit();
 
     final RuntimeException failure = new RuntimeException("proof failure");

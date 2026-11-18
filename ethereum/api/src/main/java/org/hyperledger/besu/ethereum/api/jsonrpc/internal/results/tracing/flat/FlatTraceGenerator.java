@@ -90,6 +90,11 @@ public class FlatTraceGenerator {
     // set to, input and callType fields if not a smart contract
     if (tx.getTo().isPresent()) {
       final Bytes payload = tx.getPayload();
+      if (transactionTrace.getResult().isSuccessful()) {
+        firstFlatTraceBuilder
+            .getResultBuilder()
+            .output(transactionTrace.getResult().getOutput().toHexString());
+      }
       firstFlatTraceBuilder
           .getActionBuilder()
           .to(tx.getTo().map(a -> a.getBytes().toHexString()).orElse(null))
@@ -97,6 +102,7 @@ public class FlatTraceGenerator {
           .input(payload == null ? "0x" : payload.toHexString());
 
     } else {
+      firstFlatTraceBuilder.getActionBuilder().creationMethod("create");
       firstFlatTraceBuilder
           .type("create")
           .getResultBuilder()
@@ -222,23 +228,7 @@ public class FlatTraceGenerator {
       final Block block,
       final AtomicInteger traceCounter) {
     return generateFromTransactionTrace(
-        protocolSchedule, transactionTrace, block, traceCounter, true);
-  }
-
-  public static Stream<Trace> generateFromTransactionTrace(
-      final ProtocolSchedule protocolSchedule,
-      final TransactionTrace transactionTrace,
-      final Block block,
-      final AtomicInteger traceCounter,
-      final boolean includeCreationMethod) {
-    return generateFromTransactionTrace(
-        protocolSchedule,
-        transactionTrace,
-        block,
-        traceCounter,
-        includeCreationMethod
-            ? builder -> addContractCreationMethodToTrace(transactionTrace, builder)
-            : builder -> {});
+        protocolSchedule, transactionTrace, block, traceCounter, builder -> {});
   }
 
   /**
@@ -373,6 +363,9 @@ public class FlatTraceGenerator {
             + (traceFrame.getGasCost().orElse(0L));
 
     currentContext.setGasUsed(gasUsed);
+    if (currentContext.isCreateOp()) {
+      currentContext.getBuilder().getResultBuilder().code(Bytes.EMPTY.toHexString());
+    }
 
     final Bytes[] stack = traceFrame.getStack().orElseThrow();
     final Address refundAddress = toAddress(stack[stack.length - 1]);
@@ -445,6 +438,7 @@ public class FlatTraceGenerator {
     final Action.Builder subTraceActionBuilder =
         Action.builder()
             .from(smartContractAddress.orElse(callingAddress))
+            .creationMethod(traceFrame.getOpcode().toLowerCase(Locale.US))
             .gas("0x" + Long.toHexString(computeGas(traceFrame, nextTraceFrame)))
             .value(Quantity.create(nextTraceFrame.map(TraceFrame::getValue).orElse(Wei.ZERO)));
 
@@ -615,25 +609,5 @@ public class FlatTraceGenerator {
         .transactionPosition(
             block.getBody().getTransactions().indexOf(transactionTrace.getTransaction()))
         .transactionHash(transactionTrace.getTransaction().getHash().getBytes().toHexString());
-
-    addContractCreationMethodToTrace(transactionTrace, builder);
-  }
-
-  private static void addContractCreationMethodToTrace(
-      final TransactionTrace transactionTrace, final FlatTrace.Builder builder) {
-    // add creationMethod for create action
-    Optional.ofNullable(builder.getType())
-        .filter(type -> type.equals("create"))
-        .ifPresent(
-            __ ->
-                builder
-                    .getActionBuilder()
-                    .creationMethod(
-                        transactionTrace.getTraceFrames().stream()
-                            .filter(frame -> "CREATE2".equals(frame.getOpcode()))
-                            .findFirst()
-                            .map(TraceFrame::getOpcode)
-                            .orElse("CREATE")
-                            .toLowerCase(Locale.US)));
   }
 }

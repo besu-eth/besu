@@ -13,6 +13,7 @@
       "stateDiff" : null,
       "trace" : [ {
         "action" : {
+          "creationMethod" : "create",
           "from" : "0x627306090abab3a6e1400e9345bc60c78a8bef57",
           "gas" : "0xff2e4e",
           "init" : "0x600060006000600073fb88de099e13c3ed21f80a7a1e49f8caecf10df65af460006000600060007300a00000000000000000000000000000000000005af4",
