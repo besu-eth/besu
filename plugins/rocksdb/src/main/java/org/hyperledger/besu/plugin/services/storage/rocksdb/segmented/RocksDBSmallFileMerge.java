@@ -45,6 +45,7 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.SstFileMetaData;
 import org.rocksdb.Status;
+import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,7 +77,7 @@ import org.slf4j.LoggerFactory;
  * <p>A merge keeps its column family for seconds, so it does not hold the lock of the storage on
  * its column families, which the merge of level 0 and the bulk loads take. It holds a lock of its
  * column family for each step instead, which {@code clear()} and {@code close()} take before they
- * drop or close it, and a bulk load before it starts. The lock is taken before the one of the
+ * drop or close it, and a bulk load while it starts. The lock is taken before the one of the
  * storage, never after it.
  */
 final class RocksDBSmallFileMerge {
@@ -125,12 +126,21 @@ final class RocksDBSmallFileMerge {
   }
 
   /**
-   * Waits for the merge under way of each column family a bulk load starts on, then records durably
-   * that its small files are to be merged. The merges after it find the column family in the load,
-   * so none of them removes the marker.
+   * Records durably that the small files of the column families are to be merged. The caller holds
+   * their locks, as the last step of a merge removes the marker.
    */
   void markToMerge(final Collection<SegmentIdentifier> segments) {
-    segments.forEach(segment -> excludingMerges(segment, () -> mark(segment)));
+    storage.throwIfClosed();
+    final RocksDB db = storage.getDB();
+    try (final WriteBatch batch = new WriteBatch();
+        final WriteOptions durable = new WriteOptions().setSync(true)) {
+      for (final SegmentIdentifier segment : segments) {
+        batch.put(db.getDefaultColumnFamily(), markerKey(segment), new byte[0]);
+      }
+      db.write(durable, batch);
+    } catch (final RocksDBException e) {
+      throw RocksDBTransaction.storageException(e);
+    }
   }
 
   /** Merges the small files of the column families whose merge a stop cut short or prevented. */
@@ -203,12 +213,26 @@ final class RocksDBSmallFileMerge {
 
   /** Runs what drops or closes a column family once the step of a merge under way is done. */
   void excludingMerges(final SegmentIdentifier segment, final Runnable work) {
-    final ReentrantLock lock = handlesInUse(segment);
-    lock.lock();
+    excludingMerges(List.of(segment), work);
+  }
+
+  /**
+   * Runs work on column families once the steps of their merges under way are done, with no merge
+   * step running meanwhile. Their locks are taken in the order of their names, so two callers never
+   * wait for each other.
+   */
+  void excludingMerges(final Collection<SegmentIdentifier> segments, final Runnable work) {
+    final List<ReentrantLock> locks =
+        segments.stream()
+            .distinct()
+            .sorted(Comparator.comparing(SegmentIdentifier::getName))
+            .map(this::handlesInUse)
+            .toList();
+    locks.forEach(ReentrantLock::lock);
     try {
       work.run();
     } finally {
-      lock.unlock();
+      locks.forEach(ReentrantLock::unlock);
     }
   }
 
@@ -351,17 +375,17 @@ final class RocksDBSmallFileMerge {
    * The merges that leave hardly any file of less than a quarter of the target size in the bottom
    * level.
    *
-   * <p>Neighbouring small files are merged together. Those that are too few to make up a quarter of
-   * the target size, or a small file on its own, take the smaller of their neighbours along, if it
-   * is no larger than the target size, or else join the merge that took the file before them. A
-   * file that is being compacted stays as it is and is no neighbour.
+   * <p>Neighbouring small files are merged together, in pieces of at most eight target sizes. A
+   * piece too small to stand alone, under a quarter of the target size, joins the merge that took
+   * the file right before it, as the tail of a long run does. Otherwise it takes the smaller of its
+   * neighbours along if that is no larger than the target size, or else is merged on its own if it
+   * has more than one file. A file that is being compacted stays as it is and is no neighbour.
    */
   @VisibleForTesting
   static List<Merge> plan(final List<SstFileMetaData> bottomFiles, final long targetBytes) {
     final long smallBytes = targetBytes / SMALL_FILE_SHARE;
     final List<SstFileMetaData> files = new ArrayList<>(bottomFiles);
     files.sort(Comparator.comparing(SstFileMetaData::smallestKey, Arrays::compareUnsigned));
-    final boolean[] taken = new boolean[files.size()];
     // the indexes of the files of each merge, in key order
     final List<List<Integer>> merges = new ArrayList<>();
     int i = 0;
@@ -370,29 +394,43 @@ final class RocksDBSmallFileMerge {
         i++;
         continue;
       }
-      int end = i;
-      while (end + 1 < files.size() && isSmall(files.get(end + 1), smallBytes)) {
-        end++;
-      }
-      for (final List<Integer> chunk : chunks(files, i, end, targetBytes, smallBytes)) {
-        final List<Integer> merged = new ArrayList<>(chunk);
-        if (bytes(files, merged) < smallBytes || merged.size() == 1) {
-          final int neighbour =
-              smallerNeighbour(files, taken, chunk.getFirst(), chunk.getLast(), targetBytes);
-          if (neighbour >= 0) {
-            merged.add(neighbour < chunk.getFirst() ? 0 : merged.size(), neighbour);
-          } else if (!merges.isEmpty() && merges.getLast().getLast() == chunk.getFirst() - 1) {
-            merges.getLast().addAll(merged);
-            merged.forEach(index -> taken[index] = true);
-            continue;
-          }
-        }
-        if (merged.size() > 1) {
-          merged.forEach(index -> taken[index] = true);
-          merges.add(merged);
+      List<Integer> piece = new ArrayList<>();
+      long pieceBytes = 0;
+      while (i < files.size() && isSmall(files.get(i), smallBytes)) {
+        piece.add(i);
+        pieceBytes += files.get(i).size();
+        i++;
+        if (pieceBytes >= MAX_MERGE_TARGETS * targetBytes) {
+          merges.add(piece);
+          piece = new ArrayList<>();
+          pieceBytes = 0;
         }
       }
-      i = end + 1;
+      if (piece.isEmpty()) {
+        continue;
+      }
+      if (pieceBytes >= smallBytes) {
+        merges.add(piece);
+        continue;
+      }
+      // going from left to right, a file before the piece can only be taken by the last merge,
+      // and the file after it by none
+      final int before = piece.getFirst() - 1;
+      if (!merges.isEmpty() && merges.getLast().getLast() == before) {
+        merges.getLast().addAll(piece);
+        continue;
+      }
+      final boolean beforeFree = before >= 0 && isFree(files.get(before), targetBytes);
+      final boolean afterFree = i < files.size() && isFree(files.get(i), targetBytes);
+      if (beforeFree && (!afterFree || files.get(before).size() <= files.get(i).size())) {
+        piece.addFirst(before);
+        merges.add(piece);
+      } else if (afterFree) {
+        piece.add(i);
+        merges.add(piece);
+      } else if (piece.size() > 1) {
+        merges.add(piece);
+      }
     }
     return merges.stream()
         .map(
@@ -407,57 +445,8 @@ final class RocksDBSmallFileMerge {
     return !file.beingCompacted() && file.size() < smallBytes;
   }
 
-  // a run of small files in pieces of at most the most merged in one go, the last one large enough
-  // to stand alone unless the run is not
-  private static List<List<Integer>> chunks(
-      final List<SstFileMetaData> files,
-      final int first,
-      final int last,
-      final long targetBytes,
-      final long smallBytes) {
-    final List<List<Integer>> chunks = new ArrayList<>();
-    List<Integer> chunk = new ArrayList<>();
-    long chunkBytes = 0;
-    for (int index = first; index <= last; index++) {
-      chunk.add(index);
-      chunkBytes += files.get(index).size();
-      if (chunkBytes >= MAX_MERGE_TARGETS * targetBytes) {
-        chunks.add(chunk);
-        chunk = new ArrayList<>();
-        chunkBytes = 0;
-      }
-    }
-    if (!chunk.isEmpty()) {
-      if (chunkBytes < smallBytes && !chunks.isEmpty()) {
-        chunks.getLast().addAll(chunk);
-      } else {
-        chunks.add(chunk);
-      }
-    }
-    return chunks;
-  }
-
-  // -1 when neither neighbour can be merged
-  private static int smallerNeighbour(
-      final List<SstFileMetaData> files,
-      final boolean[] taken,
-      final int first,
-      final int last,
-      final long targetBytes) {
-    final int before = first - 1;
-    final int after = last + 1;
-    final boolean beforeFree = before >= 0 && isFree(files.get(before), taken[before], targetBytes);
-    final boolean afterFree =
-        after < files.size() && isFree(files.get(after), taken[after], targetBytes);
-    if (beforeFree && afterFree) {
-      return files.get(before).size() <= files.get(after).size() ? before : after;
-    }
-    return beforeFree ? before : afterFree ? after : -1;
-  }
-
-  private static boolean isFree(
-      final SstFileMetaData file, final boolean taken, final long targetBytes) {
-    return !taken && !file.beingCompacted() && file.size() <= targetBytes;
+  private static boolean isFree(final SstFileMetaData file, final long targetBytes) {
+    return !file.beingCompacted() && file.size() <= targetBytes;
   }
 
   // the files written are as even in size as the count closest to the target size allows, so that
@@ -521,17 +510,6 @@ final class RocksDBSmallFileMerge {
                     .filter(file -> file.size() < targetBytes / SMALL_FILE_SHARE)
                     .count())
         .orElse(0L);
-  }
-
-  // under the lock of the column family, which the storage takes before it closes the database
-  private void mark(final SegmentIdentifier segment) {
-    storage.throwIfClosed();
-    final RocksDB db = storage.getDB();
-    try (final WriteOptions durable = new WriteOptions().setSync(true)) {
-      db.put(db.getDefaultColumnFamily(), durable, markerKey(segment), new byte[0]);
-    } catch (final RocksDBException e) {
-      throw RocksDBTransaction.storageException(e);
-    }
   }
 
   private void unmark(final SegmentIdentifier segment) {

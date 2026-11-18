@@ -76,6 +76,13 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
     this.storage = storage;
     this.segments = List.copyOf(segments);
     this.separateValues = List.copyOf(separateValues);
+    // no merge of small files runs until the segments are in the load, which the merges after it
+    // find: a sorted file cannot go to the bottom level where a merge writes, and the last step of
+    // a merge removes the marker
+    storage.smallFileMerge.excludingMerges(this.segments, this::begin);
+  }
+
+  private void begin() {
     storage.columnFamilyWork.lock();
     try {
       storage.throwIfClosed();
@@ -88,23 +95,12 @@ final class RocksDBSegmentBulkLoad implements SegmentBulkLoad {
               "The " + segment.getName() + " segment is already in a bulk load");
         }
       }
+      // before anything changes, so that a failure leaves nothing to undo
+      storage.smallFileMerge.markToMerge(segments);
       start();
       storage.segmentsInBulkLoad.addAll(allSegments());
     } finally {
       storage.columnFamilyWork.unlock();
-    }
-    // a sorted file cannot go to the bottom level where a merge writes, and the last step of a
-    // merge removes the marker, so this waits for the merges under way
-    try {
-      storage.smallFileMerge.markToMerge(this.segments);
-    } catch (final RuntimeException e) {
-      // the caller gets no load to close, which would switch compaction back on
-      try {
-        close();
-      } catch (final RuntimeException closeError) {
-        e.addSuppressed(closeError);
-      }
-      throw e;
     }
   }
 

@@ -1305,6 +1305,40 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   }
 
   @Test
+  public void mergeStoppedByABulkLoadKeepsItsMarkerForTheNextOpen(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad first = store.startBulkLoad(List.of(TestSegment.FOO));
+    writeSmallFiles(store, 30);
+    assertThat(first.end(TestSegment.FOO)).succeedsWithin(Duration.ofSeconds(30));
+    final ReentrantLock fooInUse = store.smallFileMerge.handlesInUse(TestSegment.FOO);
+    final CompletableFuture<SegmentBulkLoad> second;
+    // the second load starts first, then the merge the first one hands over finds FOO in it
+    fooInUse.lock();
+    try {
+      second = CompletableFuture.supplyAsync(() -> store.startBulkLoad(List.of(TestSegment.FOO)));
+      awaitQueued(fooInUse, 1);
+      first.close();
+      awaitQueued(fooInUse, 2);
+    } finally {
+      fooInUse.unlock();
+    }
+    assertThat(second).succeedsWithin(Duration.ofSeconds(30));
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    // stopped in the middle of the second load
+    store.close();
+    second.join().close();
+
+    final RocksDBColumnarKeyValueStorage reopened = openStore(path);
+    assertThat(reopened.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(reopened, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+
+    reopened.close();
+  }
+
+  @Test
   public void bulkLoadStartedWhileTheStorageClosesFails() throws Exception {
     final RocksDBColumnarKeyValueStorage store =
         (RocksDBColumnarKeyValueStorage) createSegmentedStore();
@@ -1527,8 +1561,13 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   }
 
   private static void awaitQueued(final ReentrantLock lock) throws InterruptedException {
+    awaitQueued(lock, 1);
+  }
+
+  private static void awaitQueued(final ReentrantLock lock, final int threads)
+      throws InterruptedException {
     final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
-    while (!lock.hasQueuedThreads() && System.nanoTime() < deadline) {
+    while (lock.getQueueLength() < threads && System.nanoTime() < deadline) {
       Thread.sleep(10);
     }
   }
@@ -1568,6 +1607,16 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   public void aSmallFileWhoseNeighbourIsTakenJoinsThatMerge() {
     final List<RocksDBSmallFileMerge.Merge> merges =
         RocksDBSmallFileMerge.plan(List.of(file(0, 6), file(1, 64), file(2, 6)), TARGET);
+
+    assertThat(merges).hasSize(1);
+    assertThat(names(merges.getFirst())).containsExactly("0", "1", "2");
+  }
+
+  @Test
+  public void aSmallFileRightAfterAMergeJoinsItRatherThanTakeItsOtherNeighbour() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(
+            List.of(file(0, 6), file(1, 40), file(2, 6), file(3, 40)), TARGET);
 
     assertThat(merges).hasSize(1);
     assertThat(names(merges.getFirst())).containsExactly("0", "1", "2");
