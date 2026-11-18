@@ -70,7 +70,7 @@ public final class FrameTransactionPoolPolicy {
    * EIP-8141 {@code MAX_VERIFY_GAS}: gas for signature validation plus the validation prefix's
    * execution limits.
    */
-  static final long MAX_VERIFY_GAS = 100_000L;
+  static final long MAX_VERIFY_GAS = 300_000L;
 
   /**
    * How far past the chain head's timestamp an expiry deadline must be for admission: one 12-second
