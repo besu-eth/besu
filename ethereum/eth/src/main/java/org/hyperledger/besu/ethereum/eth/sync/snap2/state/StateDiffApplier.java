@@ -23,7 +23,9 @@ import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -58,12 +60,15 @@ public final class StateDiffApplier {
   /**
    * Applies the diff and commits it. A failure leaves it partly applied, to the flat state and to
    * the coverage: the download must then stop rather than apply it again.
+   *
+   * @param codesToDownload receives the hashes of adopted codes whose bytes the diff does not hold
    */
   static Outcome apply(
       final StateDiff diff,
       final SyncStateStorage storage,
       final StateCoverage coverage,
-      final StorageChanges storageChanges) {
+      final StorageChanges storageChanges,
+      final Consumer<Bytes32> codesToDownload) {
     final Writes writes = new Writes(storage);
     int applied = 0;
     int skipped = 0;
@@ -87,10 +92,16 @@ public final class StateDiffApplier {
           updated = Accounts.withStorageRoot(updated, Accounts.UNKNOWN_STORAGE_ROOT);
         }
 
-        if (change.code().isPresent() && !change.code().get().isEmpty()) {
-          writes
-              .batch()
-              .putCode(Bytes32.wrap(updated.getCodeHash().getBytes()), change.code().get());
+        final Optional<Hash> codeHash = change.codeHash().filter(hash -> !Hash.EMPTY.equals(hash));
+        if (codeHash.isPresent()) {
+          final Bytes32 codeKey = Bytes32.wrap(codeHash.get().getBytes());
+          final Optional<Bytes> code = diff.code(codeHash.get());
+          if (code.isPresent()) {
+            writes.batch().putCode(codeKey, code.get());
+          } else {
+            // code adopted from an account of the pre-window state, usually stored already
+            codesToDownload.accept(codeKey);
+          }
         }
         if (Accounts.isEmpty(updated)) {
           // EIP-161 and EIP-7523: an empty account does not exist
@@ -180,8 +191,7 @@ public final class StateDiffApplier {
             .orElse(existing.map(PatriciaTrieAccountValue::getBalance).orElse(Wei.ZERO));
     final Hash codeHash =
         change
-            .code()
-            .map(code -> code.isEmpty() ? Hash.EMPTY : Hash.hash(code))
+            .codeHash()
             .orElse(existing.map(PatriciaTrieAccountValue::getCodeHash).orElse(Hash.EMPTY));
     final Hash storageRoot =
         existing.map(PatriciaTrieAccountValue::getStorageRoot).orElse(Hash.EMPTY_TRIE_HASH);

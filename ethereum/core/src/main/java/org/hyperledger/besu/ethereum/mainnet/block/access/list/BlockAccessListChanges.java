@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public final class BlockAccessListChanges {
@@ -53,21 +52,30 @@ public final class BlockAccessListChanges {
               lastOf(accountChanges.balanceChanges())
                   .map(BlockAccessList.BalanceChange::postBalance),
               lastOf(accountChanges.nonceChanges()).map(BlockAccessList.NonceChange::newNonce),
-              lastOf(accountChanges.codeChanges()).map(BlockAccessList.CodeChange::newCode),
+              lastOf(accountChanges.codeChanges()),
               storageFinalChanges));
     }
 
     return accountFinalChanges;
   }
 
+  /**
+   * The last change of each field of an account in a block.
+   *
+   * @param codeChange the last code change, whole: in the EIP-8298 hash form its code is empty and
+   *     only its hash names the new code
+   */
   public record AccountFinalChanges(
       Address address,
       Optional<Wei> balance,
       Optional<Long> nonce,
-      Optional<Bytes> code,
+      Optional<BlockAccessList.CodeChange> codeChange,
       List<StorageFinalChange> storageChanges) {
     public boolean hasAnyChange() {
-      return !balance.isEmpty() || !nonce.isEmpty() || !code.isEmpty() || !storageChanges.isEmpty();
+      return !balance.isEmpty()
+          || !nonce.isEmpty()
+          || !codeChange.isEmpty()
+          || !storageChanges.isEmpty();
     }
 
     public boolean isEmpty() {

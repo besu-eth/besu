@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,8 @@ class StateDiffApplierTest {
   private static final UInt256 S1 = UInt256.valueOf(1);
   private static final UInt256 S2 = UInt256.valueOf(2);
   private static final Bytes CODE = Bytes.fromHexString("0x6001600155");
+  private static final Bytes CODE_2 = Bytes.fromHexString("0x6002600255");
+  private static final Bytes CODE_3 = Bytes.fromHexString("0x6003600355");
 
   @ParameterizedTest
   @EnumSource(Format.class)
@@ -119,9 +122,14 @@ class StateDiffApplierTest {
                     List.of()))));
 
     final Map<Bytes32, Hash> previousRoots = new HashMap<>();
+    final List<Bytes32> codesToDownload = new ArrayList<>();
     final StateDiffApplier.Outcome outcome =
         StateDiffApplier.apply(
-            diff, storage, coverage, (account, root, slots) -> previousRoots.put(account, root));
+            diff,
+            storage,
+            coverage,
+            (account, root, slots) -> previousRoots.put(account, root),
+            codesToDownload::add);
 
     // A, B and N written, C outside the ranges, D emptied, S1 of B and N, B's storage stale
     assertThat(outcome).isEqualTo(new StateDiffApplier.Outcome(3, 1, 1, 2, 1));
@@ -136,8 +144,82 @@ class StateDiffApplierTest {
     assertThat(read(storage, N).getCodeHash()).isEqualTo(Hash.hash(CODE));
     assertThat(slots(storage, hash(N))).containsExactly(entry(s1, UInt256.valueOf(3)));
     assertThat(storage.hasCode(Bytes32.wrap(Hash.hash(CODE).getBytes()))).isTrue();
+    assertThat(codesToDownload).isEmpty();
     // the trie of a new account starts from the empty root
     assertThat(previousRoots).containsExactly(entry(hash(N), Hash.EMPTY_TRIE_HASH));
+  }
+
+  // EIP-8298: an account that adopts code through SETCODEFROM gets only the hash of the code
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void setsTheHashOfAnAdoptedCode(final Format format) {
+    final SyncStateStorage storage = SyncStorageFixture.create(format).sync();
+    final StateCoverage coverage = new StateCoverage();
+    final SyncStateStorage.Batch batch = storage.batch();
+    batch.putAccount(hash(B), account(1, 100, Hash.EMPTY));
+    batch.commit();
+    coverage.accounts().add(hash(A), hash(A));
+    coverage.accounts().add(hash(B), hash(B));
+
+    final StateDiff diff = new StateDiff();
+    diff.add(
+        new BlockAccessList(
+            List.of(
+                // with no nonce and no balance, only its code keeps A from being empty
+                changes(A, List.of(), List.of(), List.of(), List.of(adopted(2, CODE))),
+                changes(B, List.of(), List.of(), List.of(), List.of(adopted(2, CODE_2))),
+                // C, outside the ranges, wrote the code A adopts
+                changes(C, List.of(), List.of(), List.of(), List.of(new CodeChange(1, CODE))))));
+    final List<Bytes32> codesToDownload = new ArrayList<>();
+    final StateDiffApplier.Outcome outcome =
+        StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {}, codesToDownload::add);
+
+    assertThat(outcome).isEqualTo(new StateDiffApplier.Outcome(2, 1, 0, 0, 0));
+    assertThat(read(storage, A).getCodeHash()).isEqualTo(Hash.hash(CODE));
+    assertThat(storage.hasCode(codeKey(CODE))).isTrue();
+    // B adopted a code written before the blocks of the diff
+    assertThat(read(storage, B).getCodeHash()).isEqualTo(Hash.hash(CODE_2));
+    assertThat(codesToDownload).containsExactly(codeKey(CODE_2));
+  }
+
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void keepsTheLastCodeChangeOfEitherForm(final Format format) {
+    final SyncStateStorage storage = SyncStorageFixture.create(format).sync();
+    final StateCoverage coverage = new StateCoverage();
+    for (final Address covered : List.of(A, B, C, D)) {
+      coverage.accounts().add(hash(covered), hash(covered));
+    }
+
+    final StateDiff diff = new StateDiff();
+    diff.add(
+        new BlockAccessList(
+            List.of(
+                changes(A, List.of(), List.of(), List.of(), List.of(new CodeChange(1, CODE))),
+                changes(B, List.of(), List.of(), List.of(), List.of(adopted(2, CODE))),
+                changes(
+                    C,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(new CodeChange(1, CODE_2), new CodeChange(3, CODE_3))),
+                // adopts the code C holds in between, which C does not end the block with
+                changes(D, List.of(), List.of(), List.of(), List.of(adopted(2, CODE_2))))));
+    diff.add(
+        new BlockAccessList(
+            List.of(
+                changes(A, List.of(), List.of(), List.of(), List.of(adopted(1, CODE_3))),
+                changes(B, List.of(), List.of(), List.of(), List.of(new CodeChange(1, CODE_2))))));
+    final List<Bytes32> codesToDownload = new ArrayList<>();
+    StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {}, codesToDownload::add);
+
+    assertThat(read(storage, A).getCodeHash()).isEqualTo(Hash.hash(CODE_3));
+    assertThat(read(storage, B).getCodeHash()).isEqualTo(Hash.hash(CODE_2));
+    assertThat(read(storage, C).getCodeHash()).isEqualTo(Hash.hash(CODE_3));
+    assertThat(read(storage, D).getCodeHash()).isEqualTo(Hash.hash(CODE_2));
+    assertThat(storage.hasCode(codeKey(CODE_2))).isTrue();
+    assertThat(storage.hasCode(codeKey(CODE_3))).isTrue();
+    assertThat(codesToDownload).isEmpty();
   }
 
   @ParameterizedTest
@@ -171,7 +253,8 @@ class StateDiffApplierTest {
         (account, root, slots) -> {
           previousRoots.put(account, root);
           changedSlots.put(account, slots);
-        });
+        },
+        code -> {});
 
     // A's trie gets the changed slots, its root being unknown until then
     assertThat(read(storage, A).getStorageRoot()).isEqualTo(Accounts.UNKNOWN_STORAGE_ROOT);
@@ -235,7 +318,7 @@ class StateDiffApplierTest {
             List.of(
                 changes(
                     N, slots, List.of(new BalanceChange(1, Wei.of(1))), List.of(), List.of()))));
-    StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {});
+    StateDiffApplier.apply(diff, storage, coverage, (a, r, s) -> {}, code -> {});
   }
 
   private static PatriciaTrieAccountValue read(final SyncStateStorage storage, final Address a) {
@@ -259,6 +342,14 @@ class StateDiffApplierTest {
       final List<NonceChange> nonces,
       final List<CodeChange> codes) {
     return new AccountChanges(address, slots, List.of(), balances, nonces, codes);
+  }
+
+  private static CodeChange adopted(final long txIndex, final Bytes code) {
+    return CodeChange.adoptedCode(txIndex, Hash.hash(code));
+  }
+
+  private static Bytes32 codeKey(final Bytes code) {
+    return Bytes32.wrap(Hash.hash(code).getBytes());
   }
 
   private static SlotChanges slot(final UInt256 key, final long value) {

@@ -191,6 +191,50 @@ public final class TestWorld {
     return new BlockAccessList(sortedChanges);
   }
 
+  /**
+   * Applies a block in which each adopter takes the code of {@code source} through SETCODEFROM
+   * (EIP-8298), after which {@code source} gets {@code newSourceCode} unless it is empty, and
+   * returns its block access list. An adopter that does not exist gets only the code.
+   */
+  public BlockAccessList adoptCode(
+      final Address source, final List<Address> adopters, final Bytes newSourceCode) {
+    final Bytes code = accounts.get(source).code;
+    final List<AccountChanges> changes = new ArrayList<>();
+    for (final Address adopter : adopters) {
+      accounts.computeIfAbsent(adopter, unused -> new Account()).code = code;
+      changes.add(
+          new AccountChanges(
+              adopter,
+              List.of(),
+              List.of(),
+              List.of(),
+              List.of(),
+              List.of(CodeChange.adoptedCode(1, Hash.hash(code)))));
+    }
+    if (!newSourceCode.isEmpty()) {
+      accounts.get(source).code = newSourceCode;
+      changes.add(
+          new AccountChanges(
+              source,
+              List.of(),
+              List.of(),
+              List.of(),
+              List.of(),
+              List.of(new CodeChange(2, newSourceCode))));
+    }
+    changes.sort(Comparator.comparing(AccountChanges::address));
+    return new BlockAccessList(changes);
+  }
+
+  /** Returns the addresses of the accounts with code, sorted by account hash. */
+  public List<Address> contractsByHash() {
+    return accounts.entrySet().stream()
+        .filter(entry -> !entry.getValue().code.isEmpty())
+        .map(Map.Entry::getKey)
+        .sorted(Comparator.comparing(TestWorld::hash))
+        .toList();
+  }
+
   /** Applies a block that sets every slot to zero, and returns its block access list. */
   public BlockAccessList clearStorages() {
     final List<AccountChanges> changes = new ArrayList<>();
