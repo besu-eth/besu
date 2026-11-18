@@ -16,11 +16,15 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.jupiter.api.AfterEach;
@@ -33,7 +37,7 @@ class TrailingTrieNodeArchiverTest {
       new TrailingTrieNodeArchiver(
           chain.blockchain,
           chain.history,
-          chain.newStep(),
+          chain.newReplayArchiver(),
           () -> Math.min(chain.finalThrough, chain.persistedHead()),
           MoreExecutors.newDirectExecutorService());
 
@@ -114,6 +118,33 @@ class TrailingTrieNodeArchiverTest {
 
     assertThat(chain.lastArchived()).isEqualTo(1);
     chain.assertArchived(1);
+  }
+
+  @Test
+  void doesNotRearchiveABlockInlineCaptureWroteWhileReadingTheTarget() {
+    chain.persistGenesis();
+    chain.persistBusyBlock();
+    final TrieLogReplayArchiver replayArchiver = spy(chain.newReplayArchiver());
+    final AtomicBoolean raced = new AtomicBoolean();
+    final TrailingTrieNodeArchiver racing =
+        new TrailingTrieNodeArchiver(
+            chain.blockchain,
+            chain.history,
+            replayArchiver,
+            () -> {
+              // inline capture archives block 2 as the target is read
+              if (raced.compareAndSet(false, true)) {
+                chain.persistBusyBlock();
+              }
+              return chain.persistedHead();
+            },
+            MoreExecutors.newDirectExecutorService());
+
+    racing.archiveToTarget();
+
+    assertThat(chain.lastArchived()).isEqualTo(2);
+    verify(replayArchiver, never()).archive(any(), any());
+    racing.close();
   }
 
   @Test

@@ -27,7 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.Arch
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeWriter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrailingTrieNodeArchiver;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrieNodeArchiveStep;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrieLogReplayArchiver;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -179,8 +179,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   private TrailingTrieNodeArchiver startTrailingArchiver(
       final SegmentedKeyValueStorage liveStorage, final ArchiveTrieNodeWriter writer) {
-    final TrieNodeArchiveStep step =
-        new TrieNodeArchiveStep(
+    final TrieLogReplayArchiver replayArchiver =
+        new TrieLogReplayArchiver(
             liveStorage,
             archiveHistoryStore,
             writer,
@@ -192,7 +192,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         new TrailingTrieNodeArchiver(
             blockchain,
             archiveHistoryStore,
-            step,
+            replayArchiver,
             this::archiverTarget,
             Executors.newSingleThreadExecutor(daemonThreads("trie-archiver")));
     archiveHistoryStore

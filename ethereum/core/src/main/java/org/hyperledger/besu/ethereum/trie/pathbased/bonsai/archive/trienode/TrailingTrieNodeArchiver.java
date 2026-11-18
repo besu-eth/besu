@@ -17,10 +17,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrieNodeArchiveStep.UnarchivableBlockException;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrieLogReplayArchiver.UnarchivableBlockException;
 
 import java.io.Closeable;
-import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -33,16 +32,19 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Archives the blocks inline capture skipped, such as blocks that weren't final when imported, by
- * replaying their trie logs. It archives up to {@code target}, and inline capture takes over once
- * the archive reaches the persisted head.
+ * Archives trie nodes in the background, trailing the chain head. On each new chain head it walks
+ * from the last archived block up to {@code target}, archiving one block at a time with a {@link
+ * TrieLogReplayArchiver}.
+ *
+ * <p>A pass ends early if a reorg moves the chain, and the next pass picks up from the last
+ * archived block. If a block can't be archived, it stops until restart.
  */
 public final class TrailingTrieNodeArchiver implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(TrailingTrieNodeArchiver.class);
 
   private final Blockchain blockchain;
   private final ArchiveNodeHistoryStore historyStore;
-  private final TrieNodeArchiveStep step;
+  private final TrieLogReplayArchiver replayArchiver;
   private final LongSupplier target;
   private final ExecutorService executor;
   private final AtomicBoolean running = new AtomicBoolean();
@@ -57,12 +59,12 @@ public final class TrailingTrieNodeArchiver implements Closeable {
   public TrailingTrieNodeArchiver(
       final Blockchain blockchain,
       final ArchiveNodeHistoryStore historyStore,
-      final TrieNodeArchiveStep step,
+      final TrieLogReplayArchiver replayArchiver,
       final LongSupplier target,
       final ExecutorService executor) {
     this.blockchain = blockchain;
     this.historyStore = historyStore;
-    this.step = step;
+    this.replayArchiver = replayArchiver;
     this.target = target;
     this.executor = executor;
   }
@@ -88,7 +90,10 @@ public final class TrailingTrieNodeArchiver implements Closeable {
   }
 
   private boolean hasWork() {
-    return lastArchived().map(last -> target.getAsLong() > last).orElse(false);
+    return historyStore
+        .getArchivedBlock()
+        .map(last -> target.getAsLong() > last.number())
+        .orElse(false);
   }
 
   private void schedule() {
@@ -124,6 +129,9 @@ public final class TrailingTrieNodeArchiver implements Closeable {
 
   @VisibleForTesting
   void archiveToTarget() {
+    // Read the target first: inline capture has then settled every block up to it, so it never
+    // writes a block this pass archives.
+    final long to = target.getAsLong();
     final ArchivedBlock last = historyStore.getArchivedBlock().orElseThrow();
     BlockHeader parent =
         blockchain
@@ -136,17 +144,13 @@ public final class TrailingTrieNodeArchiver implements Closeable {
                             "archived block %d (%s) is no longer canonical, so proof history"
                                 + " needs a resync",
                             last.number(), last.hash())));
-    final long to = target.getAsLong();
     for (long number = last.number() + 1; number <= to && !closed; number++) {
       final BlockHeader block = blockchain.getBlockHeader(number).orElse(null);
       // a reorg moved the chain under us; the next pass rechecks the archived block
       if (block == null || !block.getParentHash().equals(parent.getBlockHash())) {
         return;
       }
-      if (!step.archive(parent, block)) {
-        // inline capture extended the archive first
-        return;
-      }
+      replayArchiver.archive(parent, block);
       parent = block;
     }
   }
@@ -154,10 +158,6 @@ public final class TrailingTrieNodeArchiver implements Closeable {
   private void halt(final String reason) {
     halted = true;
     LOG.error("Trie-node archiver stopped until restart: {}", reason);
-  }
-
-  private Optional<Long> lastArchived() {
-    return historyStore.getArchivedBlock().map(ArchivedBlock::number);
   }
 
   @Override
@@ -173,7 +173,7 @@ public final class TrailingTrieNodeArchiver implements Closeable {
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
     } finally {
-      step.close();
+      replayArchiver.close();
     }
   }
 }

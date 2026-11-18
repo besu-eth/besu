@@ -105,8 +105,8 @@ final class ArchiveChainFixture implements AutoCloseable {
     worldState = (BonsaiWorldState) provider.getWorldState();
   }
 
-  TrieNodeArchiveStep newStep() {
-    return new TrieNodeArchiveStep(
+  TrieLogReplayArchiver newReplayArchiver() {
+    return new TrieLogReplayArchiver(
         liveStorage,
         history,
         writer,
