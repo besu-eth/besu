@@ -167,6 +167,15 @@ class BlockchainTestSubCommandTest {
   }
 
   @Test
+  void deprecatedNoBlockAccessListStillWithholdsTheList() throws IOException {
+    final List<String> lines =
+        eventLines(
+            stderr("--json-array", "--bal-report", "--noblock-access-list", FIXTURE.toString()));
+    assertThat(lines).hasSize(1);
+    assertThat(MAPPER.readTree(lines.get(0)).get("reason").asText()).isEqualTo("withheld");
+  }
+
+  @Test
   void jsonArrayStdoutIsTheArrayAlone() throws IOException {
     final JsonNode stdout = MAPPER.readTree(run("--json-array", FIXTURE.toString()));
 

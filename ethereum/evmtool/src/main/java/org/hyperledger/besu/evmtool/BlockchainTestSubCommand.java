@@ -194,6 +194,19 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
               + " path, and the parallel block processor schedules optimistically. Off by default.")
   private boolean balWithhold = false;
 
+  @Option(
+      names = {"--noblock-access-list"},
+      hidden = true,
+      description = "Deprecated: use --bal-withhold.")
+  private boolean noBlockAccessList = false;
+
+  @Option(
+      names = {"--block-access-list"},
+      hidden = true,
+      description = "Deprecated: access lists are delivered by default.")
+  @SuppressWarnings("unused") // Accepted for compatibility; delivering the list is the default.
+  private boolean blockAccessList = false;
+
   private Optional<BalExecutionReporter> reporter = Optional.empty();
 
   @ParentCommand private final EvmToolCommand parentCommand;
@@ -254,6 +267,7 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       }
     }
 
+    balWithhold |= noBlockAccessList;
     boolean setupFailed = false;
     if (balReport) {
       reporter = Optional.of(new BalExecutionReporter(System.err));
