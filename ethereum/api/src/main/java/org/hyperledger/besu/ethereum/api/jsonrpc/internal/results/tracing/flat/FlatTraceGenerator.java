@@ -45,6 +45,7 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.Streams;
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 public class FlatTraceGenerator {
 
@@ -102,6 +103,7 @@ public class FlatTraceGenerator {
           .input(payload == null ? "0x" : payload.toHexString());
 
     } else {
+      firstFlatTraceBuilder.getActionBuilder().creationMethod("create");
       firstFlatTraceBuilder
           .type("create")
           .getResultBuilder()
@@ -146,6 +148,12 @@ public class FlatTraceGenerator {
               || "DELEGATECALL".equals(opcodeString)
               || "STATICCALL".equals(opcodeString);
       if (isCall) {
+
+        if (traceFrame.isPrecompile()) {
+          handlePrecompile(traceFrame, tracesContexts, flatTraces);
+          // Its halt/revert belongs to the child, including when its zero-value frame is omitted.
+          continue;
+        }
 
         currentContext =
             handleCall(
@@ -197,9 +205,7 @@ public class FlatTraceGenerator {
       }
 
       // A halted RETURN or REVERT, including a failed code deposit, ends only its own frame.
-      // A precompile's halt is recorded on the caller's CALL opcode, but the caller continues.
-      if (traceFrame.getExceptionalHaltReason().isPresent()
-          && !(isCall && traceFrame.isPrecompile())) {
+      if (traceFrame.getExceptionalHaltReason().isPresent()) {
         currentContext = handleHalt(flatTraces, tracesContexts, currentContext, traceFrame);
       }
 
@@ -227,23 +233,7 @@ public class FlatTraceGenerator {
       final Block block,
       final AtomicInteger traceCounter) {
     return generateFromTransactionTrace(
-        protocolSchedule, transactionTrace, block, traceCounter, true);
-  }
-
-  public static Stream<Trace> generateFromTransactionTrace(
-      final ProtocolSchedule protocolSchedule,
-      final TransactionTrace transactionTrace,
-      final Block block,
-      final AtomicInteger traceCounter,
-      final boolean includeCreationMethod) {
-    return generateFromTransactionTrace(
-        protocolSchedule,
-        transactionTrace,
-        block,
-        traceCounter,
-        includeCreationMethod
-            ? builder -> addContractCreationMethodToTrace(transactionTrace, builder)
-            : builder -> {});
+        protocolSchedule, transactionTrace, block, traceCounter, builder -> {});
   }
 
   /**
@@ -266,6 +256,50 @@ public class FlatTraceGenerator {
         new AtomicInteger(),
         builder ->
             addAdditionalTransactionInformationToFlatTrace(builder, transactionTrace, block));
+  }
+
+  private static void handlePrecompile(
+      final TraceFrame frame,
+      final Deque<FlatTrace.Context> contexts,
+      final List<FlatTrace.Builder> flatTraces) {
+    final Bytes[] stack = frame.getStack().orElseThrow();
+    final Wei value =
+        switch (frame.getOpcode()) {
+          case "CALL", "CALLCODE" -> Wei.of(UInt256.fromBytes(stack[stack.length - 3]));
+          case "DELEGATECALL" -> frame.getValue();
+          default -> Wei.ZERO;
+        };
+    // Parity omits only nested precompiles with zero transferred or apparent value.
+    if (value.isZero()) {
+      return;
+    }
+
+    final FlatTrace.Builder child =
+        FlatTrace.builder()
+            .traceAddress(calculateTraceAddress(contexts))
+            .actionBuilder(
+                Action.builder()
+                    .callType(frame.getOpcode().toLowerCase(Locale.ROOT))
+                    .from(frame.getRecipient().toHexString())
+                    .to(toAddress(stack[stack.length - 2]).toHexString())
+                    .value(Quantity.create(value))
+                    .gas("0x" + Long.toHexString(frame.getGasAvailableForChildCall().orElseThrow()))
+                    .input(frame.getPrecompileInputData().orElseThrow().toHexString()))
+            .resultBuilder(
+                Result.builder()
+                    .gasUsed("0x" + Long.toHexString(frame.getPrecompiledGasCost().orElseThrow()))
+                    .output(frame.getPrecompileOutputData().orElse(Bytes.EMPTY).toHexString()))
+            .error(frame.getExceptionalHaltReason().map(ExceptionalHaltReason::getDescription));
+    // A precompile that halts can also record a revert reason (the altbn128 contracts do); the
+    // halt names its error, so only a precompile that reverted without halting is Reverted.
+    if (frame.getExceptionalHaltReason().isEmpty()) {
+      frame
+          .getRevertReason()
+          .ifPresent(
+              reason -> child.error(Optional.of("Reverted")).revertReason(reason.toHexString()));
+    }
+    flatTraces.add(child);
+    contexts.peekLast().getBuilder().incSubTraces();
   }
 
   private static FlatTrace.Context handleCall(
@@ -453,6 +487,7 @@ public class FlatTraceGenerator {
     final Action.Builder subTraceActionBuilder =
         Action.builder()
             .from(smartContractAddress.orElse(callingAddress))
+            .creationMethod(traceFrame.getOpcode().toLowerCase(Locale.US))
             .gas("0x" + Long.toHexString(computeGas(traceFrame, nextTraceFrame)))
             .value(Quantity.create(nextTraceFrame.map(TraceFrame::getValue).orElse(Wei.ZERO)));
 
@@ -623,25 +658,5 @@ public class FlatTraceGenerator {
         .transactionPosition(
             block.getBody().getTransactions().indexOf(transactionTrace.getTransaction()))
         .transactionHash(transactionTrace.getTransaction().getHash().getBytes().toHexString());
-
-    addContractCreationMethodToTrace(transactionTrace, builder);
-  }
-
-  private static void addContractCreationMethodToTrace(
-      final TransactionTrace transactionTrace, final FlatTrace.Builder builder) {
-    // add creationMethod for create action
-    Optional.ofNullable(builder.getType())
-        .filter(type -> type.equals("create"))
-        .ifPresent(
-            __ ->
-                builder
-                    .getActionBuilder()
-                    .creationMethod(
-                        transactionTrace.getTraceFrames().stream()
-                            .filter(frame -> "CREATE2".equals(frame.getOpcode()))
-                            .findFirst()
-                            .map(TraceFrame::getOpcode)
-                            .orElse("CREATE")
-                            .toLowerCase(Locale.US)));
   }
 }
