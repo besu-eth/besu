@@ -117,21 +117,11 @@ class BesuControllerBuilderTest {
   }
 
   @Test
-  void snap2OrSnapKeepsSnap2AnHourAfterTheFork() {
+  void snap2OrSnapKeepsSnap2FromTheFork() {
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
 
-    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(4_600), dataDirectory))
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000), dataDirectory))
         .isSameAs(snap2);
-  }
-
-  @Test
-  void snap2OrSnapSyncsWithSnapInTheHourAfterTheFork() {
-    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
-
-    assertThat(
-            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(4_599), dataDirectory)
-                .getSyncMode())
-        .isEqualTo(SyncMode.SNAP);
   }
 
   @Test
