@@ -199,6 +199,14 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
               + " sequentially. Off by default.")
   private boolean balReport = false;
 
+  @Option(
+      names = {"--outcome-only"},
+      description =
+          "Judge each payload only on whether it was accepted or rejected as the fixture expects,"
+              + " without matching the error Besu returns to the fixture's expected exception. By"
+              + " default both are checked.")
+  private boolean outcomeOnly = false;
+
   private Optional<BalExecutionReporter> reporter = Optional.empty();
 
   @Option(
@@ -878,9 +886,9 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
             break;
           }
           // Strict exception matching (mirrors hive): the message Besu returns with INVALID must
-          // map to the fixture's expected exception. Not under --json-array, where the verdict
-          // only says whether a rejection was expected and the consumer maps Besu's error.
-          if (!jsonArray && payload.getValidationError() != null) {
+          // map to the fixture's expected exception. Not under --outcome-only, where the verdict
+          // only says whether a rejection was expected.
+          if (!outcomeOnly && payload.getValidationError() != null) {
             final String mismatch =
                 EngineTestExceptionMapper.mismatch(payload.getValidationError(), status.getError());
             if (mismatch != null) {
