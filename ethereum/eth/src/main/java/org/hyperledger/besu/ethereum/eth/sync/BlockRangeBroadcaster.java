@@ -81,9 +81,10 @@ public class BlockRangeBroadcaster {
         message.getPeer().registerBlockRange(blockHash, latestBlockNumber, earliestBlockNumber);
       } else {
         LOG.trace(
-            "Invalid block range update message received: earliest={}, latest={}",
+            "Invalid block range update message received: earliest={}, latest={}, hash={}",
             earliestBlockNumber,
-            latestBlockNumber);
+            latestBlockNumber,
+            blockHash);
         handleInvalidMessage(
             message, DisconnectMessage.DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_BLOCK_RANGE);
       }
@@ -105,7 +106,7 @@ public class BlockRangeBroadcaster {
   }
 
   private boolean isValid(final BlockRangeUpdateMessage message) {
-    return message.getLatestBlockNumber() >= message.getEarliestBlockNumber();
+    return message.getBlockRange().isValidWith(message.getBlockHash());
   }
 
   /**
