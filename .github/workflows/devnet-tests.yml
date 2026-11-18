@@ -35,6 +35,10 @@ jobs:
             fixtures: fixtures/blockchain_tests_engine/
           - task: consumeRlpTestsStable
             fixtures: fixtures/blockchain_tests/
+          - task: consumeEngineTestsStableSequential
+            fixtures: fixtures/blockchain_tests_engine/
+          - task: consumeRlpTestsStableSequential
+            fixtures: fixtures/blockchain_tests/
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
