@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.get
 
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.TrieNodeHealingRequest;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.services.pipeline.Pipe;
 import org.hyperledger.besu.services.tasks.Task;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -71,8 +73,16 @@ public class LoadLocalDataStep {
       if (snapSyncState.hasPivotBlockHeader()) {
         Optional<Bytes> existingData = request.getExistingData(worldStateStorageCoordinator);
         if (existingData.isPresent()) {
-          existingNodeCounter.inc();
           request.setData(existingData.get());
+          final Optional<List<SnapDataRequest>> rootStorageRequests =
+              loadRootStorageRequests(request);
+          if (rootStorageRequests.isEmpty()) {
+            // a node below this one is missing, so this node is downloaded like an absent one and
+            // healing then walks down to the gap
+            request.clear();
+            return Stream.of(task);
+          }
+          existingNodeCounter.inc();
           request.setRequiresPersisting(false);
           final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
           request.persist(
@@ -82,8 +92,7 @@ public class LoadLocalDataStep {
               snapSyncState,
               snapSyncConfiguration);
           updater.commit();
-          downloadState.enqueueRequests(
-              request.getRootStorageRequests(worldStateStorageCoordinator));
+          downloadState.enqueueRequests(rootStorageRequests.get().stream());
           completedTasks.put(task);
           return Stream.empty();
         }
@@ -104,5 +113,20 @@ public class LoadLocalDataStep {
       }
     }
     return Stream.of(task);
+  }
+
+  private Optional<List<SnapDataRequest>> loadRootStorageRequests(
+      final TrieNodeHealingRequest request) {
+    try {
+      return Optional.of(request.getRootStorageRequests(worldStateStorageCoordinator).toList());
+    } catch (final MerkleTrieException e) {
+      LOG.atDebug()
+          .setMessage("Stored trie node {} at {} is missing a descendant, downloading it again")
+          .addArgument(request::getNodeHash)
+          .addArgument(request::getLocation)
+          .setCause(e)
+          .log();
+      return Optional.empty();
+    }
   }
 }
