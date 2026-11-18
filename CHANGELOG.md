@@ -30,7 +30,6 @@
 - JSON-RPC methods will reject a malformed address parameter with `Invalid params` (`-32602`). An address must be `0x` or `0X` followed by exactly 40 hex digits (20 bytes). Today a shorter value is left-padded with zeros, so a call can read or act on a different account than intended. This also applies to the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. Clients that send short or unprefixed addresses will need to send the full 20-byte address. [#11888](https://github.com/besu-eth/besu/pull/11888)
 
 ### Bug fixes
-- Besu now starts with `-XX:-UseBASE64Intrinsics` to mitigate [CVE-2026-114938](https://www.aikido.dev/blog/java-17-rce-vulnerability-cve-2026-114938), a heap overflow in the JVM's Base64 decoder on x86-64 CPUs with AVX-512. Set `BESU_OPTS=-XX:+UseBASE64Intrinsics` to turn the intrinsic back on. [#11994](https://github.com/besu-eth/besu/pull/11994)
 - An eth/69 peer is disconnected when its Status message has an earliest block above its latest block or a zero best hash, or when a `BlockRangeUpdate` has a zero block hash. These values were previously accepted. [#11987](https://github.com/besu-eth/besu/pull/11987)
 - `evmtool t8n` and `b11r` report a missing, `null` or empty required input (`alloc` or `env` for `t8n`, `header` for `b11r`) as a usage error naming the `--input` option, instead of failing with a `NullPointerException`. `b11r` also accepts an empty stdin when the header comes from a file. [#11938](https://github.com/besu-eth/besu/pull/11938)
 - OpenTelemetry counters and timers with the same name in different categories no longer share an instrument or inherit a disabled category's no-op metric. JSON-RPC `request_time` timings now use the `rpc` scope and `methodName` attribute. If the peer timer was registered first, these timings previously used the `peers` scope and `taskName` attribute. OpenTelemetry dashboards that query the old series should update their queries. Besu's native Prometheus metrics are unchanged. [#11829](https://github.com/besu-eth/besu/issues/11829)
@@ -93,6 +92,11 @@
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
 - Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
 
+## 26.11.1
+
+### Bug fixes
+- Besu now starts with `-XX:-UseBASE64Intrinsics` to mitigate [CVE-2026-114938](https://www.aikido.dev/blog/java-17-rce-vulnerability-cve-2026-114938), a heap overflow in the JVM's Base64 decoder on x86-64 CPUs with AVX-512. Set `BESU_OPTS=-XX:+UseBASE64Intrinsics` to turn the intrinsic back on. [#11995](https://github.com/besu-eth/besu/pull/11995)
+
 ## 26.11.0
 
 ### Breaking Changes
@@ -141,6 +145,10 @@
 - `eth_getLogs` range-limit errors (`-32005`) now return `--rpc-max-logs-range` as `data`; the message is unchanged. [#11628](https://github.com/besu-eth/besu/pull/11628)
 
 ## 26.10.2
+
+### Security Fixes
+- [GHSA-hhgq-3gvc-4jhp](https://github.com/besu-eth/besu/security/advisories/GHSA-hhgq-3gvc-4jhp): QBFT RoundChange executes the piggybacked block before the free hash check, letting a non-validator replay one captured signature with substituted blocks
+- [GHSA-6pcq-hcgg-5q76](https://github.com/besu-eth/besu/security/advisories/GHSA-6pcq-hcgg-5q76): IBFT Accepts Oversized Base Fees that can stop block production
 
 ### Breaking Changes
 - `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
@@ -206,10 +214,8 @@ This release is identical to 26.10.0 but will not activate Glamsterdam on Hoodi 
 
 ## 26.10.0
 
-This release contains security fixes. Operators are advised to upgrade promptly.
-Details will be published in security advisories on
-https://github.com/besu-eth/besu/security/advisories after operators have had an
-opportunity to upgrade.
+### Security Fixes
+- [GHSA-x2jm-6mc4-8g78](https://github.com/besu-eth/besu/security/advisories/GHSA-x2jm-6mc4-8g78): QBFT/IBFT validator forgets its prepared certificate when the round advances by any route other than its own timer, weakening the quorum-intersection argument 
 
 ### Breaking Changes
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` has been removed; it was deprecated as a no-op since 26.6.1. [#11499](https://github.com/besu-eth/besu/pull/11499)
