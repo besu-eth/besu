@@ -944,10 +944,10 @@ public class MessageFrame {
 
   private void setUpdatedMemory(
       final long offset, final long sourceOffset, final long length, final Bytes value) {
-    final long endIndex = sourceOffset + length;
-    if (sourceOffset >= 0 && endIndex > 0) {
+    if (sourceOffset >= 0 && length > 0) {
       final int srcSize = value.size();
-      if (endIndex > srcSize) {
+      // sourceOffset + length can overflow, as the source offset is clamped to Long.MAX_VALUE
+      if (sourceOffset >= srcSize || length > srcSize - sourceOffset) {
         final MutableBytes paddedAnswer = MutableBytes.create((int) length);
         if (sourceOffset < srcSize) {
           value.slice((int) sourceOffset, (int) (srcSize - sourceOffset)).copyTo(paddedAnswer, 0);

@@ -15,140 +15,223 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
-import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 
-import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.NodeLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeStrategy;
+import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.util.log.LogUtil;
 
 import java.io.Closeable;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BooleanSupplier;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
+import java.util.function.LongPredicate;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * A {@link TrieNodeStrategy} that archives every trie-node write into {@code
- * TRIE_BRANCH_STORAGE_ARCHIVE} so historical {@code eth_getProof} requests don't need trie-log
- * replay.
+ * A {@link TrieNodeStrategy} that archives trie-node writes into {@code
+ * TRIE_BRANCH_STORAGE_ARCHIVE} for historical {@code eth_getProof}.
  *
- * <p>Each put delegates to {@code base} (live trie) first, then — if the archive gate is open —
- * reads the prior node value from storage (where it is typically hot in the top few in-memory
- * layers) and calls {@link ArchiveTrieNodeWriter#capture} to queue an async history-entry write.
- * Workers compute the history entry ({@link ArchiveNodeHistoryStore#getLatestBefore} + encode
- * FULL/DIFF) off the import thread. Results are joined and applied to the transaction in {@link
- * #onBeforeCommit}, which runs immediately before commit.
+ * <p>A block is captured only when it is final, persisted in one step from its parent, and directly
+ * follows the last archived block.
  *
- * <p>Reading the prior node on the calling thread — rather than inside a worker — avoids disk I/O
- * in the common case (the prior value is hot in the in-memory layered chain) and eliminates any
- * need for worker threads to access the layered storage. An archiving gap — gate closed then
- * reopened, or a restart — forces the next block to write FULL, since the newest archive entry no
- * longer matches the live trie.
+ * <p>Each put takes the prior node from the nodes the block's state-root computation loaded and
+ * queues the history entry for async encoding; {@link #onBeforeCommit} writes the entries into the
+ * block's transaction.
  */
-public class ArchiveTrieNodeStrategy
-    implements TrieNodeStrategy, Synchronizer.InSyncListener, Closeable {
+public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ArchiveTrieNodeStrategy.class);
+  private static final int SKIPPED_BLOCK_LOG_INTERVAL_SECONDS = 60;
+  // Well above a large block's loads; a load past it is only written FULL.
+  static final int MAX_LOADED_NODES = 1_000_000;
 
   private final TrieNodeStrategy base;
   private final ArchiveTrieNodeWriter trieNodeWriter;
+  private final ArchiveNodeHistoryStore historyStore;
+  private final SegmentedKeyValueStorage captureStorage;
+  private final LongPredicate isFinal;
+  private final int maxLoadedNodes;
+  private final AtomicBoolean shouldLogSkippedBlock = new AtomicBoolean(true);
 
-  // Starts true (archive everything) until the first in-sync event. Safe default for initial sync
-  // and no-peers startup
-  private final AtomicBoolean archiving = new AtomicBoolean(true);
+  // Nodes read from one state, by key. They're the same whichever storage they were read from.
+  // Empty when the next block can't be captured, so there's nothing to collect.
+  private record LoadedNodes(Hash root, Optional<Map<Bytes, Bytes>> nodes) {}
 
-  // True when an external chain estimate exists (e.g. a peer or CL that knows the chain head)
-  private volatile BooleanSupplier hasChainEstimate;
+  private static final LoadedNodes NO_LOADED_NODES = new LoadedNodes(Hash.ZERO, Optional.empty());
 
-  // Block number is constant within a transaction; cache it to avoid a storage read per node write.
-  private final Cache<SegmentedKeyValueStorageTransaction, Long> txBlockNumberCache =
+  private final AtomicReference<LoadedNodes> loadedNodes = new AtomicReference<>(NO_LOADED_NODES);
+
+  // Transactions persisting a captured block, mapped to the nodes that block replaces.
+  private final Cache<SegmentedKeyValueStorageTransaction, Map<Bytes, Bytes>> capturedBlocks =
       Caffeine.newBuilder().weakKeys().build();
-
-  /**
-   * Builds an archiving strategy over {@code liveStorage}, owning a worker pool for async
-   * history-entry computation.
-   *
-   * @param liveStorage the live world-state storage to archive writes from
-   * @param trieCapturePool the worker pool, owned and shut down by the returned strategy
-   * @param shallowCheckpointInterval FULL-checkpoint interval for shallow nodes
-   * @param deepCheckpointInterval FULL-checkpoint interval for deep nodes
-   * @return an archiving {@link TrieNodeStrategy} ready to install via {@code setTrieNodeStrategy}
-   */
-  public static ArchiveTrieNodeStrategy createArchiveStrategy(
-      final SegmentedKeyValueStorage liveStorage,
-      final ExecutorService trieCapturePool,
-      final int shallowCheckpointInterval,
-      final int deepCheckpointInterval) {
-    return new ArchiveTrieNodeStrategy(
-        new BonsaiTrieNodeStrategy(),
-        new ArchiveTrieNodeWriter(
-            new ArchiveNodeHistoryStore(liveStorage),
-            new ArchiveCoverageTracker(liveStorage),
-            trieCapturePool,
-            shallowCheckpointInterval,
-            deepCheckpointInterval),
-        () -> false);
-  }
-
-  /**
-   * Supplies whether an external chain estimate exists. Must be set before the in-sync subscription
-   * is registered, since it is consulted from {@link #onInSyncStatusChange(boolean)}.
-   */
-  public void setHasChainEstimate(final BooleanSupplier hasChainEstimate) {
-    this.hasChainEstimate =
-        Objects.requireNonNull(hasChainEstimate, "hasChainEstimate must not be null");
-  }
 
   /**
    * @param base the delegate strategy for the live trie
    * @param trieNodeWriter the writer that persists archived history entries
-   * @param hasChainEstimate supplies whether an external chain estimate exists (see field)
+   * @param historyStore the archive store whose recorded progress captured blocks must extend
+   * @param captureStorage the storage whose block persists are archived
+   * @param isFinal whether a block is final, and so safe to capture
    */
-  @VisibleForTesting
   public ArchiveTrieNodeStrategy(
       final TrieNodeStrategy base,
       final ArchiveTrieNodeWriter trieNodeWriter,
-      final BooleanSupplier hasChainEstimate) {
-    this.base = Objects.requireNonNull(base);
-    this.trieNodeWriter = Objects.requireNonNull(trieNodeWriter);
-    this.hasChainEstimate =
-        Objects.requireNonNull(hasChainEstimate, "hasChainEstimate must not be null");
-  }
-
-  @Override
-  public void onInSyncStatusChange(final boolean inSync) {
-    // A peer-less node reports "in sync" forever, so only trust a corroborated in-sync signal.
-    archiving.set(!inSync || !hasChainEstimate.getAsBoolean());
+      final ArchiveNodeHistoryStore historyStore,
+      final SegmentedKeyValueStorage captureStorage,
+      final LongPredicate isFinal) {
+    this(base, trieNodeWriter, historyStore, captureStorage, isFinal, MAX_LOADED_NODES);
   }
 
   @VisibleForTesting
-  void setArchiving(final boolean archive) {
-    this.archiving.set(archive);
+  ArchiveTrieNodeStrategy(
+      final TrieNodeStrategy base,
+      final ArchiveTrieNodeWriter trieNodeWriter,
+      final ArchiveNodeHistoryStore historyStore,
+      final SegmentedKeyValueStorage captureStorage,
+      final LongPredicate isFinal,
+      final int maxLoadedNodes) {
+    this.base = Objects.requireNonNull(base);
+    this.trieNodeWriter = Objects.requireNonNull(trieNodeWriter);
+    this.historyStore = Objects.requireNonNull(historyStore);
+    this.captureStorage = Objects.requireNonNull(captureStorage);
+    this.isFinal = Objects.requireNonNull(isFinal);
+    this.maxLoadedNodes = maxLoadedNodes;
   }
 
-  private static long readBlockNumber(final SegmentedKeyValueStorage storage) {
-    return storage
-        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
-        .map(b -> Bytes.wrap(b).toLong() + 1L)
-        .orElse(0L);
+  @Override
+  public NodeLoader wrapNodeLoader(
+      final Hash stateRoot, final NodeLoader loader, final Function<Bytes, Bytes> keyOf) {
+    final Optional<Map<Bytes, Bytes>> maybeLoaded = loadedNodesFor(stateRoot);
+    if (maybeLoaded.isEmpty()) {
+      return loader;
+    }
+    final Map<Bytes, Bytes> loaded = maybeLoaded.get();
+    return (location, hash) -> {
+      final Optional<Bytes> node = loader.getNode(location, hash);
+      // the empty trie node is never stored, so it is never a prior
+      if (!hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH) && loaded.size() < maxLoadedNodes) {
+        node.ifPresent(n -> loaded.put(keyOf.apply(location), n));
+      }
+      return node;
+    };
   }
 
-  private boolean shouldCaptureBlock(final long block) {
-    return block == 0L || archiving.get();
+  // Only nodes from the current head are useful, and only if the next block can be captured.
+  // Decided once per state; check memory before disk.
+  private Optional<Map<Bytes, Bytes>> loadedNodesFor(final Hash stateRoot) {
+    final LoadedNodes current = loadedNodes.get();
+    if (current.root().equals(stateRoot)) {
+      return current.nodes();
+    }
+    if (!isPersistedRoot(stateRoot)) {
+      return Optional.empty();
+    }
+    final Optional<Map<Bytes, Bytes>> nodes =
+        coverageEndsAtPersistedBlock() ? Optional.of(new ConcurrentHashMap<>()) : Optional.empty();
+    return loadedNodes
+        .updateAndGet(c -> c.root().equals(stateRoot) ? c : new LoadedNodes(stateRoot, nodes))
+        .nodes();
   }
 
-  // Bonsai re-commits unchanged nodes along a touched path; skip archiving them to avoid
-  // inflating the diff-chain counter. Creations (prior == null) are never no-ops.
-  private boolean isNoOpRewrite(final Bytes prior, final Bytes node) {
-    return prior != null && prior.equals(node);
+  // The next block can only extend coverage if coverage ends at the persisted state.
+  private boolean coverageEndsAtPersistedBlock() {
+    final Optional<Bytes> archived =
+        historyStore.getArchivedBlock().map(last -> last.hash().getBytes());
+    return archived.isPresent() && archived.equals(persistedBlockHash());
+  }
+
+  private Optional<Bytes> persistedBlockHash() {
+    return captureStorage.get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_HASH_KEY).map(Bytes::wrap);
+  }
+
+  private boolean isPersistedRoot(final Hash stateRoot) {
+    return captureStorage
+        .get(TRIE_BRANCH_STORAGE, WORLD_ROOT_HASH_KEY)
+        .filter(root -> stateRoot.equals(Hash.wrap(Bytes32.wrap(root))))
+        .isPresent();
+  }
+
+  // Loads are priors only if their root is the state this block replaces; genesis has none.
+  private Map<Bytes, Bytes> priorNodes() {
+    final LoadedNodes loaded = loadedNodes.get();
+    return isPersistedRoot(loaded.root()) ? loaded.nodes().orElse(Map.of()) : Map.of();
+  }
+
+  @Override
+  public void onBlockPersist(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final BlockHeader blockHeader) {
+    if (storage != captureStorage || !isSingleBlockPersist(blockHeader)) {
+      return;
+    }
+    final long block = blockHeader.getNumber();
+    final Optional<ArchivedBlock> last = historyStore.getArchivedBlock();
+    final boolean extendsCoverage = extendsCoverage(blockHeader, last);
+    if (!isFinal.test(block)) {
+      // logs once, for the block right after coverage
+      if (extendsCoverage) {
+        LOG.info(
+            "Stopped capturing trie nodes: block {} ({}) is not final yet, so proof history ends at"
+                + " block {}",
+            block,
+            blockHeader.getBlockHash(),
+            block - 1);
+      }
+      return;
+    }
+    if (!extendsCoverage) {
+      last.filter(l -> block > l.number()).ifPresent(l -> logSkippedBlock(blockHeader, l));
+      return;
+    }
+    trieNodeWriter.beginBlock(transaction, blockHeader);
+    capturedBlocks.put(transaction, priorNodes());
+  }
+
+  private boolean isSingleBlockPersist(final BlockHeader blockHeader) {
+    final Optional<Bytes> persisted = persistedBlockHash();
+    return blockHeader.getNumber() == 0L
+        ? persisted.isEmpty()
+        : persisted.isPresent() && persisted.get().equals(blockHeader.getParentHash().getBytes());
+  }
+
+  private boolean extendsCoverage(
+      final BlockHeader blockHeader, final Optional<ArchivedBlock> last) {
+    return last.map(l -> l.hash().equals(blockHeader.getParentHash()))
+        .orElse(blockHeader.getNumber() == 0L);
+  }
+
+  private void logSkippedBlock(final BlockHeader blockHeader, final ArchivedBlock last) {
+    LogUtil.throttledLog(
+        () ->
+            LOG.warn(
+                "Not capturing trie nodes for block {} ({}): "
+                    + "it does not extend archived block {} ({})",
+                blockHeader.getNumber(),
+                blockHeader.getBlockHash(),
+                last.number(),
+                last.hash()),
+        shouldLogSkippedBlock,
+        SKIPPED_BLOCK_LOG_INTERVAL_SECONDS);
   }
 
   @Override
@@ -164,15 +247,18 @@ public class ArchiveTrieNodeStrategy
       final Bytes key,
       final Bytes32 nodeHash,
       final Bytes node) {
-    final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
     base.putTrieNode(storage, transaction, key, nodeHash, node);
-    if (shouldCaptureBlock(block)) {
-      final Bytes prior = readPriorNode(storage, key, block);
-      if (isNoOpRewrite(prior, node)) {
-        return;
-      }
-      capture(key, block, node, prior, transaction);
+    final Map<Bytes, Bytes> priorNodes = capturedBlocks.getIfPresent(transaction);
+    if (priorNodes == null) {
+      return;
     }
+    // A node whose prior wasn't loaded is written FULL.
+    final Bytes prior = priorNodes.get(key);
+    // Skip Bonsai's unchanged re-commits.
+    if (node.equals(prior)) {
+      return;
+    }
+    capture(key, node, prior, transaction);
   }
 
   @Override
@@ -180,45 +266,48 @@ public class ArchiveTrieNodeStrategy
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes key) {
-    final long block = txBlockNumberCache.get(transaction, ignored -> readBlockNumber(storage));
     base.removeTrieNode(storage, transaction, key);
-    if (shouldCaptureBlock(block)) {
-      final Bytes prior = readPriorNode(storage, key, block);
-      // Removing a node that doesn't exist is a no-op for the archive.
-      if (prior != null) {
-        capture(key, block, null, prior, transaction);
-      }
+    final Map<Bytes, Bytes> priorNodes = capturedBlocks.getIfPresent(transaction);
+    if (priorNodes == null) {
+      return;
     }
-  }
-
-  // Genesis (block 0) has no prior node by definition.
-  private Bytes readPriorNode(
-      final SegmentedKeyValueStorage storage, final Bytes key, final long block) {
-    return block == 0L ? null : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
+    // Falls back to storage to tell whether the node existed.
+    final Bytes loaded = priorNodes.get(key);
+    final Bytes prior =
+        loaded != null ? loaded : base.getTrieNode(storage, key, Bytes32.ZERO).orElse(null);
+    // Nothing to archive if the node didn't exist.
+    if (prior != null) {
+      capture(key, null, prior, transaction);
+    }
   }
 
   private void capture(
       final Bytes key,
-      final long block,
       final Bytes node,
       final Bytes prior,
       final SegmentedKeyValueStorageTransaction transaction) {
     trieNodeWriter.capture(
-        ArchiveNodeKey.of(key), TrieNodeKey.location(key), block, node, prior, transaction);
+        ArchiveNodeKey.of(key), TrieNodeKey.location(key), node, prior, transaction);
   }
 
   @Override
   public void onBeforeCommit(
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction) {
-    txBlockNumberCache.invalidate(transaction);
-    trieNodeWriter.onBeforeCommit(transaction);
+    if (storage == captureStorage) {
+      // the next block's tries load again, so don't hold this block's nodes past its commit
+      loadedNodes.set(NO_LOADED_NODES);
+    }
+    if (capturedBlocks.asMap().remove(transaction) != null) {
+      trieNodeWriter.onBeforeCommit(transaction);
+    }
   }
 
   @Override
   public void onRollback(final SegmentedKeyValueStorageTransaction transaction) {
-    txBlockNumberCache.invalidate(transaction);
-    trieNodeWriter.onRollback(transaction);
+    if (capturedBlocks.asMap().remove(transaction) != null) {
+      trieNodeWriter.onRollback(transaction);
+    }
   }
 
   @Override

@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
@@ -47,6 +49,26 @@ class ArchiveNodeHistoryStoreTest {
         ArchiveNodeKey.historyKey(naturalKey, block),
         ArchiveNodeHistoryStore.encodeStoredValue(counter, codecEntry));
     tx.commit();
+  }
+
+  @Test
+  void noArchiveProgressByDefault() {
+    assertThat(store.getArchivedBlock()).isEmpty();
+  }
+
+  @Test
+  void archiveProgressReadsBackLastSavedBlock() {
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    store.saveArchiveProgress(tx, new ArchivedBlock(7L, Hash.hash(Bytes.of(7))));
+    assertThat(store.getArchivedBlock()).as("uncommitted").isEmpty();
+    tx.commit();
+
+    final Hash hash = Hash.hash(Bytes.of(8));
+    final SegmentedKeyValueStorageTransaction next = storage.startTransaction();
+    store.saveArchiveProgress(next, new ArchivedBlock(8L, hash));
+    next.commit();
+
+    assertThat(store.getArchivedBlock()).contains(new ArchivedBlock(8L, hash));
   }
 
   @Test
