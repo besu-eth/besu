@@ -248,8 +248,7 @@ tasks.register("dockerDistUntar") {
   def distTarFileName = distTar.outputs.files.singleFile.name.replace(".tar", "")
 
   doFirst {
-    // Start from an empty directory. File.renameTo fails when besu-evmtool already exists, which
-    // left the image built from the first distribution ever unpacked here.
+    // Start from an empty directory, so the rename below doesn't collide with an existing besu-evmtool
     project.delete(dockerBuildDir)
     new File(dockerBuildDir).mkdirs()
     copy {
