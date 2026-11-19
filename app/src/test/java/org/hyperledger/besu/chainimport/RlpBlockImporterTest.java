@@ -16,6 +16,7 @@ package org.hyperledger.besu.chainimport;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
@@ -179,6 +180,9 @@ public final class RlpBlockImporterTest {
     rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
     assertThat(blockchain.contains(POS_B4)).isTrue();
     assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+    assertThat(blockchain.getFinalized()).contains(POS_A1);
+    // The head world state is left at B4, not A3: MainnetBlockImporter moves it to every imported
+    // block, including one that stays a side block (#11903)
   }
 
   /**
@@ -195,6 +199,7 @@ public final class RlpBlockImporterTest {
     rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
     assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_B4);
     assertThat(blockchain.getSafeBlock()).contains(POS_GENESIS);
+    assertThat(blockchain.getFinalized()).isEmpty();
   }
 
   /**
@@ -220,6 +225,40 @@ public final class RlpBlockImporterTest {
     assertThat(head.getHash()).isEqualTo(POS_B4);
     assertThat(controller.getProtocolContext().getWorldStateArchive().getWorldState().rootHash())
         .isEqualTo(head.getStateRoot());
+  }
+
+  /**
+   * Retrying a stored side block that still does not descend from the finalized block fails the
+   * import, rather than reporting success with the head elsewhere.
+   */
+  @Test
+  public void posStoredSideBlockBelowFinalizedFailsOnRetry() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    blockchain.setFinalized(POS_A1);
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+
+    final Path chainB = resourceFile("pos-side-chain-b.blocks");
+    assertThatThrownBy(() -> rlpBlockImporter.importBlockchain(chainB, controller, true))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Block 4 is stored as a side block");
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+  }
+
+  /** Importing canonical blocks behind the head again leaves the head where it is. */
+  @Test
+  public void posReimportOfCanonicalBlocksBehindHeadKeepsChainHead() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    final Path chainA = resourceFile("pos-side-chain-a.blocks");
+    rlpBlockImporter.importBlockchain(chainA, controller, true);
+
+    // blocks 1 and 2 only
+    final RlpBlockImporter.ImportResult result =
+        rlpBlockImporter.importBlockchain(chainA, controller, true, 0, 3);
+    assertThat(result.count).isZero();
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
   }
 
   private BesuController posSideChainController() throws IOException {

@@ -211,6 +211,9 @@ public class BlockchainReferenceTestTools {
                                             .build());
                             // After the merge only a fork choice update moves the chain head. Make
                             // a valid block on a side chain the head, as the consensus client would.
+                            // This applies the rule, not besu blocks import's implementation of it
+                            // (no fork choice update, finalized or safe block handling; the fixtures
+                            // set neither), which RlpBlockImporterTest and PosHeadUpdaterTest cover.
                             if (protocolSpec.isPoS()
                                     && !blockchain.getChainHeadHash().equals(block.getHash())) {
                                 blockchain.rewindToBlock(block.getHash());

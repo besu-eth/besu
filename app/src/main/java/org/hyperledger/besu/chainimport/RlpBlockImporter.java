@@ -17,9 +17,7 @@ package org.hyperledger.besu.chainimport;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.controller.BesuController;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -40,9 +38,7 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -200,8 +196,13 @@ public class RlpBlockImporter implements Closeable {
       if (lastStoredHeader != null
           && posHead.isPresent()
           && protocolSchedule.getByBlockHeader(lastStoredHeader).isPoS()
-          && !isCanonical(blockchain, lastStoredHeader)) {
-        posHead.get().makeHead(lastStoredHeader);
+          && !isCanonical(blockchain, lastStoredHeader)
+          && !posHead.get().makeHead(lastStoredHeader)) {
+        throw new IllegalStateException(
+            "Block "
+                + lastStoredHeader.getNumber()
+                + " is stored as a side block and does not descend from the finalized block, so it"
+                + " cannot be made the chain head");
       }
       logProgress(blockchain.getChainHeadBlockNumber());
       return new RlpBlockImporter.ImportResult(
@@ -289,82 +290,6 @@ public class RlpBlockImporter implements Closeable {
         .getBlockHashByNumber(header.getNumber())
         .map(header.getHash()::equals)
         .orElse(false);
-  }
-
-  /**
-   * Makes an imported proof-of-stake block the chain head with a fork choice update, as the
-   * consensus client would. Used from one thread at a time.
-   */
-  private static final class PosHeadUpdater {
-    private final MutableBlockchain blockchain;
-    private final MergeMiningCoordinator coordinator;
-
-    /**
-     * By ancestor hash, the last block checked against it. A side chain is imported parent first,
-     * so a check is answered from the parent's result instead of walking back to the ancestor for
-     * every block, which would be quadratic in the length of the side chain.
-     */
-    private final Map<Hash, AncestryCheck> lastChecks = new HashMap<>();
-
-    private record AncestryCheck(Hash block, boolean descends) {}
-
-    private PosHeadUpdater(
-        final MutableBlockchain blockchain, final MergeMiningCoordinator coordinator) {
-      this.blockchain = blockchain;
-      this.coordinator = coordinator;
-    }
-
-    /**
-     * Makes the block the chain head, unless it does not descend from the finalized block: it then
-     * stays a side block, as the Engine API would not make it the head either.
-     */
-    void makeHead(final BlockHeader header) {
-      if (!descendsFrom(blockchain.getFinalized(), header)) {
-        return;
-      }
-      final ForkchoiceResult result =
-          coordinator.updateForkChoice(header, Hash.ZERO, safeBlockFor(header));
-      if (result.getStatus() != ForkchoiceResult.Status.VALID) {
-        throw new IllegalStateException(
-            "Unable to make block "
-                + header.getNumber()
-                + " the chain head: "
-                + result.getErrorMessage().orElse(result.getStatus().name()));
-      }
-    }
-
-    /**
-     * The fork choice update leaves the safe block as it is when given {@link Hash#ZERO}. When the
-     * new head does not descend from it, move it back to the finalized block, or to genesis, so
-     * that it stays on the canonical chain.
-     */
-    private Hash safeBlockFor(final BlockHeader newHead) {
-      return blockchain
-          .getSafeBlock()
-          .filter(safe -> !descendsFrom(Optional.of(safe), newHead))
-          .map(unused -> blockchain.getFinalized().orElse(blockchain.getGenesisBlock().getHash()))
-          .orElse(Hash.ZERO);
-    }
-
-    /** Whether the block is, or descends from, the ancestor; true when there is no ancestor. */
-    private boolean descendsFrom(final Optional<Hash> ancestorHash, final BlockHeader header) {
-      final Optional<BlockHeader> ancestor = ancestorHash.flatMap(blockchain::getBlockHeader);
-      if (ancestor.isEmpty()) {
-        return true;
-      }
-      final Hash ancestorBlockHash = ancestor.get().getHash();
-      final AncestryCheck last = lastChecks.get(ancestorBlockHash);
-      final boolean descends;
-      if (header.getHash().equals(ancestorBlockHash)) {
-        descends = true;
-      } else if (last != null && last.block().equals(header.getParentHash())) {
-        descends = last.descends();
-      } else {
-        descends = coordinator.isDescendantOf(ancestor.get(), header);
-      }
-      lastChecks.put(ancestorBlockHash, new AncestryCheck(header.getHash(), descends));
-      return descends;
-    }
   }
 
   private void logProgress(final long blockNum) {
