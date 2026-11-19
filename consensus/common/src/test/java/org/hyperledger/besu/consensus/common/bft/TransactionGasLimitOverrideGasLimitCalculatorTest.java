@@ -20,6 +20,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.mainnet.AmsterdamTargetingGasLimitCalculator;
+import org.hyperledger.besu.ethereum.mainnet.OsakaTargetingGasLimitCalculator;
 
 import org.junit.jupiter.api.Test;
 
@@ -28,11 +30,71 @@ public class TransactionGasLimitOverrideGasLimitCalculatorTest {
   private final GasLimitCalculator delegate = mock(GasLimitCalculator.class);
 
   @Test
-  public void transactionGasLimitCapReturnsOverride() {
+  public void transactionGasLimitCapReturnsOverrideWhenBelowDelegateCap() {
+    when(delegate.transactionGasLimitCap()).thenReturn(Long.MAX_VALUE);
     final TransactionGasLimitOverrideGasLimitCalculator calculator =
         new TransactionGasLimitOverrideGasLimitCalculator(delegate, 12345L);
 
     assertThat(calculator.transactionGasLimitCap()).isEqualTo(12345L);
+  }
+
+  @Test
+  public void transactionGasLimitCapZeroFallsBackToDelegate() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 0L);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+  }
+
+  @Test
+  public void transactionGasLimitCapMaxValueSentinelFallsBackToDelegate() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, Long.MAX_VALUE);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+  }
+
+  @Test
+  public void transactionGasLimitCapClampsOverrideToAmsterdamDelegateCap() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(
+            delegate,
+            AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP + 1);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+  }
+
+  @Test
+  public void transactionGasLimitCapClampsOverrideToOsakaDelegateCap() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(
+            delegate, OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP + 1);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+  }
+
+  @Test
+  public void transactionIntrinsicGasLimitCapDelegates() {
+    when(delegate.transactionIntrinsicGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 12345L);
+
+    assertThat(calculator.transactionIntrinsicGasLimitCap())
+        .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    verify(delegate).transactionIntrinsicGasLimitCap();
   }
 
   @Test
