@@ -84,7 +84,8 @@ public class LoadLocalDataStep {
           }
           existingNodeCounter.inc();
           request.setRequiresPersisting(false);
-          final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+          final WorldStateKeyValueStorage.Updater updater =
+              worldStateStorageCoordinator.batchUpdater();
           request.persist(
               worldStateStorageCoordinator,
               updater,

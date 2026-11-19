@@ -105,7 +105,7 @@ public class LoadLocalDataStepTest {
 
     when(worldStateStorageCoordinator.getAccountStateTrieNode(any(), any()))
         .thenReturn(Optional.of(DATA));
-    when(worldStateStorageCoordinator.updater())
+    when(worldStateStorageCoordinator.batchUpdater())
         .thenReturn(mock(WorldStateKeyValueStorage.Updater.class));
 
     final BlockHeader newBlockHeader =
@@ -122,7 +122,7 @@ public class LoadLocalDataStepTest {
   public void shouldReturnEmptyStreamAndSendTaskToCompletedPipeWhenDataIsPresent() {
     when(worldStateStorageCoordinator.getAccountStateTrieNode(any(), any()))
         .thenReturn(Optional.of(DATA));
-    when(worldStateStorageCoordinator.updater()).thenReturn(updater);
+    when(worldStateStorageCoordinator.batchUpdater()).thenReturn(updater);
 
     final Stream<Task<SnapDataRequest>> output =
         loadLocalDataStep.loadLocalDataTrieNode(task, completedTasks);
@@ -144,7 +144,7 @@ public class LoadLocalDataStepTest {
   public void shouldDownloadAStoredNodeWhoseValueIsNotTheNode() {
     when(worldStateStorageCoordinator.getAccountStateTrieNode(any(), any()))
         .thenReturn(Optional.of(Bytes.EMPTY));
-    when(worldStateStorageCoordinator.updater()).thenReturn(updater);
+    when(worldStateStorageCoordinator.batchUpdater()).thenReturn(updater);
 
     final Stream<Task<SnapDataRequest>> output =
         loadLocalDataStep.loadLocalDataTrieNode(task, completedTasks);
@@ -187,7 +187,7 @@ public class LoadLocalDataStepTest {
     when(worldStateStorageCoordinator.getAccountStateTrieNode(any(), any()))
         .thenAnswer(
             invocation -> Optional.ofNullable(nodes.get(invocation.<Bytes32>getArgument(1))));
-    when(worldStateStorageCoordinator.updater()).thenReturn(updater);
+    when(worldStateStorageCoordinator.batchUpdater()).thenReturn(updater);
 
     final Stream<Task<SnapDataRequest>> output =
         loadLocalDataStep.loadLocalDataTrieNode(storedBranchTask, completedTasks);
