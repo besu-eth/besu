@@ -18,7 +18,14 @@ import org.hyperledger.besu.ethereum.GasLimitCalculator;
 
 import java.util.Objects;
 
-/** A delegating gas limit calculator that overrides the per-transaction gas limit cap. */
+/**
+ * A delegating gas limit calculator that can lower the per-transaction gas limit cap for BFT.
+ *
+ * <p>The fork's {@link #transactionIntrinsicGasLimitCap()} is always taken from the delegate, so
+ * Amsterdam's EIP-8037 intrinsic-gas cap stays in force. An override of {@code 0} (or {@link
+ * Long#MAX_VALUE}) leaves {@link #transactionGasLimitCap()} on the delegate as well; any other
+ * override is clamped to the delegate when the fork has a consensus-level cap.
+ */
 public final class TransactionGasLimitOverrideGasLimitCalculator implements GasLimitCalculator {
 
   private final GasLimitCalculator delegate;
@@ -60,7 +67,22 @@ public final class TransactionGasLimitOverrideGasLimitCalculator implements GasL
 
   @Override
   public long transactionGasLimitCap() {
+    final long delegateCap = delegate.transactionGasLimitCap();
+    // 0 (and the historical Long.MAX_VALUE sentinel for "unlimited") means "do not
+    // override" — keep the fork's consensus-level cap (e.g. Amsterdam 2^32-1, Osaka 2^24).
+    if (transactionGasLimitCap == 0L || transactionGasLimitCap == Long.MAX_VALUE) {
+      return delegateCap;
+    }
+    // Never raise a configured override above a consensus-level cap on the fork.
+    if (delegateCap != Long.MAX_VALUE) {
+      return Math.min(transactionGasLimitCap, delegateCap);
+    }
     return transactionGasLimitCap;
+  }
+
+  @Override
+  public long transactionIntrinsicGasLimitCap() {
+    return delegate.transactionIntrinsicGasLimitCap();
   }
 
   @Override
