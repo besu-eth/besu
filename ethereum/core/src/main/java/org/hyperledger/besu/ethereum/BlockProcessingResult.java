@@ -30,7 +30,10 @@ public class BlockProcessingResult extends BlockValidationResult {
     PARALLEL_BAL,
     /** In parallel, optimistically, with no block access list to schedule from. */
     PARALLEL_OPTIMISTIC,
-    /** Sequentially, on a block processor that does not run transactions in parallel. */
+    /**
+     * Sequentially, because sequential execution was requested or the block processor does not run
+     * transactions in parallel.
+     */
     SEQUENTIAL,
     /** Sequentially, because the world state cannot run transactions in parallel. */
     SEQUENTIAL_NOT_PATH_BASED,

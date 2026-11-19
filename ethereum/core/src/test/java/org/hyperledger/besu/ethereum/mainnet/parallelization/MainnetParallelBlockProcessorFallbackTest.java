@@ -77,7 +77,12 @@ class MainnetParallelBlockProcessorFallbackTest {
 
     assertThat(result.isFailed()).isTrue();
     assertThat(result.getExecutionPath()).contains(ExecutionPath.SEQUENTIAL_FALLBACK);
-    assertThat(result.getParallelErrorMessage()).isPresent();
+    // Both runs fail the block for the same reason.
+    assertThat(result.getParallelErrorMessage())
+        .hasValueSatisfying(
+            error ->
+                assertThat(error).startsWith("World State Root does not match expected value"));
+    assertThat(result.getParallelErrorMessage()).isEqualTo(result.errorMessage);
   }
 
   private static Block emptyBlockWithZeroStateRoot(final BlockHeader parent) {
