@@ -74,11 +74,7 @@ public class MetricsOptionsTest
   @Test
   public void enableRocksDbCategories() {
     final var rocksDbMetricsCategories =
-        EnumSet.of(
-            BesuMetricCategory.KVSTORE_ROCKSDB,
-            BesuMetricCategory.KVSTORE_ROCKSDB_STATS,
-            BesuMetricCategory.KVSTORE_PRIVATE_ROCKSDB,
-            BesuMetricCategory.KVSTORE_PRIVATE_ROCKSDB_STATS);
+        EnumSet.of(BesuMetricCategory.KVSTORE_ROCKSDB, BesuMetricCategory.KVSTORE_ROCKSDB_STATS);
 
     internalTestSuccess(
         metricsConfBuilder -> {
