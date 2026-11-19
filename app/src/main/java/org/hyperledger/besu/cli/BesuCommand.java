@@ -674,7 +674,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "Specifies the number of last blocks whose headers, bodies, receipts and block access"
               + " lists to cache, 0 to disable (default: ${DEFAULT-VALUE})")
-  private final Integer numberOfBlocksToCache = DefaultBlockchain.DEFAULT_BLOCKS_TO_CACHE;
+  private Integer numberOfBlocksToCache = DefaultBlockchain.DEFAULT_BLOCKS_TO_CACHE;
 
   @CommandLine.Option(
       names = {"--cache-last-blocks-max-capacity"},
@@ -682,7 +682,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "Max amount of memory, in bytes, that the cache of the block access lists of the last"
               + " blocks could occupy (default: ${DEFAULT-VALUE})")
-  private final Long lastBlocksCacheMaxCapacity =
+  private Long lastBlocksCacheMaxCapacity =
       DefaultBlockchain.DEFAULT_BLOCK_ACCESS_LISTS_CACHE_MAX_CAPACITY;
 
   @CommandLine.Option(
@@ -690,7 +690,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "Specifies the number of last block headers to cache, raised to --cache-last-blocks if"
               + " lower (default: ${DEFAULT-VALUE})")
-  private final Integer numberOfBlockHeadersToCache = 0;
+  private Integer numberOfBlockHeadersToCache = 0;
 
   @CommandLine.Option(
       names = {"--cache-last-block-headers-preload-enabled"},
@@ -1637,12 +1637,24 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private void validateDataStorageOptions() {
     dataStorageOptions.validate(commandLine);
     // the SNAP2 sync storage is on Bonsai and Forest, not on an archive
-    final DataStorageFormat format = dataStorageOptions.toDomainObject().getDataStorageFormat();
+    final DataStorageConfiguration storageConfig = dataStorageOptions.toDomainObject();
+    final DataStorageFormat format = storageConfig.getDataStorageFormat();
     if (getDefaultSyncModeIfNotSet() == SyncMode.SNAP2
         && format == DataStorageFormat.X_BONSAI_ARCHIVE) {
       throw new ParameterException(
           commandLine,
           "--sync-mode=SNAP2 needs --data-storage-format=BONSAI or FOREST, not " + format);
+    }
+    // proof history starts at genesis, which snap sync skips
+    if (getDefaultSyncModeIfNotSet() == SyncMode.SNAP
+        && format == DataStorageFormat.X_BONSAI_ARCHIVE
+        && storageConfig
+            .getExtraStorageConfiguration()
+            .getUnstable()
+            .getBonsaiArchiveStateProofsEnabled()) {
+      throw new ParameterException(
+          commandLine,
+          ExtraStorageOptions.STATE_PROOFS_ENABLED + " needs --sync-mode=FULL, not SNAP");
     }
   }
 
