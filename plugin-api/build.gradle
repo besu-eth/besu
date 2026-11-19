@@ -63,20 +63,44 @@ def apiBaselineClasspath = configurations.detachedConfiguration(
 // datatypes is exposed through the Plugin API (an api dependency), so its released jar is compared too
 def apiBaselineDatatypesJar = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-datatypes:${apiBaselineVersion}") { transitive = false })
+// Released jars of the modules split out of the Plugin API. japicmp only compares archives, so a
+// class missing from oldArchives counts as new and its changes pass as additions.
+def apiBaselineModuleJars = configurations.detachedConfiguration(
+  *[
+    'core',
+    'metrics',
+    'permissioning',
+    'security',
+    'storage',
+    'worldstate',
+    'p2p',
+    'txpool',
+    'sync',
+    'rpc',
+    'chain',
+    'worldstate-backend',
+    'execution',
+    'blockproduction',
+    'validation'
+  ].collect {
+    dependencies.create("org.hyperledger.besu:besu-plugin-api-${it}:${apiBaselineVersion}") { transitive = false }
+  })
 // Detached configurations are invisible to the root build's source artifact tasks unless listed here.
 ext.verificationMetadataConfigurations = [
   apiBaselineJar,
   apiBaselineClasspath,
-  apiBaselineDatatypesJar
+  apiBaselineDatatypesJar,
+  apiBaselineModuleJars
 ]
 
 tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) {
   description = "Checks that the Plugin API, including the datatypes it exposes, remains binary and source compatible with the last released version, allowing only additions"
   group = 'verification'
 
-  oldArchives.from(apiBaselineJar, apiBaselineDatatypesJar)
+  oldArchives.from(apiBaselineJar, apiBaselineModuleJars, apiBaselineDatatypesJar)
   oldClasspath.from(apiBaselineClasspath)
-  // When the Plugin API is split into modules, each new jar is added here so the union is checked
+  // When the Plugin API is split into modules, each new jar is added here so the union is checked.
+  // Once a module's jar is in a released baseline, add its artifact to apiBaselineModuleJars too.
   newArchives.from(
     tasks.named('jar'),
     project(':plugin-api:core').tasks.named('jar'),
