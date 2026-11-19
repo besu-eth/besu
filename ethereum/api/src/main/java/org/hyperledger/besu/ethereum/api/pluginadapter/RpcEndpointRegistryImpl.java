@@ -22,19 +22,21 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.PluginJsonRpcM
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
+import org.hyperledger.besu.util.KeyedRegistrations;
 
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /** Collects the RPC endpoints plugins register, for the JSON-RPC method tables to pick up. */
 public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
 
-  private final Map<String, Function<PluginRpcRequest, ?>> rpcMethods = new HashMap<>();
+  private final KeyedRegistrations<Function<PluginRpcRequest, ?>> rpcMethods;
   private final BooleanSupplier registrationOpen;
 
   /** Creates a registry that accepts endpoints at any time. */
@@ -43,12 +45,26 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
   }
 
   /**
-   * Creates the registry.
+   * Creates a registry whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; endpoints registered
    *     while it is closed are rejected
    */
   public RpcEndpointRegistryImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Creates the registry.
+   *
+   * @param registrationOpen whether plugin registration is currently open; endpoints registered
+   *     while it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a method name already registered by another registrant is rejected
+   */
+  public RpcEndpointRegistryImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
+    this.rpcMethods = new KeyedRegistrations<>("RPC method", currentRegistrant);
     this.registrationOpen = registrationOpen;
   }
 
@@ -64,7 +80,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
     checkArgument(functionName.matches("\\p{Alnum}+"), "Function Name must be only alpha numeric");
     checkNotNull(function);
 
-    rpcMethods.put(namespace + "_" + functionName, function);
+    rpcMethods.register(namespace + "_" + functionName, function);
   }
 
   /**
@@ -75,7 +91,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
    */
   public Map<String, ? extends JsonRpcMethod> getPluginMethods(
       final Collection<String> namespaces) {
-    return rpcMethods.entrySet().stream()
+    return rpcMethods.byName().entrySet().stream()
         .filter(
             entry ->
                 namespaces.stream()
@@ -96,7 +112,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
    * @return true if any of the RPC method starts with given namespace, false otherwise.
    */
   public boolean hasNamespace(final String namespace) {
-    return rpcMethods.keySet().stream()
+    return rpcMethods.names().stream()
         .anyMatch(
             key -> key.toUpperCase(Locale.ROOT).startsWith(namespace.toUpperCase(Locale.ROOT)));
   }

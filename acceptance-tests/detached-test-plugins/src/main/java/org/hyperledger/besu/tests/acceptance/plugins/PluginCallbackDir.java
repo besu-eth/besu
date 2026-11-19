@@ -20,6 +20,7 @@ import org.hyperledger.besu.plugin.RegistrationContext;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 
 /** The directory the acceptance tests watch for signal files: {@code <data-path>/plugins}. */
@@ -52,6 +53,40 @@ final class PluginCallbackDir {
       }
       Files.writeString(file.toPath(), content);
       file.deleteOnExit();
+    } catch (final IOException ioe) {
+      throw new RuntimeException(ioe);
+    }
+  }
+
+  /**
+   * Writes the lines as a signal file that outlives the JVM, for a signal written from {@code
+   * stop()}: a file registered for deletion at exit, as {@link #write} does, is gone by the time a
+   * test can look at it. The node's data directory is temporary, so nothing is left behind.
+   */
+  static void writeKept(final File dir, final String name, final List<String> lines) {
+    writeKept(
+        dir, name, String.join(System.lineSeparator(), lines) + System.lineSeparator(), false);
+  }
+
+  /**
+   * Appends the line to a file that outlives the JVM, creating both if needed. For signals several
+   * plugins write to one file, in the order they write them.
+   */
+  static void append(final File dir, final String name, final String line) {
+    writeKept(dir, name, line + System.lineSeparator(), true);
+  }
+
+  private static void writeKept(
+      final File dir, final String name, final String content, final boolean append) {
+    try {
+      if (!dir.exists()) {
+        dir.mkdirs();
+      }
+      Files.writeString(
+          new File(dir, name).toPath(),
+          content,
+          StandardOpenOption.CREATE,
+          append ? StandardOpenOption.APPEND : StandardOpenOption.TRUNCATE_EXISTING);
     } catch (final IOException ioe) {
       throw new RuntimeException(ioe);
     }

@@ -52,6 +52,8 @@ dependencies {
   api project(':crypto:algorithms')
   api project(':plugin-api')
 
+  implementation project(':util')
+
   implementation 'javax.inject:javax.inject'
 
   errorprone 'com.uber.nullaway:nullaway'

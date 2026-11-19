@@ -27,11 +27,15 @@ import org.hyperledger.besu.plugin.RegistrationService;
 public interface MetricCategoryRegistry extends RegistrationService {
 
   /**
-   * Registers a {@link MetricCategory}.
+   * Registers a {@link MetricCategory}. Its name, compared ignoring case, must be free: a name
+   * another plugin registered, or the name of one of Besu's own categories as {@code
+   * --metrics-category} accepts it, fails the registration, and with it the plugin's startup; a
+   * plugin may register its own name again, replacing the category.
    *
    * @param newMetricCategory The {@link MetricCategory} that is being registered.
    * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
    *     has closed
+   * @throws IllegalStateException if another registrant already registered a category of that name
    */
   void addMetricCategory(final MetricCategory newMetricCategory);
 
