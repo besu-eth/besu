@@ -27,6 +27,7 @@
       "trace": [
         {
           "action": {
+            "creationMethod": "create",
             "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
             "gas": "0x104b8",
             "init": "0x60006000602062ffffff6000600561fffff100",

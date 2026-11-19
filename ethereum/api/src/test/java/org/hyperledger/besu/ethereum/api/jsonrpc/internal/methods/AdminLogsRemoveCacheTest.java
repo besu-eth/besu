@@ -86,6 +86,7 @@ public class AdminLogsRemoveCacheTest {
       {new String[] {"0x50", "pending"}, 0x50L, blockNumber},
       {new String[] {"earliest", "0x100"}, 0L, 0x100L},
       {new String[] {"0x50", "0x100"}, 0x50L, 0x100L},
+      {new String[] {"0x1869f", "0x186a0"}, 99999L, 100000L},
     };
 
     for (final Object[] test : testVector) {
