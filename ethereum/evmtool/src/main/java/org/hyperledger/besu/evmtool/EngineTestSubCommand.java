@@ -573,7 +573,8 @@ public class EngineTestSubCommand implements Runnable, IExitCodeGenerator {
           final Executor blockWriter) {
         final BlockProcessingResult result =
             super.rememberBlock(block, blockAccessList, inclusionListTransactions, Runnable::run);
-        reporter.ifPresent(balReporter -> balReporter.report(block.getHeader(), result, ""));
+        reporter.ifPresent(
+            balReporter -> balReporter.report(block.getHeader(), result, Optional.empty()));
         return result;
       }
     };

@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
 import java.io.PrintStream;
+import java.util.Optional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -32,9 +33,19 @@ final class BalExecutionReporter {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
 
-  static final String BAD_ACCESS_LIST = "bad-access-list";
+  /** Why the runner imported a block without its delivered access list. */
+  enum AccessListMissing {
+    /** --bal-withhold kept the list from the block. */
+    WITHHELD("withheld"),
+    /** The list did not hash to the header's commitment, so it was dropped. */
+    BAD_ACCESS_LIST("bad-access-list");
 
-  static final String WITHHELD = "withheld";
+    private final String reason;
+
+    AccessListMissing(final String reason) {
+      this.reason = reason;
+    }
+  }
 
   private final PrintStream err;
 
@@ -49,25 +60,26 @@ final class BalExecutionReporter {
    * @param header the block's header
    * @param result the result of processing the block
    * @param accessListMissing why the runner imported the block without its delivered access list,
-   *     {@link #BAD_ACCESS_LIST} or {@link #WITHHELD}, or empty when it did not
+   *     or empty when it did not
    */
   void report(
       final BlockHeader header,
       final BlockProcessingResult result,
-      final String accessListMissing) {
+      final Optional<AccessListMissing> accessListMissing) {
+    final String missing = accessListMissing.map(m -> m.reason).orElse("");
     result
         .getExecutionPath()
         .ifPresent(
             path -> {
               switch (path) {
-                case PARALLEL_BAL -> printParallel(header, "bal", accessListMissing);
-                case PARALLEL_OPTIMISTIC -> printParallel(header, "optimistic", accessListMissing);
-                case SEQUENTIAL -> printSequential(header, "disabled", accessListMissing);
+                case PARALLEL_BAL -> printParallel(header, "bal", missing);
+                case PARALLEL_OPTIMISTIC -> printParallel(header, "optimistic", missing);
+                case SEQUENTIAL -> printSequential(header, "disabled", missing);
                 case SEQUENTIAL_NOT_PATH_BASED ->
-                    printSequential(header, "not-path-based", accessListMissing);
+                    printSequential(header, "not-path-based", missing);
                 case SEQUENTIAL_FALLBACK -> {
                   // Only an optimistic parallel attempt is rerun sequentially.
-                  printParallel(header, "optimistic", accessListMissing);
+                  printParallel(header, "optimistic", missing);
                   printFallback(header, result);
                 }
               }
