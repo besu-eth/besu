@@ -176,6 +176,15 @@ class BlockchainTestSubCommandTest {
   }
 
   @Test
+  void deprecatedBlockAccessListStillDeliversTheList() throws IOException {
+    final List<String> lines =
+        eventLines(
+            stderr("--json-array", "--bal-report", "--block-access-list", FIXTURE.toString()));
+    assertThat(lines).hasSize(1);
+    assertThat(MAPPER.readTree(lines.get(0)).get("reason").asText()).isEmpty();
+  }
+
+  @Test
   void jsonArrayStdoutIsTheArrayAlone() throws IOException {
     final JsonNode stdout = MAPPER.readTree(run("--json-array", FIXTURE.toString()));
 
