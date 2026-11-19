@@ -176,7 +176,7 @@ class InclusionListValidatorTest {
             mock(GasLimitCalculator.class),
             FeeMarket.london(0L),
             true,
-            unrecoverableTx.getChainId(),
+            unrecoverableTx.getChainIdentifier(),
             Set.of(unrecoverableTx.getType()),
             Set.of(BlobType.KZG_PROOF),
             Integer.MAX_VALUE);

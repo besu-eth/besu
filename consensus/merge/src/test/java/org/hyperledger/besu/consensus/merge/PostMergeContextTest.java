@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
@@ -373,6 +374,18 @@ public class PostMergeContextTest {
     // Short-circuits on the pre-TTD gate, so peer sync state is never consulted.
     assertThat(postMergeContext.isSyncing()).isTrue();
     verify(mockSyncState, never()).isInSync();
+  }
+
+  @Test
+  public void fireNewUnverifiedPayloadEventDeliversUntilTheListenerIsRemoved() {
+    final AtomicInteger received = new AtomicInteger();
+    final long id = postMergeContext.addNewUnverifiedPayloadListener(received::incrementAndGet);
+
+    postMergeContext.fireNewUnverifiedPayloadEvent();
+    postMergeContext.removeNewUnverifiedPayloadListener(id);
+    postMergeContext.fireNewUnverifiedPayloadEvent();
+
+    assertThat(received).hasValue(1);
   }
 
   @Test

@@ -105,6 +105,22 @@ public class TransitionContext implements MergeContext {
   }
 
   @Override
+  public long addNewUnverifiedPayloadListener(
+      final UnverifiedPayloadListener unverifiedPayloadListener) {
+    return postMergeContext.addNewUnverifiedPayloadListener(unverifiedPayloadListener);
+  }
+
+  @Override
+  public void removeNewUnverifiedPayloadListener(final long subscriberId) {
+    postMergeContext.removeNewUnverifiedPayloadListener(subscriberId);
+  }
+
+  @Override
+  public void fireNewUnverifiedPayloadEvent() {
+    postMergeContext.fireNewUnverifiedPayloadEvent();
+  }
+
+  @Override
   public long addNewPayloadListener(final NewPayloadListener newPayloadListener) {
     return postMergeContext.addNewPayloadListener(newPayloadListener);
   }

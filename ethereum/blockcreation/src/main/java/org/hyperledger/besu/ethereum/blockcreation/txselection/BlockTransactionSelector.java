@@ -55,6 +55,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -119,6 +120,9 @@ import org.slf4j.LoggerFactory;
 public class BlockTransactionSelector implements BlockTransactionSelectionService {
   private static final Logger LOG = LoggerFactory.getLogger(BlockTransactionSelector.class);
   private static final long CANCELLATION_GRACE_TIME_NANOS = TimeUnit.MILLISECONDS.toNanos(100);
+  private static final TransactionSelectionResult EXECUTION_INTERRUPTED_RESULT =
+      TransactionSelectionResult.invalidPenalized(
+          TransactionInvalidReason.EXECUTION_INTERRUPTED.name());
   private final AtomicBoolean isCancelled = new AtomicBoolean(false);
   private final MainnetTransactionProcessor transactionProcessor;
   private final Blockchain blockchain;
@@ -358,8 +362,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     }
   }
 
-  private Map<PendingTransaction, TransactionSelectionResult> timeLimitedSelection(
-      final List<PendingTransaction> candidatePendingTransactions) {
+  private Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>
+      timeLimitedSelection(final List<PendingTransaction> candidatePendingTransactions) {
     final long startTime = System.nanoTime();
 
     selectorsStateManager.blockSelectionStarted();
@@ -384,8 +388,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     return internalTimeLimitedSelection(candidatePendingTransactions, remainingSelectionTime);
   }
 
-  private Map<PendingTransaction, TransactionSelectionResult> internalTimeLimitedSelection(
-      final List<PendingTransaction> candidateTransactions, final long remainingSelectionTime) {
+  private Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>
+      internalTimeLimitedSelection(
+          final List<PendingTransaction> candidateTransactions, final long remainingSelectionTime) {
     final long startTimeNanos = System.nanoTime();
 
     validTxSelectionTimeoutResult = BLOCK_SELECTION_TIMEOUT;
@@ -394,8 +399,10 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final CountDownLatch internalSelectionDone = new CountDownLatch(1);
 
     final var selectionResults =
-        new ConcurrentHashMap<PendingTransaction, TransactionSelectionResult>(
+        new ConcurrentHashMap<PendingTransaction, CompletableFuture<TransactionSelectionResult>>(
             candidateTransactions.size());
+    // guarded by selectionResults
+    final var selectionReturned = new AtomicBoolean(false);
 
     currTxSelectionTask =
         new FutureTask<>(
@@ -409,8 +416,26 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                     .log();
 
                 for (PendingTransaction candidateTx : candidateTransactions) {
-                  final var selectionResult = evaluateTransaction(candidateTx);
-                  selectionResults.put(candidateTx, selectionResult);
+                  // the result is returned before the evaluation starts, since in case of a
+                  // timeout or a cancellation the evaluation could still be running when the
+                  // selection returns, and the txpool needs to process the result when it is ready
+                  final var futureResult = new CompletableFuture<TransactionSelectionResult>();
+                  synchronized (selectionResults) {
+                    // the txpool reads the results once the selection returns, so it would never
+                    // see the result of an evaluation started after that
+                    if (selectionReturned.get()) {
+                      break;
+                    }
+                    selectionResults.put(candidateTx, futureResult);
+                  }
+                  final TransactionSelectionResult selectionResult;
+                  try {
+                    selectionResult = evaluateTransaction(candidateTx);
+                  } catch (final Throwable t) {
+                    futureResult.completeExceptionally(t);
+                    throw t;
+                  }
+                  futureResult.complete(selectionResult);
                   if (selectionResult.stop()) {
                     break;
                   }
@@ -463,6 +488,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
     }
 
+    synchronized (selectionResults) {
+      selectionReturned.set(true);
+    }
     return selectionResults;
   }
 
@@ -941,7 +969,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final TransactionSelectionResult actualResult =
         isTimeout.get()
             ? rewriteSelectionResultForTimeout(evaluationContext, selectionResult)
-            : selectionResult;
+            : rewriteSelectionResultForCancellation(selectionResult);
 
     selectionPendingActions.add(new NotSelectedPendingAction(evaluationContext, actualResult));
 
@@ -980,6 +1008,20 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         selectionResult.discard()
             ? invalidTxSelectionTimeoutResult
             : validTxSelectionTimeoutResult);
+  }
+
+  /**
+   * When the block creation is cancelled the tx that is executing is interrupted. It shouldn't be
+   * penalised so we rewrite the result to avoid it being penalised.
+   *
+   * @param selectionResult The result of the transaction selection process.
+   * @return the rewritten selection result
+   */
+  private TransactionSelectionResult rewriteSelectionResultForCancellation(
+      final TransactionSelectionResult selectionResult) {
+    return isCancelled.get() && EXECUTION_INTERRUPTED_RESULT.equals(selectionResult)
+        ? SELECTION_CANCELLED
+        : selectionResult;
   }
 
   /**

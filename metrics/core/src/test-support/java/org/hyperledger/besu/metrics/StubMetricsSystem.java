@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.DoubleSupplier;
 import java.util.stream.Stream;
 
@@ -172,20 +173,21 @@ public class StubMetricsSystem implements ObservableMetricsSystem {
   }
 
   public static class StubCounter implements Counter {
-    private long value = 0;
+    // code under test may count from several threads at once
+    private final AtomicLong value = new AtomicLong();
 
     @Override
     public void inc() {
-      value++;
+      value.incrementAndGet();
     }
 
     @Override
     public void inc(final long amount) {
-      value += amount;
+      value.addAndGet(amount);
     }
 
     public long getValue() {
-      return value;
+      return value.get();
     }
   }
 }

@@ -17,11 +17,11 @@ package org.hyperledger.besu.consensus.common;
 import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 
-import java.math.BigInteger;
 import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -39,8 +39,7 @@ public class CombinedProtocolScheduleFactory {
    * @return the protocol schedule
    */
   public BftProtocolSchedule create(
-      final NavigableSet<ForkSpec<ProtocolSchedule>> forkSpecs,
-      final Optional<BigInteger> chainId) {
+      final NavigableSet<ForkSpec<ProtocolSchedule>> forkSpecs, final ChainId chainId) {
     final BftProtocolSchedule combinedProtocolSchedule =
         new BftProtocolSchedule(new DefaultProtocolSchedule(chainId));
     for (ForkSpec<ProtocolSchedule> spec : forkSpecs) {

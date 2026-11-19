@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder.wri
 
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
@@ -58,14 +59,14 @@ public class CodeDelegationTransactionEncoder {
 
   private static void encodeAuthorizationDetails(
       final CodeDelegation payload, final RLPOutput rlpOutput) {
-    rlpOutput.writeBigIntegerScalar(payload.chainId());
+    ChainId.fromCodeDelegation(payload).writeTo(rlpOutput);
     rlpOutput.writeBytes(payload.address().getBytes().copy());
     rlpOutput.writeLongScalar(payload.nonce());
   }
 
   public static void encode(final Transaction transaction, final RLPOutput out) {
     out.startList();
-    out.writeBigIntegerScalar(transaction.getChainId().orElseThrow());
+    transaction.getChainIdentifier().writeTo(out);
     out.writeLongScalar(transaction.getNonce());
     out.writeUInt256Scalar(transaction.getMaxPriorityFeePerGas().orElseThrow());
     out.writeUInt256Scalar(transaction.getMaxFeePerGas().orElseThrow());
