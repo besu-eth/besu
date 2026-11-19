@@ -88,12 +88,11 @@ public class DebugTraceBlockStreamerPrecompileTest {
   }
 
   /**
-   * When the transaction target is a precompile, no EVM opcodes run and tracePrecompileCall is the
-   * only tracer hook fired. The streaming path must emit a synthetic struct log so that the result
-   * is non-empty (matching the accumulating path).
+   * When the transaction target is a precompile, no EVM opcodes run, so the streaming path emits no
+   * struct logs.
    */
   @Test
-  public void streamingPathEmitsSyntheticFrameForDirectPrecompileCall() throws Exception {
+  public void streamingPathEmitsNoStructLogsForDirectPrecompileCall() throws Exception {
     final Block block = buildPrecompileBlock(IDENTITY_PRECOMPILE, Bytes.of(1, 2, 3, 4));
     final DebugTraceBlockStreamer streamer =
         new DebugTraceBlockStreamer(
@@ -104,8 +103,7 @@ public class DebugTraceBlockStreamerPrecompileTest {
 
     final JsonNode structLogs = getStructLogs(out);
     assertThat(structLogs.isArray()).isTrue();
-    assertThat(structLogs.size()).isEqualTo(1);
-    assertThat(structLogs.get(0).get("op").asText()).isEqualTo("");
+    assertThat(structLogs).isEmpty();
   }
 
   /**
@@ -119,17 +117,17 @@ public class DebugTraceBlockStreamerPrecompileTest {
   }
 
   /**
-   * A failing root precompile must report its halt reason as the struct log {@code error} on both
-   * the streaming and accumulating paths.
+   * A failing root precompile executes no opcode either: both paths report the failure and no
+   * struct logs.
    */
   @Test
   public void streamingAndAccumulatingPathsMatchForFailedPrecompileCall() throws Exception {
     final Block block = buildPrecompileBlock(BN128_ADD_PRECOMPILE, INVALID_BN128_ADD_INPUT);
     final JsonNode streamedRoot = assertStreamingMatchesAccumulating(block);
 
-    final JsonNode structLogs = streamedRoot.get(0).get("result").get("structLogs");
-    assertThat(structLogs.size()).isEqualTo(1);
-    assertThat(structLogs.get(0).get("error").asText()).isEqualTo("PRECOMPILE_ERROR");
+    final JsonNode result = streamedRoot.get(0).get("result");
+    assertThat(result.get("failed").asBoolean()).isTrue();
+    assertThat(result.get("structLogs")).isEmpty();
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────

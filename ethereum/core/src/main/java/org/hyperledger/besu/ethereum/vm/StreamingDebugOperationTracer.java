@@ -55,7 +55,6 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
   }
 
   private final FrameWriter frameWriter;
-  private boolean hasEmittedFrame = false;
   private int stepCount = 0;
   private Bytes preExecutionMemory;
   private long preExecutionGasRefund;
@@ -141,28 +140,6 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         haltReason,
         revertReason);
 
-    hasEmittedFrame = true;
     frame.reset();
-  }
-
-  @Override
-  public void tracePrecompileCall(
-      final MessageFrame frame, final long gasRequirement, final Bytes output) {
-    if (!hasEmittedFrame) {
-      frameWriter.writeFrame(
-          frame.getPC(),
-          "",
-          frame.getRemainingGas(),
-          0L,
-          frame.getDepth(),
-          null,
-          null,
-          frame.getGasRefund(),
-          frame.getReturnData(),
-          null,
-          frame.getExceptionalHaltReason().orElse(null),
-          frame.getRevertReason().orElse(null));
-      hasEmittedFrame = true;
-    }
   }
 }
