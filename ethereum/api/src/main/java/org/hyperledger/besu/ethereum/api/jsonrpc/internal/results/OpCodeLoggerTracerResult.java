@@ -74,7 +74,7 @@ public class OpCodeLoggerTracerResult {
   }
 
   private static boolean isRootPrecompileCall(final TraceFrame frame) {
-    return frame.isVirtualOperation() && frame.isPrecompile();
+    return frame.isPrecompile() && frame.getOpcode().isEmpty();
   }
 
   @JsonGetter(value = "structLogs")
