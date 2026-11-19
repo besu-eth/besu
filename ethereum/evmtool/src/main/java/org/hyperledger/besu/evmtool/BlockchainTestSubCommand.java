@@ -48,6 +48,7 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldView;
+import org.hyperledger.besu.evmtool.BalExecutionReporter.AccessListMissing;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
@@ -511,13 +512,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
         final Optional<BlockAccessList> delivered = balWithhold ? Optional.empty() : fixtureList;
         final Optional<BlockAccessList> accessList =
             accessListMatchingHeader(delivered, block.getHeader());
-        final String accessListMissing;
+        final Optional<AccessListMissing> accessListMissing;
         if (balWithhold && fixtureList.isPresent()) {
-          accessListMissing = BalExecutionReporter.WITHHELD;
+          accessListMissing = Optional.of(AccessListMissing.WITHHELD);
         } else if (delivered.isPresent() && accessList.isEmpty()) {
-          accessListMissing = BalExecutionReporter.BAD_ACCESS_LIST;
+          accessListMissing = Optional.of(AccessListMissing.BAD_ACCESS_LIST);
         } else {
-          accessListMissing = "";
+          accessListMissing = Optional.empty();
         }
         final BlockImportResult importResult =
             blockImporter.importBlock(context, block, validationMode, validationMode, accessList);

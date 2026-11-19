@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.evmtool.BalExecutionReporter.AccessListMissing;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -47,7 +48,7 @@ class BalExecutionReporterTest {
 
   @Test
   void parallelBlockIsOneLineWithAnEmptyReason() {
-    reporter.report(header, executedOn(ExecutionPath.PARALLEL_BAL), "");
+    reporter.report(header, executedOn(ExecutionPath.PARALLEL_BAL), Optional.empty());
 
     assertThat(lines())
         .containsExactly(
@@ -58,8 +59,8 @@ class BalExecutionReporterTest {
 
   @Test
   void sequentialBlockCarriesItsReason() {
-    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL), "");
-    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL_NOT_PATH_BASED), "");
+    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL), Optional.empty());
+    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL_NOT_PATH_BASED), Optional.empty());
 
     assertThat(lines())
         .containsExactly(
@@ -76,8 +77,9 @@ class BalExecutionReporterTest {
     reporter.report(
         header,
         executedOn(ExecutionPath.PARALLEL_OPTIMISTIC),
-        BalExecutionReporter.BAD_ACCESS_LIST);
-    reporter.report(header, executedOn(ExecutionPath.SEQUENTIAL), BalExecutionReporter.WITHHELD);
+        Optional.of(AccessListMissing.BAD_ACCESS_LIST));
+    reporter.report(
+        header, executedOn(ExecutionPath.SEQUENTIAL), Optional.of(AccessListMissing.WITHHELD));
 
     assertThat(lines())
         .containsExactly(
@@ -92,7 +94,7 @@ class BalExecutionReporterTest {
 
   @Test
   void blockRejectedBeforeExecutionIsNotReported() {
-    reporter.report(header, new BlockProcessingResult("header invalid"), "");
+    reporter.report(header, new BlockProcessingResult("header invalid"), Optional.empty());
 
     assertThat(err.toString(UTF_8)).isEmpty();
   }
@@ -103,12 +105,12 @@ class BalExecutionReporterTest {
         header,
         new BlockProcessingResult(Optional.empty(), "sequential failed")
             .withSequentialFallback(Optional.of("parallel failed")),
-        "");
+        Optional.empty());
     reporter.report(
         header,
         new BlockProcessingResult(Optional.empty())
             .withSequentialFallback(Optional.of("parallel failed")),
-        "");
+        Optional.empty());
 
     final String parallelLine =
         "{\"event\":\"balExecution\",\"block\":12,\"hash\":\""
