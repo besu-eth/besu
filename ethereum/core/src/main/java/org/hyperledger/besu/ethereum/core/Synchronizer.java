@@ -14,6 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairBudget;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequest;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairRequester;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateRepairResult;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
@@ -63,6 +68,34 @@ public interface Synchronizer {
   Optional<Long> getBestPeerChainHead();
 
   boolean resyncWorldState();
+
+  /**
+   * Attempts bounded repair without restarting synchronization or downloading a replacement state.
+   *
+   * <p>The future completes only after repair workers have stopped accessing the budget and state.
+   * Cancellation is cooperative through {@code budget}; cancelling the returned future is not an
+   * acknowledgement that workers have drained. Implementations without targeted repair decline it.
+   *
+   * @param blockHash the known block whose state is needed
+   * @param stateRoot the state root committed by that block
+   * @param budget cumulative work limits and cancellation for this attempt
+   * @return the terminal repair outcome, not an indication that canonical forkchoice was changed
+   */
+  default CompletableFuture<WorldStateRepairResult> repairWorldState(
+      final Hash blockHash, final Hash stateRoot, final WorldStateRepairBudget budget) {
+    return repairWorldState(new WorldStateRepairRequest(blockHash, stateRoot), budget);
+  }
+
+  /** Repairs a target and verifies its explicitly identified missing dependency, if present. */
+  default CompletableFuture<WorldStateRepairResult> repairWorldState(
+      final WorldStateRepairRequest request, final WorldStateRepairBudget budget) {
+    return CompletableFuture.completedFuture(WorldStateRepairResult.UNSUPPORTED);
+  }
+
+  /** Returns the synchronizer-owned repair admission module. */
+  default WorldStateRepairRequester getWorldStateRepairRequester() {
+    return WorldStateRepairRequester.DISABLED;
+  }
 
   long subscribeSyncStatus(final BesuEvents.SyncStatusListener listener);
 

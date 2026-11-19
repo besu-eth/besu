@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.FailurePolicy;
 
 import java.util.List;
 import java.util.Optional;
@@ -91,6 +92,42 @@ public interface BlockValidator {
       final InclusionListTransactions inclusionListTransactions,
       final boolean shouldUpdateHead,
       final boolean shouldRecordBadBlock);
+
+  /**
+   * Validates a block with an explicit parent-state query failure policy. Implementations that do
+   * not support local recovery retain their existing behavior.
+   *
+   * @param context the protocol context
+   * @param block the block
+   * @param headerValidationMode the header validation mode
+   * @param ommerValidationMode the ommer validation mode
+   * @param blockAccessList optional block access list
+   * @param inclusionListTransactions inclusion list transactions
+   * @param shouldPersist whether to persist the block
+   * @param shouldRecordBadBlock whether to record invalid blocks
+   * @param failurePolicy parent-state acquisition failure policy
+   * @return the block processing result
+   */
+  default BlockProcessingResult validateAndProcessBlock(
+      final ProtocolContext context,
+      final Block block,
+      final HeaderValidationMode headerValidationMode,
+      final HeaderValidationMode ommerValidationMode,
+      final Optional<BlockAccessList> blockAccessList,
+      final InclusionListTransactions inclusionListTransactions,
+      final boolean shouldPersist,
+      final boolean shouldRecordBadBlock,
+      final FailurePolicy failurePolicy) {
+    return validateAndProcessBlock(
+        context,
+        block,
+        headerValidationMode,
+        ommerValidationMode,
+        blockAccessList,
+        inclusionListTransactions,
+        shouldPersist,
+        shouldRecordBadBlock);
+  }
 
   /**
    * Validates and processes a block without updating the head, but leaves the trie log of a valid
