@@ -187,8 +187,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       // if we are bonsai and full flat, we can provide a worldstate storage:
       var worldStateKeyValueStorage = worldStateStorageCoordinator.worldStateKeyValueStorage();
       if (worldStateKeyValueStorage.getDataStorageFormat().isBonsaiFormat()
-          && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
-              || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.ARCHIVE))) {
+          && worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)) {
         LOGGER.info("Starting SnapServer with Bonsai full flat db");
         var bonsaiArchive =
             protocolContext

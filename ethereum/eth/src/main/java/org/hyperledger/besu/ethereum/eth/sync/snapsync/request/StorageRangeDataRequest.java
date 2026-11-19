@@ -113,8 +113,8 @@ public class StorageRangeDataRequest extends SnapDataRequest {
     final AtomicReference<StackTrie.FlatDatabaseUpdater> flatDatabaseUpdater =
         new AtomicReference<>(noop());
 
-    worldStateStorageCoordinator.applyOnMatchingFlatModes(
-        List.of(FlatDbMode.FULL, FlatDbMode.ARCHIVE),
+    worldStateStorageCoordinator.applyOnMatchingFlatMode(
+        FlatDbMode.FULL,
         bonsaiWorldStateStorageStrategy -> {
           flatDatabaseUpdater.set(
               (key, value) ->

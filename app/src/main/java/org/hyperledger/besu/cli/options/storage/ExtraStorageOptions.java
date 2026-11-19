@@ -71,6 +71,12 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
   public static final String PARALLEL_STATE_ROOT_COMPUTATION_ENABLED =
       "--bonsai-parallel-state-root-computation-enabled";
 
+  /** The bonsai full flat database enabled option name. */
+  public static final String FULL_FLAT_DB_ENABLED = "--Xbonsai-full-flat-db-enabled";
+
+  /** The bonsai archive state proofs enabled option name. */
+  public static final String STATE_PROOFS_ENABLED = "--Xbonsai-archive-state-proofs-enabled";
+
   /** The bonsai archive shallow checkpoint interval option name. */
   public static final String SHALLOW_CHECKPOINT_INTERVAL =
       "--Xbonsai-archive-state-proofs-shallow-checkpoint-interval";
@@ -122,7 +128,7 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
 
     @Option(
         hidden = true,
-        names = {"--Xbonsai-full-flat-db-enabled"},
+        names = {FULL_FLAT_DB_ENABLED},
         arity = "1",
         description = "Enables bonsai full flat database strategy. (default: ${DEFAULT-VALUE})")
     private Boolean fullFlatDbEnabled = DEFAULT_FULL_FLAT_DB_ENABLED;
@@ -160,10 +166,10 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
 
     @Option(
         hidden = true,
-        names = {"--Xbonsai-archive-state-proofs-enabled"},
+        names = {STATE_PROOFS_ENABLED},
         fallbackValue = "true",
         description =
-            "Enables eth_getProof for historical blocks backed by the bonsai archive trie-node store. Requires --data-storage-format=X_BONSAI_ARCHIVE and trie-node capture during initial sync. (default: ${DEFAULT-VALUE})")
+            "Enables eth_getProof for historical blocks backed by the bonsai archive trie-node store. Requires --data-storage-format=X_BONSAI_ARCHIVE and a full sync from genesis (--sync-mode=FULL). (default: ${DEFAULT-VALUE})")
     private Boolean bonsaiArchiveStateProofsEnabled = DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED;
 
     @Option(
@@ -238,6 +244,13 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
       }
     }
     if (DataStorageFormat.X_BONSAI_ARCHIVE == dataStorageFormat) {
+      if (!unstableOptions.fullFlatDbEnabled) {
+        throw new CommandLine.ParameterException(
+            commandLine,
+            String.format(
+                "%s=false cannot be used with --data-storage-format=%s",
+                FULL_FLAT_DB_ENABLED, DataStorageFormat.X_BONSAI_ARCHIVE));
+      }
       validateCheckpointInterval(
           commandLine,
           SHALLOW_CHECKPOINT_INTERVAL,

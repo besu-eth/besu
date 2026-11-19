@@ -140,8 +140,8 @@ public class AccountRangeDataRequest extends SnapDataRequest {
         new AtomicReference<>(noop());
 
     // we have a flat DB only with Bonsai
-    worldStateStorageCoordinator.applyOnMatchingFlatModes(
-        List.of(FlatDbMode.FULL, FlatDbMode.ARCHIVE),
+    worldStateStorageCoordinator.applyOnMatchingFlatMode(
+        FlatDbMode.FULL,
         bonsaiWorldStateStorageStrategy -> {
           flatDatabaseUpdater.set(
               (key, value) ->

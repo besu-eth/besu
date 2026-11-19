@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_ARCHIVE_LATEST;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -22,6 +23,9 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage.Nea
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -35,8 +39,9 @@ import org.slf4j.LoggerFactory;
  * key and the block number at which the value was valid. For a given natural key and target block,
  * returns the latest value at or before that block.
  *
- * <p>Wire format per stored value: {@code [counter: 1 unsigned byte] ‖ [ArchiveTrieNodeCodec
- * entry]}.
+ * <p>Each stored value is an {@link ArchiveTrieNodeCodec} entry. The diff counter of each key's
+ * latest entry (the number of DIFFs since its last FULL) is kept separately in {@code
+ * TRIE_BRANCH_STORAGE_ARCHIVE_LATEST}.
  *
  * <p>Also records the last archived block; history covers every block up to it.
  */
@@ -44,7 +49,7 @@ public final class ArchiveNodeHistoryStore {
 
   private static final Logger LOG = LoggerFactory.getLogger(ArchiveNodeHistoryStore.class);
 
-  // The diff-chain counter is stored as a single unsigned byte, so its maximum value is 255
+  // The latest diff counter is stored as a single unsigned byte, so its maximum value is 255
   public static final int MAX_COUNTER = 0xFF;
 
   /** The last block whose trie nodes are archived; history covers {@code [0, number]}. */
@@ -103,32 +108,17 @@ public final class ArchiveNodeHistoryStore {
   }
 
   /**
-   * Builds the stored wire value: {@code [counter: 1 byte] ‖ codecEntry}.
-   *
-   * @param counter distance since the last FULL entry for this natural key (0 = this entry is FULL)
-   * @param codecEntry the {@link ArchiveTrieNodeCodec} entry bytes to store
-   * @return the wire-format bytes to pass to {@link #putEncoded}
-   * @throws IllegalArgumentException if {@code counter} does not fit in an unsigned byte (0-255)
-   */
-  public static Bytes encodeStoredValue(final int counter, final Bytes codecEntry) {
-    if (counter < 0 || counter > MAX_COUNTER) {
-      throw new IllegalArgumentException("counter must fit in 1 unsigned byte: " + counter);
-    }
-    return Bytes.concatenate(Bytes.of((byte) counter), codecEntry);
-  }
-
-  /**
-   * Writes a pre-built history entry.
+   * Writes a history entry.
    *
    * @param tx the transaction to write through
    * @param historyKey the key, which must come from {@link ArchiveNodeKey#historyKey}
-   * @param storedValue the value, which must come from {@link #encodeStoredValue}
+   * @param codecEntry the {@link ArchiveTrieNodeCodec} entry bytes to store
    */
   public void putEncoded(
       final SegmentedKeyValueStorageTransaction tx,
       final Bytes historyKey,
-      final Bytes storedValue) {
-    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, historyKey.toArrayUnsafe(), storedValue.toArrayUnsafe());
+      final Bytes codecEntry) {
+    tx.put(TRIE_BRANCH_STORAGE_ARCHIVE, historyKey.toArrayUnsafe(), codecEntry.toArrayUnsafe());
   }
 
   /**
@@ -168,20 +158,14 @@ public final class ArchiveNodeHistoryStore {
 
   private Optional<HistoryEntry> decodeStoredValue(
       final Bytes storedValue, final Bytes naturalKey, final long block) {
-    if (storedValue.size() < 2) {
+    if (storedValue.isEmpty()) {
       LOG.error(
-          "corrupt archive entry for key {} at block {}: stored value too short ({} bytes), skipping",
-          naturalKey,
-          block,
-          storedValue.size());
+          "corrupt archive entry for key {} at block {}: empty value, skipping", naturalKey, block);
       return Optional.empty();
     }
-    final int counter = Byte.toUnsignedInt(storedValue.get(0));
-    final Bytes rawEntryBytes = storedValue.slice(1);
     try {
       return Optional.of(
-          new HistoryEntry(
-              counter, ArchiveTrieNodeCodec.decode(rawEntryBytes), rawEntryBytes, block));
+          new HistoryEntry(ArchiveTrieNodeCodec.decode(storedValue), storedValue, block));
     } catch (final IllegalArgumentException e) {
       LOG.error(
           "corrupt archive entry for key {} at block {}: {}, skipping",
@@ -193,14 +177,54 @@ public final class ArchiveNodeHistoryStore {
   }
 
   /**
+   * Returns the diff counter of each natural key's latest history entry. A key is absent when it
+   * has no latest entry, or its latest entry is a deletion.
+   *
+   * @param naturalKeys the natural keys to look up
+   * @return the counters of the keys that have one
+   */
+  public Map<Bytes, Integer> getLatestCounters(final List<Bytes> naturalKeys) {
+    final List<Optional<byte[]>> values =
+        storage.multiget(
+            TRIE_BRANCH_ARCHIVE_LATEST, naturalKeys.stream().map(Bytes::toArrayUnsafe).toList());
+    final Map<Bytes, Integer> counters = new HashMap<>();
+    for (int i = 0; i < naturalKeys.size(); i++) {
+      final Bytes naturalKey = naturalKeys.get(i);
+      values.get(i).ifPresent(v -> counters.put(naturalKey, Byte.toUnsignedInt(v[0])));
+    }
+    return counters;
+  }
+
+  /**
+   * Records {@code counter} as the diff counter of {@code naturalKey}'s latest history entry.
+   *
+   * @param tx the transaction to write through
+   * @param naturalKey the node's natural key
+   * @param counter the latest entry's counter (0 = FULL)
+   */
+  public void putLatestCounter(
+      final SegmentedKeyValueStorageTransaction tx, final Bytes naturalKey, final int counter) {
+    tx.put(TRIE_BRANCH_ARCHIVE_LATEST, naturalKey.toArrayUnsafe(), new byte[] {(byte) counter});
+  }
+
+  /**
+   * Removes {@code naturalKey}'s latest counter, after its latest history entry became a deletion.
+   *
+   * @param tx the transaction to write through
+   * @param naturalKey the node's natural key
+   */
+  public void removeLatestCounter(
+      final SegmentedKeyValueStorageTransaction tx, final Bytes naturalKey) {
+    tx.remove(TRIE_BRANCH_ARCHIVE_LATEST, naturalKey.toArrayUnsafe());
+  }
+
+  /**
    * Decoded, typed view of a stored history entry.
    *
-   * @param counter distance since the last FULL entry for this natural key (0 = this entry is FULL)
    * @param codecEntry the decoded codec entry
    * @param rawEntryBytes the codec entry bytes, unmodified — fed back into {@link
    *     ArchiveTrieNodeCodec#reconstruct} without re-encoding
    * @param block the block number this entry was written at
    */
-  public record HistoryEntry(
-      int counter, ArchiveTrieNodeEntry codecEntry, Bytes rawEntryBytes, long block) {}
+  public record HistoryEntry(ArchiveTrieNodeEntry codecEntry, Bytes rawEntryBytes, long block) {}
 }

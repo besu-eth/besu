@@ -235,20 +235,6 @@ class BonsaiSyncStateStorageTest {
     assertThat(partial.getFlatDbMode()).isEqualTo(FlatDbMode.FULL);
   }
 
-  @Test
-  void completeSyncKeepsAnArchiveDatabase() {
-    final BonsaiWorldStateKeyValueStorage archive =
-        bonsai(
-            ImmutableDataStorageConfiguration.builder()
-                .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
-                .build());
-    archive.upgradeToArchiveFlatDbMode();
-
-    new BonsaiSyncStateStorage(archive).completeSync();
-
-    assertThat(archive.getFlatDbMode()).isEqualTo(FlatDbMode.ARCHIVE);
-  }
-
   // the same storage, whose batches write to this transaction behind the real validator
   private SyncStateStorage storageWritingTo(final SegmentedKeyValueStorageTransaction transaction) {
     final SegmentedKeyValueStorage flat = spy(bonsai.getComposedWorldStateStorage());
