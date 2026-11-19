@@ -31,6 +31,7 @@ import org.hyperledger.besu.evm.gascalculator.SpuriousDragonGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.TangerineWhistleGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.log.EIP7708TransferLogEmitter;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.operation.AddModOperation;
 import org.hyperledger.besu.evm.operation.AddModOperationOptimized;
 import org.hyperledger.besu.evm.operation.AddOperation;
@@ -137,8 +138,99 @@ import org.hyperledger.besu.evm.operation.TStoreOperation;
 import org.hyperledger.besu.evm.operation.TimestampOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
+import org.hyperledger.besu.evm.v2.operation.AddModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.AddressOperationV2;
+import org.hyperledger.besu.evm.v2.operation.AndOperationV2;
+import org.hyperledger.besu.evm.v2.operation.BalanceOperationV2;
+import org.hyperledger.besu.evm.v2.operation.BaseFeeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.BlobBaseFeeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.BlobHashOperationV2;
+import org.hyperledger.besu.evm.v2.operation.BlockHashOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ByteOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallCodeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallDataCopyOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallDataLoadOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallDataSizeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallValueOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CallerOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ChainIdOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CodeCopyOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CodeSizeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CoinbaseOperationV2;
+import org.hyperledger.besu.evm.v2.operation.CountLeadingZerosOperationV2;
+import org.hyperledger.besu.evm.v2.operation.Create2OperationV2;
+import org.hyperledger.besu.evm.v2.operation.CreateOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DelegateCallOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DifficultyOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DupNOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DupOperationV2;
+import org.hyperledger.besu.evm.v2.operation.EqOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExchangeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExpOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExtCodeCopyOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExtCodeHashOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExtCodeSizeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.GasLimitOperationV2;
+import org.hyperledger.besu.evm.v2.operation.GasOperationV2;
+import org.hyperledger.besu.evm.v2.operation.GasPriceOperationV2;
+import org.hyperledger.besu.evm.v2.operation.GtOperationV2;
+import org.hyperledger.besu.evm.v2.operation.InvalidOperationV2;
+import org.hyperledger.besu.evm.v2.operation.IsZeroOperationV2;
+import org.hyperledger.besu.evm.v2.operation.JumpDestOperationV2;
+import org.hyperledger.besu.evm.v2.operation.JumpOperationV2;
+import org.hyperledger.besu.evm.v2.operation.JumpiOperationV2;
+import org.hyperledger.besu.evm.v2.operation.Keccak256OperationV2;
+import org.hyperledger.besu.evm.v2.operation.LogOperationV2;
+import org.hyperledger.besu.evm.v2.operation.LtOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MCopyOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MLoadOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MSizeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MStore8OperationV2;
+import org.hyperledger.besu.evm.v2.operation.MStoreOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
+import org.hyperledger.besu.evm.v2.operation.NotOperationV2;
+import org.hyperledger.besu.evm.v2.operation.NumberOperationV2;
+import org.hyperledger.besu.evm.v2.operation.OrOperationV2;
+import org.hyperledger.besu.evm.v2.operation.OriginOperationV2;
+import org.hyperledger.besu.evm.v2.operation.PCOperationV2;
+import org.hyperledger.besu.evm.v2.operation.PayOperationV2;
+import org.hyperledger.besu.evm.v2.operation.PopOperationV2;
+import org.hyperledger.besu.evm.v2.operation.PrevRanDaoOperationV2;
+import org.hyperledger.besu.evm.v2.operation.PushOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ReturnDataCopyOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ReturnDataSizeOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ReturnOperationV2;
+import org.hyperledger.besu.evm.v2.operation.RevertOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SDivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SGtOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SLoadOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SLtOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SStoreOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SelfBalanceOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SelfDestructOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SignExtendOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SlotNumOperationV2;
+import org.hyperledger.besu.evm.v2.operation.StaticCallOperationV2;
+import org.hyperledger.besu.evm.v2.operation.StopOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SubOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SwapNOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SwapOperationV2;
+import org.hyperledger.besu.evm.v2.operation.TLoadOperationV2;
+import org.hyperledger.besu.evm.v2.operation.TStoreOperationV2;
+import org.hyperledger.besu.evm.v2.operation.TimestampOperationV2;
+import org.hyperledger.besu.evm.v2.operation.XorOperationV2;
 
 import java.math.BigInteger;
+import java.util.function.Consumer;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -151,6 +243,24 @@ public class MainnetEVMs {
 
   private MainnetEVMs() {
     // utility class
+  }
+
+  /**
+   * Builds a fork's EVM v2 operations when the configuration enables EVM v2.
+   *
+   * @param evmConfiguration the evm configuration
+   * @param registerOperations registers the fork's EVM v2 operations
+   * @return the EVM v2 operations, or null when the configuration does not enable EVM v2
+   */
+  private static OperationRegistry operationsV2(
+      final EvmConfiguration evmConfiguration,
+      final Consumer<OperationRegistry> registerOperations) {
+    if (!evmConfiguration.enableEvmV2()) {
+      return null;
+    }
+    final OperationRegistry registry = new OperationRegistry();
+    registerOperations.accept(registry);
+    return registry;
   }
 
   /**
@@ -174,6 +284,7 @@ public class MainnetEVMs {
       final GasCalculator gasCalculator, final EvmConfiguration evmConfiguration) {
     return new EVM(
         frontierOperations(gasCalculator, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerFrontierOperationsV2(r, gasCalculator)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.FRONTIER);
@@ -303,6 +414,103 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register frontier's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   */
+  private static void registerFrontierOperationsV2(
+      final OperationRegistry registry, final GasCalculator gasCalculator) {
+    for (int i = 0; i < 255; i++) {
+      registry.put(new InvalidOperationV2(i, gasCalculator));
+    }
+    registry.put(new AddOperationV2(gasCalculator));
+    registry.put(new MulOperationV2(gasCalculator));
+    registry.put(new SubOperationV2(gasCalculator));
+    registry.put(new DivOperationV2(gasCalculator));
+    registry.put(new SDivOperationV2(gasCalculator));
+    registry.put(new ModOperationV2(gasCalculator));
+    registry.put(new SModOperationV2(gasCalculator));
+    registry.put(new AddModOperationV2(gasCalculator));
+    registry.put(new MulModOperationV2(gasCalculator));
+    registry.put(new ExpOperationV2(gasCalculator));
+    registry.put(new SignExtendOperationV2(gasCalculator));
+    registry.put(new LtOperationV2(gasCalculator));
+    registry.put(new GtOperationV2(gasCalculator));
+    registry.put(new SLtOperationV2(gasCalculator));
+    registry.put(new SGtOperationV2(gasCalculator));
+    registry.put(new EqOperationV2(gasCalculator));
+    registry.put(new IsZeroOperationV2(gasCalculator));
+    registry.put(new AndOperationV2(gasCalculator));
+    registry.put(new OrOperationV2(gasCalculator));
+    registry.put(new XorOperationV2(gasCalculator));
+    registry.put(new NotOperationV2(gasCalculator));
+    registry.put(new ByteOperationV2(gasCalculator));
+    registry.put(new Keccak256OperationV2(gasCalculator));
+    registry.put(new AddressOperationV2(gasCalculator));
+    registry.put(new BalanceOperationV2(gasCalculator));
+    registry.put(new OriginOperationV2(gasCalculator));
+    registry.put(new CallerOperationV2(gasCalculator));
+    registry.put(new CallValueOperationV2(gasCalculator));
+    registry.put(new CallDataLoadOperationV2(gasCalculator));
+    registry.put(new CallDataSizeOperationV2(gasCalculator));
+    registry.put(new CallDataCopyOperationV2(gasCalculator));
+    registry.put(new CodeSizeOperationV2(gasCalculator));
+    registry.put(new CodeCopyOperationV2(gasCalculator));
+    registry.put(new GasPriceOperationV2(gasCalculator));
+    registry.put(new ExtCodeCopyOperationV2(gasCalculator));
+    registry.put(new ExtCodeSizeOperationV2(gasCalculator));
+    registry.put(new BlockHashOperationV2(gasCalculator));
+    registry.put(new CoinbaseOperationV2(gasCalculator));
+    registry.put(new TimestampOperationV2(gasCalculator));
+    registry.put(new NumberOperationV2(gasCalculator));
+    registry.put(new DifficultyOperationV2(gasCalculator));
+    registry.put(new GasLimitOperationV2(gasCalculator));
+    registry.put(new PopOperationV2(gasCalculator));
+    registry.put(new MLoadOperationV2(gasCalculator));
+    registry.put(new MStoreOperationV2(gasCalculator));
+    registry.put(new MStore8OperationV2(gasCalculator));
+    registry.put(new SLoadOperationV2(gasCalculator));
+    registry.put(new SStoreOperationV2(gasCalculator, SStoreOperation.FRONTIER_MINIMUM));
+    registry.put(new JumpOperationV2(gasCalculator));
+    registry.put(new JumpiOperationV2(gasCalculator));
+    registry.put(new PCOperationV2(gasCalculator));
+    registry.put(new MSizeOperationV2(gasCalculator));
+    registry.put(new GasOperationV2(gasCalculator));
+    registry.put(new JumpDestOperationV2(gasCalculator));
+    registry.put(new ReturnOperationV2(gasCalculator));
+    registry.put(new StopOperationV2(gasCalculator));
+    registry.put(new SelfDestructOperationV2(gasCalculator, false, TransferLogEmitter.NOOP));
+    registry.put(new CreateOperationV2(gasCalculator));
+    registry.put(new CallOperationV2(gasCalculator));
+    registry.put(new CallCodeOperationV2(gasCalculator));
+    registry.put(new PushOperationV2.SingleByte(1, gasCalculator));
+
+    // Register the PUSH2, PUSH3, ..., PUSH32 operations.
+    for (int i = 2; i <= 8; ++i) {
+      registry.put(new PushOperationV2.SingleLimb(i, gasCalculator));
+    }
+    for (int i = 9; i <= 32; ++i) {
+      registry.put(new PushOperationV2.MultiLimb(i, gasCalculator));
+    }
+
+    // Register the DUP1, DUP2, ..., DUP16 operations.
+    for (int i = 1; i <= 16; ++i) {
+      registry.put(new DupOperationV2(i, gasCalculator));
+    }
+
+    // Register the SWAP1, SWAP2, ..., SWAP16 operations.
+    for (int i = 1; i <= 16; ++i) {
+      registry.put(new SwapOperationV2(i, gasCalculator));
+    }
+
+    // Register the LOG0, LOG1, ..., LOG4 operations.
+    for (int i = 0; i < 5; ++i) {
+      registry.put(new LogOperationV2(i, gasCalculator));
+    }
+  }
+
+  /**
    * Homestead evm.
    *
    * @param evmConfiguration the evm configuration
@@ -323,6 +531,7 @@ public class MainnetEVMs {
       final GasCalculator gasCalculator, final EvmConfiguration evmConfiguration) {
     return new EVM(
         homesteadOperations(gasCalculator, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerHomesteadOperationsV2(r, gasCalculator)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.HOMESTEAD);
@@ -356,6 +565,18 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register homestead's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   */
+  private static void registerHomesteadOperationsV2(
+      final OperationRegistry registry, final GasCalculator gasCalculator) {
+    registerFrontierOperationsV2(registry, gasCalculator);
+    registry.put(new DelegateCallOperationV2(gasCalculator));
+  }
+
+  /**
    * Spurious dragon evm.
    *
    * @param evmConfiguration the evm configuration
@@ -365,6 +586,7 @@ public class MainnetEVMs {
     GasCalculator gasCalculator = new SpuriousDragonGasCalculator();
     return new EVM(
         homesteadOperations(gasCalculator, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerHomesteadOperationsV2(r, gasCalculator)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.SPURIOUS_DRAGON);
@@ -380,6 +602,7 @@ public class MainnetEVMs {
     GasCalculator gasCalculator = new TangerineWhistleGasCalculator();
     return new EVM(
         homesteadOperations(gasCalculator, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerHomesteadOperationsV2(r, gasCalculator)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.TANGERINE_WHISTLE);
@@ -406,6 +629,7 @@ public class MainnetEVMs {
       final GasCalculator gasCalculator, final EvmConfiguration evmConfiguration) {
     return new EVM(
         byzantiumOperations(gasCalculator, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerByzantiumOperationsV2(r, gasCalculator)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.BYZANTIUM);
@@ -442,6 +666,21 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register byzantium's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   */
+  private static void registerByzantiumOperationsV2(
+      final OperationRegistry registry, final GasCalculator gasCalculator) {
+    registerHomesteadOperationsV2(registry, gasCalculator);
+    registry.put(new ReturnDataCopyOperationV2(gasCalculator));
+    registry.put(new ReturnDataSizeOperationV2(gasCalculator));
+    registry.put(new RevertOperationV2(gasCalculator));
+    registry.put(new StaticCallOperationV2(gasCalculator));
+  }
+
+  /**
    * Constantinople evm.
    *
    * @param evmConfiguration the evm configuration
@@ -470,6 +709,7 @@ public class MainnetEVMs {
       final EvmSpecVersion version) {
     return new EVM(
         constantinopleOperations(gasCalculator, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerConstantinopleOperationsV2(r, gasCalculator)),
         gasCalculator,
         evmConfiguration,
         version);
@@ -510,6 +750,22 @@ public class MainnetEVMs {
       registry.put(new SarOperation(gasCalculator));
     }
     registry.put(new ExtCodeHashOperation(gasCalculator));
+  }
+
+  /**
+   * Register constantinople's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   */
+  private static void registerConstantinopleOperationsV2(
+      final OperationRegistry registry, final GasCalculator gasCalculator) {
+    registerByzantiumOperationsV2(registry, gasCalculator);
+    registry.put(new Create2OperationV2(gasCalculator));
+    registry.put(new ShlOperationV2(gasCalculator));
+    registry.put(new ShrOperationV2(gasCalculator));
+    registry.put(new SarOperationV2(gasCalculator));
+    registry.put(new ExtCodeHashOperationV2(gasCalculator));
   }
 
   /**
@@ -558,6 +814,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         istanbulOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerIstanbulOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.ISTANBUL);
@@ -599,6 +857,24 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register istanbul's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerIstanbulOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerConstantinopleOperationsV2(registry, gasCalculator);
+    registry.put(
+        new ChainIdOperationV2(gasCalculator, Bytes32.leftPad(Bytes.of(chainId.toByteArray()))));
+    registry.put(new SelfBalanceOperationV2(gasCalculator));
+    registry.put(new SStoreOperationV2(gasCalculator, SStoreOperation.EIP_1706_MINIMUM));
+  }
+
+  /**
    * Berlin evm.
    *
    * @param evmConfiguration the evm configuration
@@ -633,6 +909,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         istanbulOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerIstanbulOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.BERLIN);
@@ -673,6 +951,7 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         londonOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerLondonOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.LONDON);
@@ -711,6 +990,21 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register london's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerLondonOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerIstanbulOperationsV2(registry, gasCalculator, chainId);
+    registry.put(new BaseFeeOperationV2(gasCalculator));
+  }
+
+  /**
    * Paris evm.
    *
    * @param evmConfiguration the evm configuration
@@ -745,6 +1039,7 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         parisOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerParisOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.PARIS);
@@ -783,6 +1078,21 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register paris's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerParisOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerLondonOperationsV2(registry, gasCalculator, chainId);
+    registry.put(new PrevRanDaoOperationV2(gasCalculator));
+  }
+
+  /**
    * Shanghai evm.
    *
    * @param evmConfiguration the evm configuration
@@ -817,6 +1127,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         shanghaiOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerShanghaiOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.SHANGHAI);
@@ -855,6 +1167,21 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register shanghai's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerShanghaiOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerParisOperationsV2(registry, gasCalculator, chainId);
+    registry.put(new PushOperationV2.SingleByte(0, gasCalculator));
+  }
+
+  /**
    * Cancun evm.
    *
    * @param evmConfiguration the evm configuration
@@ -889,6 +1216,7 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         cancunOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerCancunOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.CANCUN);
@@ -942,6 +1270,36 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register cancun's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerCancunOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerShanghaiOperationsV2(registry, gasCalculator, chainId);
+
+    // EIP-1153 TSTORE/TLOAD
+    registry.put(new TStoreOperationV2(gasCalculator));
+    registry.put(new TLoadOperationV2(gasCalculator));
+
+    // EIP-4844 BLOBHASH
+    registry.put(new BlobHashOperationV2(gasCalculator));
+
+    // EIP-5656 MCOPY
+    registry.put(new MCopyOperationV2(gasCalculator));
+
+    // EIP-6780 nerf self destruct
+    registry.put(new SelfDestructOperationV2(gasCalculator, true, TransferLogEmitter.NOOP));
+
+    // EIP-7516 BLOBBASEFEE
+    registry.put(new BlobBaseFeeOperationV2(gasCalculator));
+  }
+
+  /**
    * Prague evm.
    *
    * @param evmConfiguration the evm configuration
@@ -976,6 +1334,7 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         pragueOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerCancunOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.PRAGUE);
@@ -1037,6 +1396,7 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         osakaOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(evmConfiguration, r -> registerOsakaOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.OSAKA);
@@ -1077,6 +1437,23 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register Osaka's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerOsakaOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerCancunOperationsV2(registry, gasCalculator, chainId);
+
+    // EIP-7939: CLZ opcode
+    registry.put(new CountLeadingZerosOperationV2(gasCalculator));
+  }
+
+  /**
    * Amsterdam evm.
    *
    * @param evmConfiguration the evm configuration
@@ -1111,6 +1488,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         amsterdamOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerAmsterdamOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.AMSTERDAM);
@@ -1160,6 +1539,32 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register amsterdam's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerAmsterdamOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerOsakaOperationsV2(registry, gasCalculator, chainId);
+
+    // EIP-7708: SelfDestruct with transfer log emission
+    registry.put(
+        new SelfDestructOperationV2(gasCalculator, true, EIP7708TransferLogEmitter.INSTANCE));
+
+    // EIP-7843 SLOTNUM opcode
+    registry.put(new SlotNumOperationV2(gasCalculator));
+
+    // EIP-8024: DUPN, SWAPN, EXCHANGE
+    registry.put(new DupNOperationV2(gasCalculator));
+    registry.put(new SwapNOperationV2(gasCalculator));
+    registry.put(new ExchangeOperationV2(gasCalculator));
+  }
+
+  /**
    * Bogota evm.
    *
    * @param evmConfiguration the evm configuration
@@ -1194,6 +1599,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         bogotaOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerAmsterdamOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.BOGOTA);
@@ -1265,6 +1672,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         polisOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerAmsterdamOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.POLIS);
@@ -1336,6 +1745,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         bangkokOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerAmsterdamOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.BANGKOK);
@@ -1407,6 +1818,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         futureEipsOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerFutureEipsOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.FUTURE_EIPS);
@@ -1447,6 +1860,23 @@ public class MainnetEVMs {
   }
 
   /**
+   * Register future eips's EVM v2 operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   */
+  private static void registerFutureEipsOperationsV2(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainId) {
+    registerAmsterdamOperationsV2(registry, gasCalculator, chainId);
+
+    // EIP-5920 PAY opcode
+    registry.put(new PayOperationV2(gasCalculator));
+  }
+
+  /**
    * Experimental eips evm.
    *
    * @param evmConfiguration the evm configuration
@@ -1482,6 +1912,8 @@ public class MainnetEVMs {
       final EvmConfiguration evmConfiguration) {
     return new EVM(
         experimentalEipsOperations(gasCalculator, chainId, evmConfiguration),
+        operationsV2(
+            evmConfiguration, r -> registerFutureEipsOperationsV2(r, gasCalculator, chainId)),
         gasCalculator,
         evmConfiguration,
         EvmSpecVersion.EXPERIMENTAL_EIPS);
