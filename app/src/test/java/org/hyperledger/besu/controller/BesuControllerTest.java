@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -26,7 +28,9 @@ import org.hyperledger.besu.config.QbftConfigOptions;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 
+import java.io.Closeable;
 import java.io.IOException;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -297,5 +301,40 @@ public class BesuControllerTest {
         new BesuController.Builder().fromGenesisFile(genesis, SyncMode.FULL);
 
     assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
+  }
+
+  @Test
+  public void closeClosesTheResourcesOnceHoweverOftenItIsCalled() throws IOException {
+    final Closeable resource = mock(Closeable.class);
+    final BesuController controller = controllerOwning(resource);
+
+    controller.close();
+    controller.close();
+
+    // the runner that owns the controller and the shutdown hook may both close it
+    verify(resource).close();
+  }
+
+  /** A controller with nothing but the given resources: close() reads only the closeables. */
+  private static BesuController controllerOwning(final Closeable... resources) {
+    return new BesuController(
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        List.of(resources),
+        null,
+        null,
+        null,
+        null,
+        null);
   }
 }

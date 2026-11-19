@@ -108,6 +108,9 @@ public interface BesuPlugin {
    * <p>The external services have been accepting requests since before the main loop started, so a
    * callback this plugin registered may already have run by the time this method is called.
    *
+   * <p>If this method throws under {@code --plugin-continue-on-error}, the plugin receives no
+   * further lifecycle calls until it is stopped, at shutdown or before an Ephemery restart.
+   *
    * @param context the running-phase context, whose lookup also accepts every {@link StartService}
    */
   default void afterMainLoop(final RunningContext context) {}
@@ -128,6 +131,10 @@ public interface BesuPlugin {
   /**
    * Called when the plugin is being stopped. This method will be called as part of Besu shutting
    * down but may also be called at other times to disable the plugin.
+   *
+   * <p>Called once for every plugin whose {@link #start(StartContext)} returned, in the reverse of
+   * the start order, also when a later plugin or the node failed to start; a stop that runs longer
+   * than 30 seconds is interrupted and abandoned, and a failure in it does not stop the others.
    *
    * <p>The plugin should remove any registered listeners and stop any background threads it
    * started.

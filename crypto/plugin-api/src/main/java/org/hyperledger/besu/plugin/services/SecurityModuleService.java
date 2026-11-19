@@ -29,12 +29,15 @@ import java.util.function.Supplier;
 public interface SecurityModuleService extends RegistrationService {
 
   /**
-   * Registers a provider of security modules.
+   * Registers a provider of security modules. The name must be free: a name another plugin or Besu
+   * itself already registered, such as the default {@code localfile}, fails the registration, and
+   * with it the plugin's startup; a plugin may register its own name again, replacing its provider.
    *
    * @param name The name to identify the Security Provider Supplier
    * @param securityModuleSupplier Register reference of Security Module Supplier.
    * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
    *     has closed
+   * @throws IllegalStateException if another registrant already registered that name
    */
   void register(String name, Supplier<SecurityModule> securityModuleSupplier);
 

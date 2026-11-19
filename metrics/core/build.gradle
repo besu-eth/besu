@@ -49,6 +49,7 @@ jar {
 
 dependencies {
   implementation project(':plugin-api')
+  implementation project(':util')
   api 'org.slf4j:slf4j-api'
 
   errorprone 'com.uber.nullaway:nullaway'

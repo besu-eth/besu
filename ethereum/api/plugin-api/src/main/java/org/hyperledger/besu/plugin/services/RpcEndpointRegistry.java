@@ -61,12 +61,17 @@ public interface RpcEndpointRegistry extends RegistrationService {
    * org.hyperledger.besu.plugin.services.exception.PluginRpcEndpointException} until the services
    * it obtains in {@code start()} are in place.
    *
+   * <p>The method name, {@code namespace_functionName}, must be free: a name another plugin already
+   * registered fails the registration, and with it the plugin's startup; a plugin may register its
+   * own method again, replacing the function.
+   *
    * @param namespace The namespace of the method, must be alphanumeric.
    * @param functionName The name of the function, must be alphanumeric.
    * @param function The function itself.
    * @param <T> specified type of return object
    * @throws org.hyperledger.besu.plugin.RegistrationClosedException if called after registration
    *     has closed
+   * @throws IllegalStateException if another plugin already registered that method
    */
   <T> void registerRPCEndpoint(
       String namespace, String functionName, Function<PluginRpcRequest, T> function);

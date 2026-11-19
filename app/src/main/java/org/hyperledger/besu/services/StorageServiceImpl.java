@@ -19,19 +19,19 @@ import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.StorageService;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
+import org.hyperledger.besu.util.KeyedRegistrations;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 import javax.inject.Inject;
 
 /** The Storage service implementation. */
 public class StorageServiceImpl implements StorageService {
 
   private final List<SegmentIdentifier> segments;
-  private final Map<String, KeyValueStorageFactory> factories;
+  private final KeyedRegistrations<KeyValueStorageFactory> factories;
   private final BooleanSupplier registrationOpen;
 
   /** Instantiates a new Storage service that accepts registrations at any time. */
@@ -41,14 +41,27 @@ public class StorageServiceImpl implements StorageService {
   }
 
   /**
-   * Instantiates a new Storage service.
+   * Instantiates a new Storage service whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; registrations made while
    *     it is closed are rejected
    */
   public StorageServiceImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Instantiates a new Storage service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; registrations made while
+   *     it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a factory name already registered by another registrant is rejected
+   */
+  public StorageServiceImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
     this.segments = List.of(KeyValueSegmentIdentifier.values());
-    this.factories = new ConcurrentHashMap<>();
+    this.factories = new KeyedRegistrations<>("storage factory", currentRegistrant);
     this.registrationOpen = registrationOpen;
   }
 
@@ -57,7 +70,7 @@ public class StorageServiceImpl implements StorageService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("StorageService", "registerKeyValueStorage");
     }
-    factories.put(factory.getName(), factory);
+    factories.register(factory.getName(), factory);
   }
 
   @Override
@@ -67,6 +80,6 @@ public class StorageServiceImpl implements StorageService {
 
   @Override
   public Optional<KeyValueStorageFactory> getByName(final String name) {
-    return Optional.ofNullable(factories.get(name));
+    return factories.get(name);
   }
 }

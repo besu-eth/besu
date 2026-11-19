@@ -17,10 +17,9 @@ package org.hyperledger.besu.cryptoservices.pluginadapter;
 import org.hyperledger.besu.plugin.RegistrationClosedException;
 import org.hyperledger.besu.plugin.services.SecurityModuleService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
+import org.hyperledger.besu.util.KeyedRegistrations;
 
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import javax.inject.Inject;
@@ -28,8 +27,7 @@ import javax.inject.Inject;
 /** The Security module service implementation. */
 public class SecurityModuleServiceImpl implements SecurityModuleService {
 
-  private final Map<String, Supplier<SecurityModule>> securityModuleSuppliers =
-      new ConcurrentHashMap<>();
+  private final KeyedRegistrations<Supplier<SecurityModule>> securityModuleSuppliers;
   private final BooleanSupplier registrationOpen;
 
   /** Creates a service that accepts registrations at any time. */
@@ -39,12 +37,26 @@ public class SecurityModuleServiceImpl implements SecurityModuleService {
   }
 
   /**
-   * Creates the service.
+   * Creates a service whose registrations all count as Besu's own.
    *
    * @param registrationOpen whether plugin registration is currently open; registrations made while
    *     it is closed are rejected
    */
   public SecurityModuleServiceImpl(final BooleanSupplier registrationOpen) {
+    this(registrationOpen, Optional::empty);
+  }
+
+  /**
+   * Creates the service.
+   *
+   * @param registrationOpen whether plugin registration is currently open; registrations made while
+   *     it is closed are rejected
+   * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
+   *     itself is registering; a module name already registered by another registrant is rejected
+   */
+  public SecurityModuleServiceImpl(
+      final BooleanSupplier registrationOpen, final Supplier<Optional<String>> currentRegistrant) {
+    this.securityModuleSuppliers = new KeyedRegistrations<>("security module", currentRegistrant);
     this.registrationOpen = registrationOpen;
   }
 
@@ -53,11 +65,11 @@ public class SecurityModuleServiceImpl implements SecurityModuleService {
     if (!registrationOpen.getAsBoolean()) {
       throw new RegistrationClosedException("SecurityModuleService", "register");
     }
-    securityModuleSuppliers.put(name, securityModuleSupplier);
+    securityModuleSuppliers.register(name, securityModuleSupplier);
   }
 
   @Override
   public Optional<Supplier<SecurityModule>> getByName(final String name) {
-    return Optional.ofNullable(securityModuleSuppliers.get(name));
+    return securityModuleSuppliers.get(name);
   }
 }

@@ -731,15 +731,18 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private Optional<PermissioningConfiguration> permissioningConfiguration;
   private DataStorageConfiguration dataStorageConfiguration;
   private Collection<EnodeURLImpl> staticNodes;
-  private BesuController besuController;
+  // read by the shutdown hook thread, written by the thread running a startup
+  private volatile BesuController besuController;
+  // set by the shutdown hook thread, read by the thread running a startup
+  private volatile boolean shuttingDown;
   private BesuConfigurationImpl pluginCommonConfiguration;
 
   private Optional<Checkpoint> checkpoint = Optional.empty();
 
   private Vertx vertx;
-  private Runner runner;
+  private volatile Runner runner;
   private EnodeDnsConfiguration enodeDnsConfiguration;
-  private KeyValueStorageProvider keyValueStorageProvider;
+  private volatile KeyValueStorageProvider keyValueStorageProvider;
   private KeyPair keyPair;
   private BigInteger ephemeryNextCycleId = BigInteger.ZERO;
 
@@ -778,10 +781,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         controllerBuilder,
         besuPluginContext,
         environment,
-        new StorageServiceImpl(besuPluginContext::isRegistering),
-        new SecurityModuleServiceImpl(besuPluginContext::isRegistering),
+        new StorageServiceImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
+        new SecurityModuleServiceImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
         new PermissioningServiceImpl(besuPluginContext::isRegistering),
-        new RpcEndpointRegistryImpl(besuPluginContext::isRegistering),
+        new RpcEndpointRegistryImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
         new TransactionSelectionServiceImpl(besuPluginContext::isRegistering),
         new TransactionPoolValidatorServiceImpl(besuPluginContext::isRegistering),
         new TransactionValidatorServiceImpl(besuPluginContext::isRegistering),
@@ -842,8 +848,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     this.storageService = storageService;
     this.securityModuleService = securityModuleService;
     this.permissioningService = permissioningService;
-    this.metricCategoryRegistry = new MetricCategoryRegistryImpl(besuPluginContext::isRegistering);
-    this.healthCheckService = new HealthCheckServiceImpl(besuPluginContext::isRegistering);
+    this.metricCategoryRegistry =
+        new MetricCategoryRegistryImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
+    this.healthCheckService =
+        new HealthCheckServiceImpl(
+            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
     this.pluginCommonConfiguration = new BesuConfigurationImpl();
     besuPluginContext.addService(BesuConfiguration.class, this.pluginCommonConfiguration);
     besuPluginContext.addService(CoreConfiguration.class, this.pluginCommonConfiguration);
@@ -1152,6 +1162,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
       validateOptions();
 
+      // installed once, before storage opens: a startup that fails at any point, or a signal during
+      // it, still closes what was opened; the Ephemery restart re-enters initialProcess() without
+      // passing here again
+      addShutdownHook();
       initialProcess();
       // A trusted setup loading in the background may still be loading: wait for it, so that a
       // failed load stops the node now rather than at its first KZG operation. No-op otherwise.
@@ -1196,19 +1210,35 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       configurePrecompileCaching();
     }
 
+    // a shutdown that began meanwhile is closing what exists: nothing more is built on top of it
+    abandonStartupIfShuttingDown();
     besuController = buildController();
 
+    abandonStartupIfShuttingDown();
     runner = buildRunner();
 
-    startPlugins(runner);
-    runner.startExternalServices();
-    setReleaseMetrics();
-    preSynchronization();
+    try {
+      startPlugins(runner);
+      runner.startExternalServices();
+      setReleaseMetrics();
+      preSynchronization();
 
-    runner.startEthereumMainLoop();
+      runner.startEthereumMainLoop();
 
-    BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
-    besuPluginContext.afterMainLoop();
+      BesuPluginServiceRegistrar.registerRunningServices(besuPluginContext, besuController, runner);
+      besuPluginContext.afterMainLoop();
+    } catch (final Exception | LinkageError e) {
+      // the plugins that started are stopped, newest first, before the failure propagates: on a
+      // first start the process then exits through the hook, which finds nothing left to stop; an
+      // Ephemery cycle that failed to start stays up, and must not leave its plugins running
+      try {
+        besuPluginContext.stopPluginsForRestart();
+      } catch (final IllegalStateException alreadyStopped) {
+        // the shutdown hook stopped them first: a signal arrived during the failing startup
+        logger.debug("The plugins were already stopped when the startup failed", alreadyStopped);
+      }
+      throw e;
+    }
   }
 
   private void configurePrecompileCaching() {
@@ -2710,8 +2740,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .transactionValidatorService(transactionValidatorServiceImpl)
             .build();
 
-    addShutdownHook(runner);
-
     return runner;
   }
 
@@ -2729,20 +2757,83 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .build();
   }
 
-  private void addShutdownHook(final Runner runner) {
-    Runtime.getRuntime()
-        .addShutdownHook(
-            new Thread(
-                () -> {
-                  try {
-                    besuPluginContext.stopPlugins();
-                    runner.close();
-                    LogConfigurator.shutdown();
-                  } catch (final Exception e) {
-                    logger.error("Failed to stop Besu");
-                  }
-                },
-                "BesuCommand-Shutdown-Hook"));
+  @VisibleForTesting
+  void addShutdownHook() {
+    Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "BesuCommand-Shutdown-Hook"));
+  }
+
+  /**
+   * The work of the shutdown hook, on whatever startup reached: the plugins that started are
+   * stopped, then the runner is closed, which saves the transaction pool and closes the controller
+   * and with it the database. The controller, when one was built, is closed next in any case: a
+   * no-op when the runner did it, the real close when the runner's stop threw before reaching it,
+   * when no runner was built, or when an Ephemery restart had replaced the controller but not yet
+   * the runner. Then a storage provider no controller owns is closed, one opened by a controller
+   * build that failed. The plugin class loader is closed last, once nothing can call into plugin
+   * code. Each step runs whatever the one before it threw.
+   */
+  @VisibleForTesting
+  void shutdown() {
+    // first, so a startup thread between two build steps sees it before it builds the next thing
+    shuttingDown = true;
+    final Runner runnerToClose = runner;
+    final BesuController controllerToClose = besuController;
+    final KeyValueStorageProvider storageToClose = keyValueStorageProvider;
+    shutdownStep("stop the plugins", besuPluginContext::stopPlugins);
+    shutdownStep(
+        "stop Besu",
+        () -> {
+          if (runnerToClose != null) {
+            runnerToClose.close();
+          }
+        });
+    // the runner closes its own controller at the end of its service stop, which a stop that threw
+    // on the way never reaches; a controller may also have no runner yet, on a startup that failed
+    // before the runner was built or an Ephemery restart that has replaced the controller but not
+    // the runner: the controller is closed here in every case, a second close being a no-op
+    shutdownStep(
+        "close the controller",
+        () -> {
+          if (controllerToClose != null) {
+            controllerToClose.close();
+          }
+        });
+    // the controller closes its own storage provider; one no controller owns was opened by a
+    // controller build that failed, and is closed by itself
+    shutdownStep(
+        "close the storage",
+        () -> {
+          if (storageToClose != null
+              && (controllerToClose == null
+                  || controllerToClose.getStorageProvider() != storageToClose)) {
+            storageToClose.close();
+          }
+        });
+    shutdownStep("close the plugin class loader", besuPluginContext::closePluginClassLoader);
+    LogConfigurator.shutdown();
+  }
+
+  private void shutdownStep(final String action, final ShutdownStep step) {
+    try {
+      step.run();
+    } catch (final Throwable t) {
+      logger.error("Failed to {}", action, t);
+    }
+  }
+
+  private interface ShutdownStep {
+    void run() throws Exception;
+  }
+
+  /**
+   * Ends the startup once the shutdown hook has begun, so the thread running it builds nothing the
+   * hook will not see; a build already under way is not interrupted, the hook does not wait for it.
+   */
+  private void abandonStartupIfShuttingDown() {
+    if (shuttingDown) {
+      throw new IllegalStateException(
+          "Shutdown requested while the node was starting; the startup is abandoned");
+    }
   }
 
   private EthNetworkConfig updateNetworkConfig(final NetworkDefinition network) {

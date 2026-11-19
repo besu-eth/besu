@@ -14,12 +14,17 @@
  */
 package org.hyperledger.besu.metrics;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
 
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
@@ -62,5 +67,54 @@ class MetricCategoryRegistryImplTest {
             .build();
     registry.setMetricsConfiguration(metricsConfiguration);
     assertFalse(registry.isMetricCategoryEnabled(BesuMetricCategory.BLOCKCHAIN));
+  }
+
+  /** A plugin's category, carrying only its name. */
+  private record PluginCategory(String name) implements MetricCategory {
+    @Override
+    public String getName() {
+      return name;
+    }
+
+    @Override
+    public Optional<String> getApplicationPrefix() {
+      return Optional.empty();
+    }
+  }
+
+  @Test
+  void aCategoryNameAnotherPluginRegisteredIsRejectedNamingThatPlugin() {
+    final AtomicReference<String> registrant = new AtomicReference<>("pluginA");
+    final var registry =
+        new MetricCategoryRegistryImpl(() -> true, () -> Optional.ofNullable(registrant.get()));
+    registry.addMetricCategory(new PluginCategory("custom"));
+    registrant.set("pluginB");
+
+    assertThatThrownBy(() -> registry.addMetricCategory(new PluginCategory("custom")))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("cannot register metric category custom: plugin pluginA already registered it");
+    assertThat(registry.containsMetricCategory("custom")).isTrue();
+  }
+
+  @Test
+  void aPluginMayRegisterItsOwnCategoryNameAgain() {
+    final var registry = new MetricCategoryRegistryImpl(() -> true, () -> Optional.of("pluginA"));
+    final PluginCategory second = new PluginCategory("custom");
+    registry.addMetricCategory(new PluginCategory("custom"));
+
+    registry.addMetricCategory(second);
+
+    assertThat(registry.getMetricCategory("custom")).isSameAs(second);
+  }
+
+  @Test
+  void aPluginCategoryNamedLikeOneOfBesusOwnIsRejectedNamingBesu() {
+    final var registry = new MetricCategoryRegistryImpl(() -> true, () -> Optional.of("pluginA"));
+    registry.addCategories(StandardMetricCategory.class);
+
+    assertThatThrownBy(() -> registry.addMetricCategory(new PluginCategory("process")))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("cannot register metric category process: Besu already registered it");
+    assertThat(registry.getMetricCategory("process")).isSameAs(StandardMetricCategory.PROCESS);
   }
 }
