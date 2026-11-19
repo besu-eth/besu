@@ -15,6 +15,7 @@
 package org.hyperledger.besu.services.kvstore;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
+import static org.hyperledger.besu.services.kvstore.KeyComparator.UNSIGNED_KEY_ORDER;
 import static org.hyperledger.besu.services.kvstore.KeyComparator.compareKeyLeftToRight;
 
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -26,9 +27,7 @@ import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -79,10 +78,7 @@ public class SegmentedInMemoryKeyValueStorage
   protected static NavigableMap<Bytes, Optional<byte[]>> newSegmentMap(
       final Map<Bytes, Optional<byte[]>> sourceMap) {
 
-    Comparator<Bytes> byteWiseComparator =
-        Comparator.comparing(Bytes::toArrayUnsafe, Arrays::compareUnsigned);
-
-    NavigableMap<Bytes, Optional<byte[]>> segMap = new ConcurrentSkipListMap<>(byteWiseComparator);
+    NavigableMap<Bytes, Optional<byte[]>> segMap = new ConcurrentSkipListMap<>(UNSIGNED_KEY_ORDER);
 
     segMap.putAll(sourceMap);
     return segMap;
@@ -260,8 +256,8 @@ public class SegmentedInMemoryKeyValueStorage
       return ImmutableSet.copyOf(
               hashValueStore.computeIfAbsent(segmentIdentifier, s -> newSegmentMap()).entrySet())
           .stream()
+          // ImmutableSet keeps the segment map's unsigned byte order, the same order as RocksDB
           .filter(bytesEntry -> bytesEntry.getValue().isPresent())
-          .sorted(Map.Entry.comparingByKey())
           .map(
               bytesEntry ->
                   Pair.of(bytesEntry.getKey().toArrayUnsafe(), bytesEntry.getValue().get()));
@@ -275,7 +271,7 @@ public class SegmentedInMemoryKeyValueStorage
       final SegmentIdentifier segmentIdentifier, final byte[] startKey) {
     final Bytes startKeyBytes = Bytes.wrap(startKey);
     return stream(segmentIdentifier)
-        .filter(e -> startKeyBytes.compareTo(Bytes.wrap(e.getKey())) <= 0);
+        .filter(e -> UNSIGNED_KEY_ORDER.compare(startKeyBytes, Bytes.wrap(e.getKey())) <= 0);
   }
 
   @Override
@@ -284,8 +280,8 @@ public class SegmentedInMemoryKeyValueStorage
     final Bytes startKeyHash = Bytes.wrap(startKey);
     final Bytes endKeyHash = Bytes.wrap(endKey);
     return stream(segmentIdentifier)
-        .filter(e -> startKeyHash.compareTo(Bytes.wrap(e.getKey())) <= 0)
-        .filter(e -> endKeyHash.compareTo(Bytes.wrap(e.getKey())) >= 0);
+        .filter(e -> UNSIGNED_KEY_ORDER.compare(startKeyHash, Bytes.wrap(e.getKey())) <= 0)
+        .filter(e -> UNSIGNED_KEY_ORDER.compare(endKeyHash, Bytes.wrap(e.getKey())) >= 0);
   }
 
   @Override

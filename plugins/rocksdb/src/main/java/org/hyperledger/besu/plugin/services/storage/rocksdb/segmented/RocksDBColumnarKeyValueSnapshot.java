@@ -27,6 +27,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -163,14 +164,13 @@ public class RocksDBColumnarKeyValueSnapshot
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segment, final byte[] startKey, final byte[] endKey) {
     throwIfClosed();
-    final Bytes endKeyBytes = Bytes.wrap(endKey);
-
     final RocksIterator rocksIterator =
         db.newIterator(columnFamilyMapper.apply(segment), readOptions);
     rocksIterator.seek(startKey);
+    // RocksDB orders keys as unsigned bytes, so the end bound must too
     return RocksDbIterator.create(rocksIterator)
         .toStream()
-        .takeWhile(e -> endKeyBytes.compareTo(Bytes.wrap(e.getKey())) >= 0);
+        .takeWhile(e -> Arrays.compareUnsigned(endKey, e.getKey()) >= 0);
   }
 
   @Override
