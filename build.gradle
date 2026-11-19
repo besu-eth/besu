@@ -1047,6 +1047,11 @@ application {
   applicationDefaultJvmArgs = [
     '-Dvertx.disableFileCPResolving=true',
     '-XX:+ExitOnOutOfMemoryError',
+    // CVE-2026-114938: HotSpot's AVX-512 Base64 decode intrinsic can write past its output
+    // array. Remove once the JDK carries the fix.
+    '-XX:-UseBASE64Intrinsics',
+    '-XX:+UnlockDiagnosticVMOptions',
+    '-XX:-ReduceAllocationMerges',
     // BESU_HOME is replaced by a doFirst block in the run task.
     '-Dbesu.home=BESU_HOME',
     // We shutdown log4j ourselves, as otherwise this shutdown hook runs before our own and whatever
