@@ -74,6 +74,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,6 +113,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   private final AtomicReference<Hash> finalizedHashAfterBackwardSync = new AtomicReference<>();
   private final AtomicReference<CompletableFuture<Void>> backwardSyncWithFinalizedUpdate =
       new AtomicReference<>();
+
+  private final Cache<Hash, ValidatedBlock> validatedBlockCache;
 
   /**
    * Instantiates a new Merge coordinator.
@@ -239,6 +243,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       getDefaultGasLimit(protocolSchedule).ifPresent(miningParams::setTargetGasLimit);
     }
     this.miningConfiguration = miningParams;
+    this.validatedBlockCache =
+        CacheBuilder.newBuilder()
+            .maximumSize(miningParams.getUnstable().getPosValidatedBlockCacheSize())
+            .build();
 
     this.mergeBlockCreatorFactory = mergeBlockCreatorFactory;
     this.mempoolPrewarmer = mempoolPrewarmer;
@@ -808,7 +816,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 InclusionListTransactions.EMPTY,
                 false,
                 false);
-
+    if (validationResult.isSuccessful()) {
+      validatedBlockCache.put(
+          block.getHash(), new ValidatedBlock(blockAccessList, validationResult));
+    }
     return validationResult;
   }
 
@@ -827,16 +838,27 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     mempoolPrewarmer.ifPresent(prewarmer -> prewarmer.stop(Optional.of(block)));
     final var chain = protocolContext.getBlockchain();
     final var validationResult =
-        protocolSchedule
-            .getByBlockHeader(block.getHeader())
-            .getBlockValidator()
-            .validateAndProcessBlockDeferringTrieLog(
-                protocolContext,
-                block,
-                HeaderValidationMode.FULL,
-                HeaderValidationMode.NONE,
-                blockAccessList,
-                inclusionListTransactions);
+        Optional.ofNullable(validatedBlockCache.getIfPresent(block.getHash()))
+            .filter(validated -> validated.blockAccessList().equals(blockAccessList))
+            // built without the inclusion list: reusable only if the block includes all of it
+            .filter(
+                validated ->
+                    inclusionListTransactions
+                        .notIncludedIn(block.getBody().getTransactions())
+                        .isEmpty())
+            .map(ValidatedBlock::result)
+            .orElseGet(
+                () ->
+                    protocolSchedule
+                        .getByBlockHeader(block.getHeader())
+                        .getBlockValidator()
+                        .validateAndProcessBlockDeferringTrieLog(
+                            protocolContext,
+                            block,
+                            HeaderValidationMode.FULL,
+                            HeaderValidationMode.NONE,
+                            blockAccessList,
+                            inclusionListTransactions));
     validationResult
         .getYield()
         .ifPresentOrElse(
@@ -849,6 +871,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             () -> LOG.debug("empty yield in blockProcessingResult"));
     return validationResult;
   }
+
+  private record ValidatedBlock(
+      Optional<BlockAccessList> blockAccessList, BlockProcessingResult result) {}
 
   @Override
   public ForkchoiceResult updateForkChoice(

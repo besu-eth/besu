@@ -30,7 +30,7 @@ class BlockProcessingOutputsTest {
   @Test
   void inclusionListIsSatisfiedWhenProcessedWithoutOne() {
     final BlockProcessingOutputs outputs =
-        new BlockProcessingOutputs(null, List.of(), Optional.empty(), Optional.empty(), 0);
+        new BlockProcessingOutputs(List.of(), Optional.empty(), Optional.empty(), 0);
 
     assertThat(outputs.getInclusionListValidationResult().isValid()).isTrue();
   }
@@ -41,7 +41,7 @@ class BlockProcessingOutputsTest {
         InclusionListValidationResult.unsatisfied("unsatisfied");
     final BlockProcessingOutputs outputs =
         new BlockProcessingOutputs(
-            null, List.of(), Optional.empty(), Optional.empty(), 0, Map.of(), unsatisfied);
+            List.of(), Optional.empty(), Optional.empty(), 0, Map.of(), unsatisfied);
 
     assertThat(outputs.getInclusionListValidationResult()).isSameAs(unsatisfied);
   }
@@ -52,6 +52,6 @@ class BlockProcessingOutputsTest {
         .isThrownBy(
             () ->
                 new BlockProcessingOutputs(
-                    null, List.of(), Optional.empty(), Optional.empty(), 0, Map.of(), null));
+                    List.of(), Optional.empty(), Optional.empty(), 0, Map.of(), null));
   }
 }
