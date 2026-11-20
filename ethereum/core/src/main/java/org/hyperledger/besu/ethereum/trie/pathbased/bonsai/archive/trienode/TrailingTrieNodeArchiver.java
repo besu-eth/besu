@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.TrieLogReplayArchiver.UnarchivableBlockException;
+import org.hyperledger.besu.util.log.LogUtil;
 
 import java.io.Closeable;
 import java.util.OptionalLong;
@@ -41,6 +42,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class TrailingTrieNodeArchiver implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(TrailingTrieNodeArchiver.class);
+  private static final int FAILURE_LOG_INTERVAL_SECONDS = 60;
 
   private final Blockchain blockchain;
   private final ArchiveNodeHistoryStore historyStore;
@@ -48,6 +50,7 @@ public final class TrailingTrieNodeArchiver implements Closeable {
   private final LongSupplier target;
   private final ExecutorService executor;
   private final AtomicBoolean running = new AtomicBoolean();
+  private final AtomicBoolean shouldLogFailure = new AtomicBoolean(true);
   private OptionalLong observerId = OptionalLong.empty();
   private volatile boolean halted;
   private volatile boolean closed;
@@ -116,7 +119,10 @@ public final class TrailingTrieNodeArchiver implements Closeable {
       halt(e.getMessage());
     } catch (final RuntimeException e) {
       if (!closed) {
-        LOG.error("Trie-node archiver failed; retrying on the next block", e);
+        LogUtil.throttledLog(
+            () -> LOG.warn("Trie-node archiver failed; retrying on the next block", e),
+            shouldLogFailure,
+            FAILURE_LOG_INTERVAL_SECONDS);
       }
     } finally {
       running.set(false);

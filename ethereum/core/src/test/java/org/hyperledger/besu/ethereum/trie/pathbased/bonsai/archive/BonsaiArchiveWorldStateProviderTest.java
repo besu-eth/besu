@@ -558,6 +558,16 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiverTargetIsCappedAtTheChainHead() {
+    genesisConfig = "{\"config\":{\"qbft\":{}}}";
+    final BonsaiArchiveWorldStateProvider bftProvider = createProvider(true);
+    // the head block's state is persisted, but the block isn't on the chain yet
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(CHAIN_HEAD - 1);
+
+    assertThat(bftProvider.archiverTarget()).isEqualTo(CHAIN_HEAD - 1);
+  }
+
+  @Test
   void archiverHasNoTargetWithoutAPersistedState() {
     genesisConfig = "{\"config\":{\"qbft\":{}}}";
     seedWorldStateBlockHash = false;

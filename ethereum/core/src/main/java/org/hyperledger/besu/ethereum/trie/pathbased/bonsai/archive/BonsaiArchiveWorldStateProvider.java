@@ -211,7 +211,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     return new ThreadFactoryBuilder().setDaemon(true).setNameFormat(nameFormat).build();
   }
 
-  // The archiver hands back to inline capture once it reaches the persisted head.
   @VisibleForTesting
   long archiverTarget() {
     final long persistedHead =
@@ -220,7 +219,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             .flatMap(blockchain::getBlockHeader)
             .map(header -> header.getNumber())
             .orElse(-1L);
-    return Math.min(highestFinalBlock(), persistedHead);
+    return Math.min(
+        Math.min(highestFinalBlock(), persistedHead), blockchain.getChainHeadBlockNumber());
   }
 
   // BFT blocks are final on import, unless the chain moves to PoS
