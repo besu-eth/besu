@@ -116,6 +116,7 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
+import io.vertx.core.VertxOptions;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.json.jackson.DatabindCodec;
 import org.apache.tuweni.bytes.Bytes;
@@ -2633,6 +2634,48 @@ public class BesuCommandTest extends CommandTestAbstract {
       // the decoder is a global singleton, leave it as it was for other tests
       DatabindCodec.mapper().getFactory().setStreamReadConstraints(original);
     }
+  }
+
+  @Test
+  public void assertThatDefaultRpcVertxWorkerPoolSizeWorks() {
+    final TestBesuCommand command = parseCommand();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(command.getVertxOptions().getWorkerPoolSize())
+        .isEqualTo(VertxOptions.DEFAULT_WORKER_POOL_SIZE);
+  }
+
+  @Test
+  public void assertThatRpcVertxWorkerPoolSizeWorks() {
+    final TestBesuCommand command = parseCommand("--Xrpc-vertx-worker-pool-size=64");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(command.getVertxOptions().getWorkerPoolSize()).isEqualTo(64);
+  }
+
+  @Test
+  public void assertThatNonNumericRpcVertxWorkerPoolSizeFails() {
+    parseCommand("--Xrpc-vertx-worker-pool-size=abc");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Invalid value for option '--Xrpc-vertx-worker-pool-size'", "abc");
+  }
+
+  @Test
+  public void assertThatNonPositiveRpcVertxWorkerPoolSizeFails() {
+    parseCommand("--Xrpc-vertx-worker-pool-size=0");
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Invalid value for option '--Xrpc-vertx-worker-pool-size'", "0");
+  }
+
+  @Test
+  public void assertThatEngineRpcVertxPoolSizesAreIndependentOfTheJsonRpcPool() {
+    final TestBesuCommand command =
+        parseCommand(
+            "--Xrpc-vertx-worker-pool-size=64",
+            "--Xengine-rpc-vertx-worker-pool-size=6",
+            "--Xengine-rpc-vertx-event-loop-pool-size=3");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+    assertThat(command.getVertxOptions().getWorkerPoolSize()).isEqualTo(64);
+    assertThat(command.getEngineVertxOptions().getWorkerPoolSize()).isEqualTo(6);
+    assertThat(command.getEngineVertxOptions().getEventLoopPoolSize()).isEqualTo(3);
   }
 
   @Test

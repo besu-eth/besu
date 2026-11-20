@@ -427,6 +427,7 @@ public class EphemeryTest extends CommandTestAbstract {
     final RunnerBuilder runnerBuilder =
         new RunnerBuilder()
             .vertx(vertx)
+            .engineVertx(Vertx.vertx())
             .discoveryEnabled(true)
             .p2pAdvertisedHost(besuCommand.p2PDiscoveryConfig.p2pHost())
             .p2pListenPort(besuCommand.p2PDiscoveryConfig.p2pPort())
