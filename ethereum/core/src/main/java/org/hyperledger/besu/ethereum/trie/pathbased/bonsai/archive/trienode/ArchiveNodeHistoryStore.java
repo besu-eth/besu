@@ -66,16 +66,6 @@ public final class ArchiveNodeHistoryStore {
   }
 
   /**
-   * Returns whether {@code block}'s trie nodes are archived.
-   *
-   * @param block the block number
-   * @return {@code true} if history covers {@code block}
-   */
-  public boolean isArchived(final long block) {
-    return getArchivedBlock().filter(last -> block <= last.number()).isPresent();
-  }
-
-  /**
    * Returns the last archived block's number and hash, read together.
    *
    * @return the last archived block, or empty if none

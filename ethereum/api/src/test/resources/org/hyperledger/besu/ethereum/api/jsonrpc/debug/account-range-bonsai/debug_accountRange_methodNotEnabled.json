@@ -1,0 +1,22 @@
+{
+  "request": {
+    "id": 414,
+    "jsonrpc": "2.0",
+    "method": "debug_accountRange",
+    "params": [
+      "0x10",
+      "0x1",
+      "0x0",
+      100
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 414,
+    "error": {
+      "code": -32604,
+      "message": "Method not enabled"
+    }
+  },
+  "statusCode": 200
+}

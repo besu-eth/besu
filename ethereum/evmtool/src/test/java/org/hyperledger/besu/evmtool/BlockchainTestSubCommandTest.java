@@ -22,7 +22,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.PrintWriter;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -175,6 +177,62 @@ class BlockchainTestSubCommandTest {
                 });
     assertThat(baos.toString(UTF_8)).contains("Passed:       1");
     assertThat(exitCode).isEqualTo(0);
+  }
+
+  @Test
+  void traceOutputCollectsEveryTestOfEveryRunInOneFile(@TempDir final Path dir) throws Exception {
+    final Path traceFile = dir.resolve("trace.jsonl");
+    for (int run = 0; run < 2; run++) {
+      final int exitCode =
+          new EvmToolCommand()
+              .execute(
+                  System.in,
+                  new PrintWriter(new ByteArrayOutputStream(), true, UTF_8),
+                  new String[] {
+                    "--json",
+                    "block-test",
+                    "--workers",
+                    "1",
+                    "--trace-output",
+                    traceFile.toString(),
+                    resourcePath("blockchain-mixed-rlp.json")
+                  });
+      // truncated_rlp_no_expectException fails, which is what the fixture is for
+      assertThat(exitCode).isEqualTo(1);
+    }
+
+    // the file is appended to, so each run adds an end marker per test
+    final List<String> testNames = new ArrayList<>();
+    for (final String line : Files.readAllLines(traceFile, UTF_8)) {
+      if (line.startsWith("{\"test\":")) {
+        testNames.add(MAPPER.readTree(line).get("test").asText());
+      }
+    }
+    assertThat(testNames)
+        .containsExactlyInAnyOrder(
+            "good_london_block",
+            "truncated_rlp_no_expectException",
+            "good_london_block",
+            "truncated_rlp_no_expectException");
+  }
+
+  @Test
+  void traceOutputThatCannotBeOpenedFailsBeforeAnyTestRuns(@TempDir final Path dir) {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream();
+    final int exitCode =
+        new EvmToolCommand()
+            .execute(
+                System.in,
+                new PrintWriter(baos, true, UTF_8),
+                new String[] {
+                  "--json",
+                  "block-test",
+                  "--trace-output",
+                  dir.toString(),
+                  resourcePath("blockchain-mixed-rlp.json")
+                });
+    assertThat(exitCode).isEqualTo(1);
+    assertThat(baos.toString(UTF_8)).doesNotContain("Running good_london_block");
   }
 
   private static String resourcePath(final String resource) {

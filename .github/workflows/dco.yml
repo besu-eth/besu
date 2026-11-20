@@ -1,6 +1,11 @@
 name: DCO
 
-on: [pull_request]
+# edited: a pull request moved to another base branch has other commits to check. Every edit runs
+# the check again (it takes seconds), rather than skipping those that leave the base as it was: a
+# skipped job counts as passed for a required check.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
