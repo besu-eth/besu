@@ -676,6 +676,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     checkNotNull(dataStorageConfiguration, "Missing data storage configuration");
     checkNotNull(besuComponent, "Must supply a BesuComponent");
 
+    if (genesisConfigOptions.getEvmStackSize().isPresent()) {
+      LOG.warn(
+          "The evmstacksize genesis option is deprecated and will be removed in a future release. System calls already ignore it and use a stack size of 1024.");
+    }
+
     this.codeCache = besuComponent.map(BesuComponent::getCodeCache).orElse(new BonsaiCodeCache());
     this.codeCache.setupMetricsSystem(metricsSystem);
 
