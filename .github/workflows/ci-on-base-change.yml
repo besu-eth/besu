@@ -1,0 +1,44 @@
+name: CI on base change
+
+# A pull request moved to another base branch keeps the CI results of its previous base, or has none
+# when CI does not run for pull requests into that base. CI runs on pull requests opened, reopened or
+# pushed to, not edited. This starts it again on the head of the pull request: its checks, such as
+# allTestsPassed, are reported on that commit.
+#
+# It is a workflow of its own because ci.yml cannot skip the edits that leave the base as it was: a
+# skipped job counts as passed for a required check, so editing the title would pass allTestsPassed.
+# Here, only this job is skipped.
+#
+# Pull requests from forks are not covered: a manual run of ci.yml cannot check out their branch.
+# Push to the branch, or close and reopen the pull request, to run CI again.
+on:
+  pull_request:
+    types: [edited]
+    # as in ci.yml
+    branches:
+      - main
+      - release*
+      - performance
+      - '*-devnet-*'
+      - plugin-api-refactor
+      - 'rebase/**'
+
+permissions: {}
+
+jobs:
+  ciOnNewBase:
+    name: "Run CI for the new base"
+    if: github.event.changes.base && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Start CI on the head of the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # as ci.yml selects for a pull request into this base
+          CHECKS: ${{ startsWith(github.base_ref, 'rebase/') && 'fast' || 'full' }}
+        run: |
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$HEAD_REF" -f checks="$CHECKS"
+          echo "Started CI ($CHECKS) on $HEAD_REF: see the runs of the CI workflow" >> "$GITHUB_STEP_SUMMARY"
