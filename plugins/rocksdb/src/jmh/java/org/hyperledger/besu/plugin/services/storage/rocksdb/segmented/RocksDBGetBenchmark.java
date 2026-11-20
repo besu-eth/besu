@@ -53,10 +53,12 @@ import org.openjdk.jmh.annotations.Warmup;
  * JNI layer (facebook/rocksdb#14095), which made a miss cost more than a hit. Run this before and
  * after a RocksDB upgrade to see how a change in RocksDB affects Besu's reads.
  *
- * <p>The data is written with a {@link SortedWriter}, which ingests it as SST files, so reads go
- * through the block cache and Bloom filters as on a synced node, not through the memtable. The
- * absent keys are spread over the same range as the present ones, and the Bloom filter rejects most
- * of them.
+ * <p>The data is written with a {@link SortedWriter}, which ingests it as an SST file, so reads go
+ * through the block cache and Bloom filters rather than the memtable. The whole data set fits in
+ * the block cache. A synced node's database is much larger than its cache and spread over many SST
+ * files, so these times are a best case for a {@code get}, not the read latency a node sees.
+ * Compare runs on the same machine before and after a change. The absent keys are spread over the
+ * same range as the present ones, and the Bloom filter rejects most of them.
  */
 @State(Scope.Benchmark)
 @Warmup(iterations = 3, time = 2)
