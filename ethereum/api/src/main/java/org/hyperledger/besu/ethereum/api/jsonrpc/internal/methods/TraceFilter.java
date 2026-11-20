@@ -174,10 +174,7 @@ public class TraceFilter extends TraceBlock {
       // Nothing to trace for the genesis block, as for a numeric range
       return new JsonRpcSuccessResponse(requestId, resultArrayNode.getArrayNode());
     }
-    return traceBlocks(filterParameter, List.of(block), resultArrayNode)
-        .<JsonRpcResponse>map(
-            result -> new JsonRpcSuccessResponse(requestId, result.getArrayNode()))
-        .orElseGet(() -> new JsonRpcErrorResponse(requestId, RpcErrorType.WORLD_STATE_UNAVAILABLE));
+    return traceBlocksResponse(requestId, filterParameter, List.of(block), resultArrayNode);
   }
 
   private JsonRpcResponse traceFilterWithPipeline(
@@ -194,32 +191,54 @@ public class TraceFilter extends TraceBlock {
       currentBlockNumber++;
       block = blockchainQueriesSupplier.get().getBlockchain().getBlockByNumber(currentBlockNumber);
     }
-    if (block.isEmpty()) {
+    if (block.isEmpty() || isGenesis(block.get())) {
       return new JsonRpcSuccessResponse(
           requestContext.getRequest().getId(), resultArrayNode.getArrayNode());
     }
     List<Block> blockList = getBlockList(currentBlockNumber, toBlock, block);
 
-    ArrayNodeWrapper result =
-        traceBlocks(filterParameter, blockList, resultArrayNode).orElse(emptyResult());
+    return traceBlocksResponse(
+        requestContext.getRequest().getId(), filterParameter, blockList, resultArrayNode);
+  }
 
-    return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result.getArrayNode());
+  private JsonRpcResponse traceBlocksResponse(
+      final Object requestId,
+      final FilterParameter filterParameter,
+      final List<Block> blockList,
+      final ArrayNodeWrapper resultArrayNode) {
+    // getAndMapWorldState returns empty both when the parent state is missing and when the tracer
+    // throws. The flag keeps a trace that started from being reported as pruned history.
+    final boolean[] started = {false};
+    return traceBlocks(filterParameter, blockList, resultArrayNode, started)
+        .<JsonRpcResponse>map(
+            result -> new JsonRpcSuccessResponse(requestId, result.getArrayNode()))
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    requestId,
+                    started[0]
+                        ? RpcErrorType.INTERNAL_ERROR
+                        : WorldStateUnavailable.error(
+                            getBlockchainQueries().getBlockchain(),
+                            getBlockchainQueries().getWorldStateArchive())));
   }
 
   /**
    * Traces the given consecutive blocks on the state before the first one.
    *
-   * @return the filtered traces, or empty if that state is unavailable
+   * @return the filtered traces, or empty if that state is unavailable or tracing failed
    */
   private Optional<ArrayNodeWrapper> traceBlocks(
       final FilterParameter filterParameter,
       final List<Block> blockList,
-      final ArrayNodeWrapper resultArrayNode) {
+      final ArrayNodeWrapper resultArrayNode,
+      final boolean[] started) {
     final BlockHeader header = blockList.getFirst().getHeader();
     return Tracer.processTracing(
         getBlockchainQueries(),
         Optional.of(header),
         traceableState -> {
+          started[0] = true;
           TraceFilterSource traceFilterSource = new TraceFilterSource(blockList, resultArrayNode);
           final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
           final MainnetTransactionProcessor transactionProcessor =
