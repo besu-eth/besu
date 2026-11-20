@@ -215,11 +215,15 @@
 - `OperationTracer.tracesOperations()` lets a tracer that only uses transaction or call hooks skip the per-operation calls on EVM v2. [#11524](https://github.com/besu-eth/besu/pull/11524)
 - Tracers read the stack of a frame through `TracedStack`, which also reads the EVM v2 stack. With `--Xevm-v2`, a plugin tracer that calls `MessageFrame.getStackItem` or `stackSize` throws a `NullPointerException`, as those read only the EVM v1 stack. [#11524](https://github.com/besu-eth/besu/pull/11524)
 - Snap sync checks the flat database ranges of its heal stage in parallel, which shortens that stage on mainnet from about 3 h 40 min to 34 min. [#11495](https://github.com/besu-eth/besu/pull/11495)
+<<<<<<< HEAD
 - Update the discovery library to 26.10.1 for faster discv5 secp256k1 verification and ECDH, with Netty, BouncyCastle, Guava, Log4j and Reactor raised to the versions it requires. [#11671](https://github.com/besu-eth/besu/pull/11671)
 
 ## 26.10.1
 
 This release is identical to 26.10.0 but will not activate Glamsterdam on Hoodi networks. [#11709](https://github.com/besu-eth/besu/pull/11709)
+=======
+- IBFT2 and QBFT can split the fixed block reward between several beneficiaries chosen by a contract. The opt-in `beneficiarycontractaddress` setting, in the `ibft2`/`qbft` genesis config or in a transition, names a contract whose `getBeneficiaries()` view function returns the addresses and their weights in basis points. If the call fails or returns invalid data, the whole reward goes to `miningbeneficiary` as before. [#11046](https://github.com/besu-eth/besu/issues/11046)
+>>>>>>> 88475c5669 (Add contract-based weighted block reward beneficiaries for QBFT/IBFT2)
 
 ## 26.10.0
 

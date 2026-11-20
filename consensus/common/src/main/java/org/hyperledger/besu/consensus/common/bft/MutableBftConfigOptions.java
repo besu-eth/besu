@@ -43,6 +43,7 @@ public class MutableBftConfigOptions implements BftConfigOptions {
   private Optional<Address> miningBeneficiary;
   private BigInteger blockRewardWei;
   private OptionalLong transactionGasLimit;
+  private Optional<Address> beneficiaryContractAddress;
 
   /**
    * Instantiates a new Mutable bft config options.
@@ -63,6 +64,7 @@ public class MutableBftConfigOptions implements BftConfigOptions {
     this.miningBeneficiary = bftConfigOptions.getMiningBeneficiary();
     this.blockRewardWei = bftConfigOptions.getBlockRewardWei();
     this.transactionGasLimit = bftConfigOptions.getTransactionGasLimit();
+    this.beneficiaryContractAddress = bftConfigOptions.getBeneficiaryContractAddress();
   }
 
   @Override
@@ -118,6 +120,11 @@ public class MutableBftConfigOptions implements BftConfigOptions {
   @Override
   public Optional<Address> getMiningBeneficiary() {
     return miningBeneficiary;
+  }
+
+  @Override
+  public Optional<Address> getBeneficiaryContractAddress() {
+    return beneficiaryContractAddress;
   }
 
   @Override
@@ -243,6 +250,16 @@ public class MutableBftConfigOptions implements BftConfigOptions {
   public void setMiningBeneficiary(final Optional<Address> miningBeneficiary) {
     checkNotNull(miningBeneficiary);
     this.miningBeneficiary = miningBeneficiary;
+  }
+
+  /**
+   * Sets the reward beneficiary contract address.
+   *
+   * @param beneficiaryContractAddress the reward beneficiary contract address
+   */
+  public void setBeneficiaryContractAddress(final Optional<Address> beneficiaryContractAddress) {
+    checkNotNull(beneficiaryContractAddress);
+    this.beneficiaryContractAddress = beneficiaryContractAddress;
   }
 
   /**

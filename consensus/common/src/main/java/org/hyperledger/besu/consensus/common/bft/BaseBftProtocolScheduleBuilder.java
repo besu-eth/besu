@@ -150,6 +150,9 @@ public abstract class BaseBftProtocolScheduleBuilder {
       throw new IllegalArgumentException("Bft Block reward in config cannot be negative");
     }
 
+    final BlockRewardProcessor mainnetRewardProcessor =
+        BlockRewardProcessor.of(Wei.of(configOptions.getBlockRewardWei()));
+
     return builder
         .blockHeaderValidatorBuilder(
             (feeMarket, gasCalculator, gasLimitCalculator) ->
@@ -166,7 +169,17 @@ public abstract class BaseBftProtocolScheduleBuilder {
         // any behaviour conditioned on ProtocolSpec.isPoS() would wrongly follow the PoS path.
         .isPoS(false)
         .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
-        .blockRewardProcessor(BlockRewardProcessor.of(Wei.of(configOptions.getBlockRewardWei())))
+        .blockRewardProcessorBuilder(
+            transactionProcessor ->
+                // Only a configured beneficiary contract and a non-zero reward change anything.
+                // Otherwise the reward is paid exactly as before.
+                configOptions.getBeneficiaryContractAddress().isPresent()
+                        && !mainnetRewardProcessor.getBlockReward().isZero()
+                    ? new ContractBeneficiaryBlockRewardProcessor(
+                        transactionProcessor,
+                        configOptions.getBeneficiaryContractAddress().get(),
+                        mainnetRewardProcessor)
+                    : mainnetRewardProcessor)
         .withdrawalsValidator(new WithdrawalsValidator.NotApplicableWithdrawals())
         .miningBeneficiaryCalculator(
             header -> configOptions.getMiningBeneficiary().orElseGet(header::getCoinbase))

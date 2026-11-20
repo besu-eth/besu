@@ -109,6 +109,17 @@ public interface BftConfigOptions {
   BigInteger getBlockRewardWei();
 
   /**
+   * Gets the address of the contract that determines how the block reward is split. When present,
+   * the contract's {@code getBeneficiaries()} view function is read for every block and the reward
+   * is split between the returned addresses according to their weights.
+   *
+   * @return the reward beneficiary contract address, or empty if not configured
+   */
+  default Optional<Address> getBeneficiaryContractAddress() {
+    return Optional.empty();
+  }
+
+  /**
    * Gets the per-transaction gas limit override.
    *
    * @return the per-transaction gas limit override, or empty if not configured
