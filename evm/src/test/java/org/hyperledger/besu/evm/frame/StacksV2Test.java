@@ -28,34 +28,26 @@ class StacksV2Test {
 
   @Test
   void nextFrameAtTheSameDepthReusesTheReleasedStack() {
-    final long[] first = StacksV2.take(3, LENGTH);
+    final long[] first = StacksV2.take(3);
     StacksV2.release(3, first);
 
-    assertThat(StacksV2.take(3, LENGTH)).isSameAs(first);
+    assertThat(StacksV2.take(3)).isSameAs(first);
   }
 
   @Test
   void frameAtAnotherDepthGetsItsOwnStack() {
-    final long[] parent = StacksV2.take(3, LENGTH);
+    final long[] parent = StacksV2.take(3);
     StacksV2.release(3, parent);
 
-    assertThat(StacksV2.take(4, LENGTH)).isNotSameAs(parent);
-  }
-
-  @Test
-  void otherLengthGetsANewStack() {
-    final long[] first = StacksV2.take(3, LENGTH);
-    StacksV2.release(3, first);
-
-    assertThat(StacksV2.take(3, 16 * 4)).isNotSameAs(first).hasSize(16 * 4);
+    assertThat(StacksV2.take(4)).isNotSameAs(parent);
   }
 
   @Test
   void framesBelowTheCachedDepthsShareTheirStacksAcrossDepths() {
-    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS);
     StacksV2.release(StacksV2.CACHED_DEPTHS, first);
 
-    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS + 500, LENGTH)).isSameAs(first);
+    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS + 500)).isSameAs(first);
   }
 
   @Test
@@ -74,16 +66,16 @@ class StacksV2Test {
     other.start();
     other.join();
 
-    assertThat(released).contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH));
+    assertThat(released).contains(StacksV2.take(StacksV2.CACHED_DEPTHS));
   }
 
   @Test
   void deepStackIsTakenOnlyOnce() {
-    final long[] released = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    final long[] released = StacksV2.take(StacksV2.CACHED_DEPTHS);
     StacksV2.release(StacksV2.CACHED_DEPTHS, released);
 
-    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
-    final long[] second = StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS);
+    final long[] second = StacksV2.take(StacksV2.CACHED_DEPTHS);
 
     assertThat(first).isSameAs(released);
     assertThat(second).isNotSameAs(released);
@@ -94,7 +86,7 @@ class StacksV2Test {
     final int held = StacksV2.SHARED_STACKS + StacksV2.THREAD_DEEP_STACKS;
     // empties the thread's and the shared stacks that other tests left behind
     for (int i = 0; i < held; i++) {
-      StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH);
+      StacksV2.take(StacksV2.CACHED_DEPTHS);
     }
 
     final Set<long[]> released = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -106,18 +98,10 @@ class StacksV2Test {
 
     int kept = 0;
     for (int i = 0; i < released.size(); i++) {
-      if (released.contains(StacksV2.take(StacksV2.CACHED_DEPTHS, LENGTH))) {
+      if (released.contains(StacksV2.take(StacksV2.CACHED_DEPTHS))) {
         kept++;
       }
     }
     assertThat(kept).isEqualTo(held);
-  }
-
-  @Test
-  void deepFrameOfAnotherLengthGetsANewStack() {
-    final long[] first = StacksV2.take(StacksV2.CACHED_DEPTHS, 16 * 4);
-    StacksV2.release(StacksV2.CACHED_DEPTHS, first);
-
-    assertThat(StacksV2.take(StacksV2.CACHED_DEPTHS, 16 * 4)).isNotSameAs(first);
   }
 }

@@ -46,7 +46,8 @@ final class StacksV2 {
   // when {@link #take} is called.
   private static final int BATCH = THREAD_DEEP_STACKS / 2;
 
-  private static final int SHARED_LENGTH = MessageFrame.DEFAULT_MAX_STACK_SIZE * 4;
+  // EVM v2 supports only the default stack size
+  private static final int LENGTH = MessageFrame.DEFAULT_MAX_STACK_SIZE * 4;
 
   private static final ThreadLocal<ThreadStacks> STACKS =
       ThreadLocal.withInitial(ThreadStacks::new);
@@ -57,7 +58,7 @@ final class StacksV2 {
 
   private static final class ThreadStacks {
     private final long[][] byDepth = new long[CACHED_DEPTHS][];
-    // a stack of free full-length stacks for frames deeper than the cached depths
+    // a stack of free stacks for frames deeper than the cached depths
     private final long[][] deep = new long[THREAD_DEEP_STACKS][];
     private int deepCount;
   }
@@ -68,17 +69,16 @@ final class StacksV2 {
    * Reserves an exclusive stack for the caller at a certain depth.
    *
    * @param depth the call depth of the frame
-   * @param length the length of the stack in longs
    * @return the stack
    */
-  static long[] take(final int depth, final int length) {
+  static long[] take(final int depth) {
     final ThreadStacks stacks = STACKS.get();
     if (depth >= CACHED_DEPTHS) {
-      return length == SHARED_LENGTH ? takeDeep(stacks) : new long[length];
+      return takeDeep(stacks);
     }
     final long[] stack = stacks.byDepth[depth];
-    if (stack == null || stack.length != length) {
-      return (stacks.byDepth[depth] = new long[length]);
+    if (stack == null) {
+      return (stacks.byDepth[depth] = new long[LENGTH]);
     }
     return stack;
   }
@@ -90,7 +90,7 @@ final class StacksV2 {
    * @param stack the stack, which nothing reads or writes after this
    */
   static void release(final int depth, final long[] stack) {
-    if (depth >= CACHED_DEPTHS && stack.length == SHARED_LENGTH) {
+    if (depth >= CACHED_DEPTHS) {
       releaseDeep(STACKS.get(), stack);
     }
   }
@@ -104,7 +104,7 @@ final class StacksV2 {
         }
       }
       if (stacks.deepCount == 0) {
-        return new long[SHARED_LENGTH];
+        return new long[LENGTH];
       }
     }
     return stacks.deep[--stacks.deepCount];
