@@ -15,7 +15,6 @@
 package org.hyperledger.besu.crypto;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1.SECP256K1_EC_UNCOMPRESSED;
 
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1;
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1.secp256k1_ecdsa_recoverable_signature;
@@ -29,7 +28,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.sun.jna.ptr.IntByReference;
-import com.sun.jna.ptr.LongByReference;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.bouncycastle.crypto.digests.SHA256Digest;
@@ -150,20 +148,20 @@ public class SECP256K1 extends AbstractSECP256 {
   @Override
   public Optional<SECPPublicKey> recoverPublicKeyFromSignature(
       final Bytes32 dataHash, final SECPSignature signature) {
-    if (useNative) {
+    if (!isRecoveryId(signature.getRecId())) {
+      return Optional.empty();
+    }
+    if (isNativeJniEnabled()) {
       // The BouncyCastle path gets this same check from super; only the native path needs it
-      // here. Without it the two backends disagree on out-of-range r/s: native rejects r >= n in
-      // its compact parser while BouncyCastle bounds r only by the field prime, so an EIP-7702
-      // authorization tuple carrying n < r < p would recover different authorities on different
-      // nodes. See AbstractSECP256#isRecoverable.
+      // here. Without it the two backends disagree on out-of-range r/s: native rejects r >= n
+      // while BouncyCastle bounds r only by the field prime, so an EIP-7702 authorization tuple
+      // carrying n < r < p would recover different authorities on different nodes. See
+      // AbstractSECP256#isRecoverable.
       if (!isRecoverable(signature)) {
         return Optional.empty();
       }
-      try {
-        return recoverFromSignatureNative(dataHash, signature);
-      } catch (final IllegalArgumentException e) {
-        return Optional.empty();
-      }
+      return recoverNatively(dataHash, signature)
+          .map(key -> SECPPublicKey.create(Bytes.wrap(key, 1, 64), ALGORITHM));
     } else {
       return super.recoverPublicKeyFromSignature(dataHash, signature);
     }
@@ -265,46 +263,42 @@ public class SECP256K1 extends AbstractSECP256 {
   @Override
   protected @Nullable BigInteger recoverFromSignature(
       final int recId, final BigInteger r, final BigInteger s, final Bytes32 dataHash) {
-    if (useNative) {
-      return recoverFromSignatureNative(dataHash, new SECPSignature(r, s, (byte) recId))
-          .map(key -> new BigInteger(1, key.getEncoded()))
+    if (!isRecoveryId(recId)) {
+      return null;
+    }
+    if (isNativeJniEnabled()) {
+      final SECPSignature signature = new SECPSignature(r, s, (byte) recId);
+      if (!isRecoverable(signature)) {
+        return null;
+      }
+      return recoverNatively(dataHash, signature)
+          .map(key -> new BigInteger(1, key, 1, 64))
           .orElse(null);
     } else {
       return super.recoverFromSignature(recId, r, s, dataHash);
     }
   }
 
-  private Optional<SECPPublicKey> recoverFromSignatureNative(
+  // A recovery id outside 0 to 3 selects no key, so every backend recovers nothing for it.
+  // libsecp256k1 rejects it, while BouncyCastle would treat e.g. -1 like 1.
+  private static boolean isRecoveryId(final int recId) {
+    return recId >= 0 && recId <= 3;
+  }
+
+  /**
+   * Recovers the 65-byte uncompressed public key in one native call. Every failure, including a
+   * signature the library cannot parse, is empty.
+   */
+  private static Optional<byte[]> recoverNatively(
       final Bytes32 dataHash, final SECPSignature signature) {
-
-    // parse the sig
-    final LibSecp256k1.secp256k1_ecdsa_recoverable_signature parsedSignature =
-        new LibSecp256k1.secp256k1_ecdsa_recoverable_signature();
-    final Bytes encodedSig = signature.encodedBytes();
-    if (LibSecp256k1.secp256k1_ecdsa_recoverable_signature_parse_compact(
-            LibSecp256k1.CONTEXT,
-            parsedSignature,
-            encodedSig.slice(0, 64).toArrayUnsafe(),
-            encodedSig.get(64))
-        == 0) {
-      throw new IllegalArgumentException("Could not parse signature");
-    }
-
-    // recover the key
-    final LibSecp256k1.secp256k1_pubkey newPubKey = new LibSecp256k1.secp256k1_pubkey();
-    if (LibSecp256k1.secp256k1_ecdsa_recover(
-            LibSecp256k1.CONTEXT, newPubKey, parsedSignature, dataHash.toArrayUnsafe())
-        == 0) {
-      return Optional.empty();
-    }
-
-    // parse the key
-    final ByteBuffer recoveredKey = ByteBuffer.allocate(65);
-    final LongByReference keySize = new LongByReference(recoveredKey.limit());
-    LibSecp256k1.secp256k1_ec_pubkey_serialize(
-        LibSecp256k1.CONTEXT, recoveredKey, keySize, newPubKey, SECP256K1_EC_UNCOMPRESSED);
-
-    return Optional.of(
-        SECPPublicKey.create(Bytes.wrapByteBuffer(recoveredKey).slice(1), ALGORITHM));
+    final byte[] key = new byte[65];
+    final int status =
+        LibSecp256k1JNI.secp256k1_ecrecover_jni(
+            dataHash.toArrayUnsafe(),
+            signature.encodedBytes().slice(0, 64).toArrayUnsafe(),
+            signature.getRecId(),
+            key);
+    // the raw call returns 0 on success
+    return status == 0 ? Optional.of(key) : Optional.empty();
   }
 }

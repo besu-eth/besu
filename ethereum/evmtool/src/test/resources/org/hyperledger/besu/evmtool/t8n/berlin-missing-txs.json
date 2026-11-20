@@ -1,0 +1,60 @@
+{
+  "cli": [
+    "t8n",
+    "--input.alloc=stdin",
+    "--input.txs=stdin",
+    "--input.env=stdin",
+    "--output.result=stdout",
+    "--output.alloc=stdout",
+    "--output.body=stdout",
+    "--state.fork=Berlin",
+    "--state.chainid=1",
+    "--state.reward=0"
+  ],
+  "stdin": {
+    "alloc": {
+      "0x1000000000000000000000000000000000000000": {
+        "nonce": "0x00",
+        "balance": "0x0ba1a9ce0ba1a9ce",
+        "code": "0x6010565b6000828201905092915050565b601a600260016003565b60005560206000f3",
+        "storage": {}
+      },
+      "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+        "nonce": "0x00",
+        "balance": "0x0ba1a9ce0ba1a9ce",
+        "code": "0x",
+        "storage": {}
+      }
+    },
+    "env": {
+      "currentCoinbase": "0x0000000000000000000000000000000000000000",
+      "currentDifficulty": "0x0",
+      "currentStateRoot": "0x369ba8b2e5b32d675d07933d6fb851d97d3ca66c60a829f7356163d92ae0439a",
+      "currentGasLimit": "0x0",
+      "currentNumber": "0",
+      "currentTimestamp": "0"
+    }
+  },
+  "stdout": {
+    "alloc": {
+      "0x1000000000000000000000000000000000000000": {
+        "code": "0x6010565b6000828201905092915050565b601a600260016003565b60005560206000f3",
+        "balance": "0xba1a9ce0ba1a9ce"
+      },
+      "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
+        "balance": "0xba1a9ce0ba1a9ce"
+      }
+    },
+    "body": "0xc0",
+    "result": {
+      "stateRoot": "0x369ba8b2e5b32d675d07933d6fb851d97d3ca66c60a829f7356163d92ae0439a",
+      "txRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "logsHash": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+      "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "receipts": [],
+      "currentDifficulty": null,
+      "gasUsed": "0x0"
+    }
+  }
+}
