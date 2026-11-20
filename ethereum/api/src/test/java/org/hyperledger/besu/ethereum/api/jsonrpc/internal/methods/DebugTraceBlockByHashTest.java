@@ -17,6 +17,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -43,7 +48,9 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -76,6 +83,7 @@ public class DebugTraceBlockByHashTest {
   private static final Hash UNKNOWN_BLOCK_HASH = Hash.hash(Bytes.of(1));
 
   private DebugTraceBlockByHash debugTraceBlockByHash;
+  private ExecutionContextTestFixture fixture;
   private Hash genesisBlockHash;
   private Block testBlock;
   private Transaction testTransaction;
@@ -84,7 +92,7 @@ public class DebugTraceBlockByHashTest {
   @BeforeEach
   public void setUp() {
     final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_RESOURCE);
-    final ExecutionContextTestFixture fixture =
+    fixture =
         ExecutionContextTestFixture.builder(genesisConfig)
             .dataStorageFormat(DataStorageFormat.BONSAI)
             .build();
@@ -257,6 +265,36 @@ public class DebugTraceBlockByHashTest {
   }
 
   @Test
+  public void shouldReturnPrunedHistoryWhenParentStateIsUnavailableAndHeadStateIsAvailable() {
+    final DebugTraceBlockByHash method = methodWithArchive(archiveWithUnavailableParentState());
+
+    final JsonRpcResponse response = method.response(requestForBlockHash(testBlock.getHash()));
+
+    assertThat(response)
+        .as("block with transactions and no parent state")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse error = (JsonRpcErrorResponse) response;
+    assertThat(error.getErrorType()).isEqualTo(RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
+    assertThat(error.getErrorType().getCode()).isEqualTo(4444);
+  }
+
+  @Test
+  public void shouldReturnInternalErrorWhenTracingThrowsAndStateIsAvailable() {
+    final DebugTraceBlockByHash method = methodWithArchive(archiveWhereTracingThrows());
+
+    final JsonRpcResponse response = method.response(requestForBlockHash(testBlock.getHash()));
+
+    assertThat(response)
+        .as("tracing threw while the parent state was available")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse error = (JsonRpcErrorResponse) response;
+    assertThat(error.getErrorType().getCode())
+        .as("a trace failure must not be reported as pruned history")
+        .isEqualTo(RpcErrorType.INTERNAL_ERROR.getCode());
+    assertThat(error.getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
+  }
+
+  @Test
   public void shouldHandleInvalidParametersGracefully() {
     final Object[] invalidParams = new Object[] {"aaaa"};
     final JsonRpcRequestContext request =
@@ -268,6 +306,32 @@ public class DebugTraceBlockByHashTest {
                 debugTraceBlockByHash.streamResponse(request, new ByteArrayOutputStream(), mapper))
         .isInstanceOf(InvalidJsonRpcParameters.class)
         .hasMessageContaining("Invalid block hash parameter");
+  }
+
+  private DebugTraceBlockByHash methodWithArchive(final WorldStateArchive archive) {
+    final BlockchainQueries queries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            archive,
+            MiningConfiguration.MINING_DISABLED);
+    return new DebugTraceBlockByHash(fixture.getProtocolSchedule(), queries);
+  }
+
+  private WorldStateArchive archiveWithUnavailableParentState() {
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    doReturn(Optional.empty()).when(archive).getWorldState(any());
+    doReturn(true).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
+    return archive;
+  }
+
+  private WorldStateArchive archiveWhereTracingThrows() {
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    doReturn(true).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
+    final MutableWorldState state = mock(MutableWorldState.class);
+    when(state.updater()).thenThrow(new RuntimeException("trace failed"));
+    doReturn(Optional.of(state)).when(archive).getWorldState(any());
+    return archive;
   }
 
   private JsonRpcRequestContext requestForBlockHash(final Hash blockHash) {
