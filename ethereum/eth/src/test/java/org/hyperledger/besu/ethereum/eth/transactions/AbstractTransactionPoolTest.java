@@ -936,6 +936,22 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
+  public void shouldAcceptLocalZeroFeeTransactionIfFeeCapSetZero(final boolean noLocalPriority) {
+    // A zero RPC fee cap still admits zero-gas-price transactions
+    transactionPool =
+        createTransactionPool(
+            b -> b.txFeeCap(Wei.ZERO).minGasPrice(Wei.ZERO).noLocalPriority(noLocalPriority));
+    when(protocolSpec.getFeeMarket()).thenReturn(FeeMarket.london(0, Optional.of(Wei.ZERO)));
+    whenBlockBaseFeeIs(Wei.ZERO);
+    final Transaction transaction = createTransaction(0, Wei.ZERO);
+
+    givenTransactionIsValid(transaction);
+
+    addAndAssertTransactionViaApiValid(transaction, noLocalPriority);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
   public void shouldRejectLocalTransactionIfFeeCapExceeded(final boolean noLocalPriority) {
     final Wei twoEthers = Wei.fromEth(2);
     transactionPool =
