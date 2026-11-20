@@ -127,7 +127,7 @@ Rate a Java runtime issue on the same scale, by its impact through Besu. Say whe
 ## Anything to leave alone
 
 - Dependency or JDK version bumps, and CVEs in libraries or the JDK, unless you show the vulnerable code is reachable from Besu with attacker input.
-- Behaviour that the Ethereum specifications or EIPs require, even if it looks unsafe. Report it as a spec issue only when Besu differs from the specification or from the other clients.
+- Behaviour that the Ethereum specifications or EIPs require, even if it looks unsafe. Report it as a spec issue only when Besu and other clients differ from the specification. Geth is considered the "reference implementation"
 - Missing hardening of the build, the Docker image or CI configuration, unless it lets an attacker change what is built.
 - Issues that require a malicious plugin, a modified binary, or write access to the data directory or configuration.
 
