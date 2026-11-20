@@ -53,7 +53,8 @@ Lower priority: `ethereum/evmtool`, `ethereum/ethstats`, `ethereum/stratum`, `co
 - **Java runtime vulnerabilities and bugs reached from attacker input.** For a published JDK advisory, work out whether attacker input reaches the affected API or intrinsic, through which entry point, and on which configurations. Look also for the kinds of bug behind such advisories:
   - JIT-compiled code or an intrinsic (Base64, `BigInteger`, array and string operations, cryptography) that corrupts memory, crashes the JVM or returns a wrong result on attacker-chosen data;
   - class-library methods whose cost grows faster than their input, such as regular expressions, or `BigInteger` and `BigDecimal` parsing and arithmetic on huge values;
-  - a `StackOverflowError` or `OutOfMemoryError` that attacker input can trigger. The start scripts set `-XX:+ExitOnOutOfMemoryError`, so an `OutOfMemoryError` stops the node.
+  - a `StackOverflowError` or `OutOfMemoryError` that attacker input can trigger. The start scripts set `-XX:+ExitOnOutOfMemoryError`, so an `OutOfMemoryError` stops the node;
+  - a fault in a JDK facility that runs in production. The `besu` start script starts Flight Recorder (`-XX:StartFlightRecording` in `defaultJvmOpts25` in `build.gradle`), so JFR profiles a default-configured node and the official Docker image continuously, and what it records follows the load an attacker drives. `besu-untuned` and `evmtool` do not start it.
 
   A result that depends on the JDK version or vendor, the JIT tier, an intrinsic or the CPU features is a consensus bug, as in the first class.
 
@@ -112,11 +113,12 @@ Rate on realistic reachability, default exposure, the privilege needed and the i
   - one non-validator, or one Byzantine validator within the fault tolerance, halting QBFT or IBFT finality or breaking its safety.
 - **Medium:**
   - denial of service that needs many peers or significant attacker resources;
-  - exhaustion through `debug_`, `trace_` or `admin_` methods, or through sustained load on other RPC methods;
+  - exhaustion through sustained load on a namespace enabled by default (`eth_`, `net_`, `web3_`, `txpool_`);
+  - one request, or a few, to `debug_`, `trace_` or `admin_` that stops an exposed node or its block import. These namespaces are off by default, so what we rate here is amplification an operator who enables them cannot answer with rate limiting;
   - degraded sync, discovery or transaction propagation that recovers on its own;
   - relay-safety problems;
   - excess work on valid input that is measured but stays within the slot.
-- **Low:** problems that need a non-default experimental option, an authenticated operator, or local access; hardening with no demonstrated impact.
+- **Low:** problems that need a non-default experimental option, an authenticated operator, or local access; exhaustion that needs sustained load on `debug_`, `trace_` or `admin_`; hardening with no demonstrated impact.
 
 A performance difference alone is not a denial of service. Measure attacker cost against the victim's time, memory or CPU, and compare with a control input of the same size. Say which configuration, flags and network type a finding needs.
 
