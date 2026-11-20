@@ -7,7 +7,7 @@
 - Do not change behaviour that the Ethereum specifications require. Do not reject data that the other execution clients accept, unless the specification requires it.
 - Avoid new command-line options. If one is needed, give it a safe default and describe it.
 - No new dependencies, and no changes to `plugin-api` unless needed: its compatibility is checked against the last release.
-- Target the `main` branch.
+- Target the `main` branch, and send the patch privately with the report, as the threat model's Reporting section says. Do not open a public pull request or push a branch: we land the fix ourselves, and handle any backport to a release branch.
 
 ## Problems in the Java runtime
 - Until a fixed JDK is released, mitigate in Besu. Cover every path to the affected code, including paths through libraries: changing Besu's own call site is enough only when no other path reaches it.
