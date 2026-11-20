@@ -217,8 +217,9 @@ public class MessageFrame {
   private long[] stackDataV2;
   // EVM v2: the array the input data lies in, from inputDataOffsetV2 for inputDataSizeV2 bytes.
   // For a frame a CALL creates it is the caller's memory, which cannot change while the caller is
-  // suspended; for any other frame it is materialised from the input data on the first
-  // CALLDATALOAD. Must not be modified
+  // suspended; for any other frame it is materialised from the input data on first use, while the
+  // offset (0) and size (the input data's size) are set when the frame is built. Must not be
+  // modified
   private byte[] inputDataArrayV2;
   private int inputDataOffsetV2;
   private int inputDataSizeV2;
@@ -313,6 +314,7 @@ public class MessageFrame {
     this.recipient = recipient;
     this.contract = contract;
     this.inputData = inputData;
+    this.inputDataSizeV2 = inputData.size();
     this.sender = sender;
     this.value = value;
     this.apparentValue = apparentValue;
@@ -596,17 +598,15 @@ public class MessageFrame {
   public byte[] inputDataArrayV2() {
     byte[] array = inputDataArrayV2;
     if (array == null) {
+      // the offset is already 0 and the size the input data's size
       array = inputData.toArrayUnsafe();
       inputDataArrayV2 = array;
-      inputDataOffsetV2 = 0;
-      inputDataSizeV2 = array.length;
     }
     return array;
   }
 
   /**
-   * Returns the offset of the input data in {@link #inputDataArrayV2()}, which must be called
-   * first.
+   * Returns the offset of the input data in {@link #inputDataArrayV2()}.
    *
    * @return the offset of the input data
    */
@@ -615,7 +615,7 @@ public class MessageFrame {
   }
 
   /**
-   * Returns the size of the input data in {@link #inputDataArrayV2()}, which must be called first.
+   * Returns the size of the input data in {@link #inputDataArrayV2()}.
    *
    * @return the size of the input data
    */

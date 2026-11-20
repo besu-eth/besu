@@ -52,7 +52,6 @@ public class CallDataLoadOperationV2 extends AbstractFixedCostOperationV2 {
       return successResponse;
     }
     final int start = (int) stack[offset + 3];
-    // the call data is the size bytes of data from its offset, which may be the caller's memory
     final byte[] data = frame.inputDataArrayV2();
     final int size = frame.inputDataSizeV2();
     if (start >= size) {
@@ -80,24 +79,24 @@ public class CallDataLoadOperationV2 extends AbstractFixedCostOperationV2 {
    * @param stack the flat limb array
    * @param offset the index of the word's most significant limb
    * @param data the array the call data lies in
-   * @param start the index of the word's first byte in {@code data}
-   * @param available the call data bytes from {@code start} to the end, from 1 to 31
+   * @param from the index of the word's first byte in {@code data}
+   * @param available the call data bytes from {@code from} to the end, from 1 to 31
    */
   private static void loadPartialWord(
       final long[] stack,
       final int offset,
       final byte[] data,
-      final int start,
+      final int from,
       final int available) {
     // the limbs that lie wholly in the call data
     final int wholeLimbs = available >>> 3;
     int limb = 0;
     for (; limb < wholeLimbs; limb++) {
-      stack[offset + limb] = (long) LONG_BE.get(data, start + (limb << 3));
+      stack[offset + limb] = (long) LONG_BE.get(data, from + (limb << 3));
     }
     // the limb the call data ends in, its missing low bytes zero
     final int remaining = available & 7;
-    final int base = start + (limb << 3);
+    final int base = from + (limb << 3);
     long value = 0L;
     for (int i = 0; i < remaining; i++) {
       value = (value << 8) | (data[base + i] & 0xffL);
