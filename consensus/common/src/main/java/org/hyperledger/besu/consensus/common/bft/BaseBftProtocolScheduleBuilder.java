@@ -192,14 +192,15 @@ public abstract class BaseBftProtocolScheduleBuilder {
               + ")");
     }
 
-    final long effectiveCap = cap == 0 ? Long.MAX_VALUE : cap;
-
+    // 0 means "no BFT override": the wrapper falls back to the fork's consensus cap
+    // (Amsterdam 2^32-1, Osaka 2^24, earlier forks Long.MAX_VALUE). Passing Long.MAX_VALUE
+    // here used to disable the tx.gas cap on Amsterdam via the validator's "no cap" sentinel.
     final ProtocolSpecBuilder.GasLimitCalculatorBuilder delegateBuilder =
         builder.getGasLimitCalculatorBuilder();
     return (feeMarket, gasCalculator, blobSchedule) -> {
       final GasLimitCalculator delegate =
           delegateBuilder.apply(feeMarket, gasCalculator, blobSchedule);
-      return new TransactionGasLimitOverrideGasLimitCalculator(delegate, effectiveCap);
+      return new TransactionGasLimitOverrideGasLimitCalculator(delegate, cap);
     };
   }
 }
