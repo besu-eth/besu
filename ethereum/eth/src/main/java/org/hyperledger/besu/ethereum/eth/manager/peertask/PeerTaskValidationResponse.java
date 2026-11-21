@@ -25,7 +25,8 @@ public enum PeerTaskValidationResponse {
   NON_SEQUENTIAL_HEADERS_RETURNED(
       DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_NON_SEQUENTIAL_HEADERS, true),
   RESULTS_VALID_AND_GOOD(null, false),
-  INVALID_RECEIPT_RETURNED(DisconnectMessage.DisconnectReason.INVALID_RECEIPT_RECEIVED, true);
+  INVALID_RECEIPT_RETURNED(DisconnectMessage.DisconnectReason.INVALID_RECEIPT_RECEIVED, true),
+  INVALID_CELLS_RETURNED(DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_INVALID_CELLS, true);
   private final Optional<DisconnectMessage.DisconnectReason> disconnectReason;
   private final boolean recordUselessResponse;
 

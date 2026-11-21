@@ -28,6 +28,7 @@ public interface EthProtocolConfiguration {
   int DEFAULT_MAX_GET_BLOCK_ACCESS_LISTS = 128;
   int DEFAULT_MAX_GET_RECEIPTS = 256;
   int DEFAULT_MAX_GET_POOLED_TRANSACTIONS = 256;
+  int DEFAULT_MAX_GET_CELLS_TRANSACTIONS = 64;
   int DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE = 4096;
   int DEFAULT_MAX_ANNOUNCEMENTS_PER_MESSAGE = 4096;
   int DEFAULT_MAX_CAPABILITY = Integer.MAX_VALUE;
@@ -79,6 +80,11 @@ public interface EthProtocolConfiguration {
   @Value.Default
   default int getMaxGetPooledTransactions() {
     return DEFAULT_MAX_GET_POOLED_TRANSACTIONS;
+  }
+
+  @Value.Default
+  default int getMaxGetCellsTransactions() {
+    return DEFAULT_MAX_GET_CELLS_TRANSACTIONS;
   }
 
   @Value.Default

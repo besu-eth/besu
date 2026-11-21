@@ -479,6 +479,21 @@ public class BlobsWithCommitments implements org.hyperledger.besu.datatypes.Blob
   }
 
   /**
+   * Whether the cells of every blob of this transaction are held.
+   *
+   * <p>A blob type from before cells existed carries none, and {@link #getCellMask()} answers for
+   * it with a full mask, since there is nothing missing from a transaction that was never meant to
+   * have cells. Anything that reads the cells themselves has to ask this first: a full mask alone
+   * does not mean they are there.
+   *
+   * @return true if every blob of this transaction carries its cells
+   */
+  public boolean hasCells() {
+    // The canonical constructor rejects a mix, so the first bundle answers for all of them.
+    return blobProofBundles.getFirst().getCellsWithMask().isPresent();
+  }
+
+  /**
    * Whether the actual blob payloads are held, as opposed to cells.
    *
    * <p>Distinct from {@link #allCellsPresent()}, which asks about the cell mask. A transaction
