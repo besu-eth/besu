@@ -96,6 +96,11 @@ public class CachingFrontierStorageRootTracker implements FrontierStorageRootTra
   }
 
   @Override
+  public void invalidate(final Address address) {
+    cache.remove(address);
+  }
+
+  @Override
   public void reset() {
     cache.clear();
   }
@@ -111,8 +116,9 @@ public class CachingFrontierStorageRootTracker implements FrontierStorageRootTra
     if (existing != null && existing.baseRoot.equals(baseRoot)) {
       return existing;
     }
-    // Either no cache yet, or the account's base storage root changed since we cached (e.g.
-    // SELFDESTRUCT mid-block). Build a fresh trie from the new base.
+    // Either no cache yet, the account's base storage root changed since we cached (e.g.
+    // SELFDESTRUCT mid-block), or its storage was cleared and the cache invalidated. Build a fresh
+    // trie from the new base.
     final CachedTrie fresh =
         new CachedTrie(baseRoot, storageTrieFactory.create(address.addressHash(), baseRoot));
     cache.put(address, fresh);

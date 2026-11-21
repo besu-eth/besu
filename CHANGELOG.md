@@ -72,6 +72,7 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
+- `eth_simulateV1` with Bonsai storage now applies a `state` override to the account's whole storage, so slots the override does not list read as zero, as with `eth_call` and Forest storage. Previously slots already stored on chain kept their values. Block processing had the same fault: after a transaction cleared an account's storage, for example by creating a contract at that address, a later transaction in the block could read a slot's old value, and that value was written back to state. [#11647](https://github.com/besu-eth/besu/pull/11647)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
