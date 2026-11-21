@@ -66,6 +66,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.referencetests.ForestReferenceTestWorldState;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -396,6 +397,44 @@ public class BackwardSyncContextTest {
   @Test
   public void isSyncingReturnsFalseWhenNoSessionHasStarted() {
     assertThat(context.isSyncing()).isFalse();
+  }
+
+  @Test
+  public void shouldKeepBalForPivotWithinDistanceOfHead() {
+    final Block pivot = blockAt(LOCAL_HEIGHT + BackwardSyncContext.MAX_TRUSTED_BAL_DISTANCE);
+    final BlockAccessList bal = blockDataGenerator.blockAccessList(2);
+
+    context.syncBackwardsUntil(pivot, Optional.of(bal));
+
+    assertThat(backwardChain.getTrustedBlockAccessList(pivot.getHash())).contains(bal);
+  }
+
+  @Test
+  public void shouldDropBalForPivotFarAheadOfHead() {
+    final Block pivot = blockAt(LOCAL_HEIGHT + BackwardSyncContext.MAX_TRUSTED_BAL_DISTANCE + 1);
+
+    context.syncBackwardsUntil(pivot, Optional.of(blockDataGenerator.blockAccessList(2)));
+
+    assertThat(backwardChain.getTrustedBlockAccessList(pivot.getHash())).isEmpty();
+    assertThat(backwardChain.isTrusted(pivot.getHash())).isTrue();
+  }
+
+  @Test
+  public void shouldKeepBalForPivotAtOrBelowHead() {
+    final Block pivot = blockAt(LOCAL_HEIGHT - 1);
+    final BlockAccessList bal = blockDataGenerator.blockAccessList(2);
+
+    context.syncBackwardsUntil(pivot, Optional.of(bal));
+
+    assertThat(backwardChain.getTrustedBlockAccessList(pivot.getHash())).contains(bal);
+  }
+
+  private Block blockAt(final long number) {
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
+        .thenReturn(backwardSyncAlgorithm);
+    // never completes, so the session stays in flight
+    when(backwardSyncAlgorithm.executeBackwardsSync(null)).thenReturn(new CompletableFuture<>());
+    return createBlock((int) number, Hash.ZERO);
   }
 
   @Test
