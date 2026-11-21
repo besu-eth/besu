@@ -176,6 +176,8 @@ public class RunnerBuilder {
   private Optional<String> p2pListenInterfaceIpv6 = Optional.empty();
   private int p2pListenPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
   private boolean preferIpv6Outbound = false;
+  private boolean snapServerEnabled = false;
+  private boolean snap2ServerEnabled = false;
   private NatMethod natMethod = NatMethod.AUTO;
   private boolean natMethodFallbackEnabled;
   private EthNetworkConfig ethNetworkConfig;
@@ -677,6 +679,28 @@ public class RunnerBuilder {
   }
 
   /**
+   * Advertise snap serving in the local ENR.
+   *
+   * @param snapServerEnabled whether the snap server is enabled
+   * @return the runner builder
+   */
+  public RunnerBuilder snapServerEnabled(final boolean snapServerEnabled) {
+    this.snapServerEnabled = snapServerEnabled;
+    return this;
+  }
+
+  /**
+   * Advertise snap/2 serving in the local ENR, in addition to snap/1.
+   *
+   * @param snap2ServerEnabled whether the snap server also serves snap/2
+   * @return the runner builder
+   */
+  public RunnerBuilder snap2ServerEnabled(final boolean snap2ServerEnabled) {
+    this.snap2ServerEnabled = snap2ServerEnabled;
+    return this;
+  }
+
+  /**
    * Set the transaction validator service.
    *
    * @param transactionValidatorService the transaction validator service
@@ -713,6 +737,8 @@ public class RunnerBuilder {
           discoveryConfiguration.setAdvertisedHostIpv6(p2pAdvertisedHostIpv6);
         });
     discoveryConfiguration.setPreferIpv6Outbound(preferIpv6Outbound);
+    discoveryConfiguration.setSnapServerEnabled(snapServerEnabled);
+    discoveryConfiguration.setSnap2ServerEnabled(snap2ServerEnabled);
     if (discoveryEnabled) {
       discoveryConfiguration.setEnodeBootnodes(ethNetworkConfig.enodeBootNodes());
       discoveryConfiguration.setEnrBootnodes(ethNetworkConfig.enrBootNodes());
