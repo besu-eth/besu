@@ -38,9 +38,14 @@ import java.util.function.Supplier;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 
 class SignatureRecoveryPrecomputationTest {
+
+  private static final boolean PARALLEL = true;
+  private static final boolean SEQUENTIAL = false;
 
   private final EthScheduler scheduler = mock(EthScheduler.class);
   private final List<Supplier<?>> scheduledTasks = new ArrayList<>();
@@ -57,25 +62,26 @@ class SignatureRecoveryPrecomputationTest {
 
   @Test
   void schedulesAtMostMaxWorkersTasksWhateverTheNumberOfTransactions() {
-    SignatureRecoveryPrecomputation.start(scheduler, transactions(10_000));
+    SignatureRecoveryPrecomputation.start(scheduler, transactions(10_000), PARALLEL);
     assertThat(scheduledTasks).hasSize(SignatureRecoveryPrecomputation.MAX_WORKERS);
 
     scheduledTasks.clear();
-    SignatureRecoveryPrecomputation.start(scheduler, transactions(1));
+    SignatureRecoveryPrecomputation.start(scheduler, transactions(1), PARALLEL);
     assertThat(scheduledTasks).hasSize(1);
 
     scheduledTasks.clear();
-    SignatureRecoveryPrecomputation.start(scheduler, List.of());
+    SignatureRecoveryPrecomputation.start(scheduler, List.of(), PARALLEL);
     assertThat(scheduledTasks).isEmpty();
   }
 
-  @Test
-  void recoversEverySenderAndAuthorityExactlyOnce() {
+  @ParameterizedTest
+  @ValueSource(booleans = {PARALLEL, SEQUENTIAL})
+  void recoversEverySenderAndAuthorityExactlyOnce(final boolean parallelExecution) {
     final List<CodeDelegation> authorizations = authorizations(3);
     final List<Transaction> transactions = new ArrayList<>(transactions(9));
     transactions.add(delegateCodeTransaction(authorizations));
 
-    SignatureRecoveryPrecomputation.start(scheduler, transactions);
+    SignatureRecoveryPrecomputation.start(scheduler, transactions, parallelExecution);
     runScheduledTasks();
 
     transactions.forEach(transaction -> verify(transaction, times(1)).getSender());
@@ -83,15 +89,28 @@ class SignatureRecoveryPrecomputationTest {
   }
 
   @Test
-  void recoversFromTheLastTransactionBackwards() {
+  void recoversFromTheLastTransactionBackwardsForParallelExecution() {
     final List<Transaction> transactions = transactions(10);
 
-    SignatureRecoveryPrecomputation.start(scheduler, transactions);
+    SignatureRecoveryPrecomputation.start(scheduler, transactions, PARALLEL);
     runScheduledTasks();
 
     final InOrder order = inOrder(transactions.toArray());
     for (int i = transactions.size() - 1; i >= 0; i--) {
       order.verify(transactions.get(i)).getSender();
+    }
+  }
+
+  @Test
+  void recoversFromTheFirstTransactionForwardsForSequentialExecution() {
+    final List<Transaction> transactions = transactions(10);
+
+    SignatureRecoveryPrecomputation.start(scheduler, transactions, SEQUENTIAL);
+    runScheduledTasks();
+
+    final InOrder order = inOrder(transactions.toArray());
+    for (final Transaction transaction : transactions) {
+      order.verify(transaction).getSender();
     }
   }
 
@@ -102,7 +121,7 @@ class SignatureRecoveryPrecomputationTest {
     final List<Transaction> transactions = new ArrayList<>(transactions(100));
     transactions.add(delegateCodeTransaction(authorizations));
 
-    SignatureRecoveryPrecomputation.start(scheduler, transactions).cancel();
+    SignatureRecoveryPrecomputation.start(scheduler, transactions, PARALLEL).cancel();
     runScheduledTasks();
 
     transactions.forEach(transaction -> verify(transaction, never()).getSender());
@@ -120,7 +139,7 @@ class SignatureRecoveryPrecomputationTest {
               return Address.ZERO;
             });
 
-    precomputation.set(SignatureRecoveryPrecomputation.start(scheduler, transactions));
+    precomputation.set(SignatureRecoveryPrecomputation.start(scheduler, transactions, PARALLEL));
     runScheduledTasks();
 
     for (int i = 0; i < transactions.size(); i++) {
@@ -141,7 +160,7 @@ class SignatureRecoveryPrecomputationTest {
 
     precomputation.set(
         SignatureRecoveryPrecomputation.start(
-            scheduler, List.of(delegateCodeTransaction(authorizations))));
+            scheduler, List.of(delegateCodeTransaction(authorizations)), PARALLEL));
     runScheduledTasks();
 
     for (int i = 0; i < authorizations.size(); i++) {
@@ -158,7 +177,7 @@ class SignatureRecoveryPrecomputationTest {
     final List<Transaction> all = new ArrayList<>(transactions);
     all.add(delegateCodeTransaction(authorizations));
 
-    SignatureRecoveryPrecomputation.start(scheduler, all);
+    SignatureRecoveryPrecomputation.start(scheduler, all, PARALLEL);
     runScheduledTasks();
 
     all.forEach(transaction -> verify(transaction, times(1)).getSender());

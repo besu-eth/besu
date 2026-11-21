@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -277,7 +278,9 @@ public sealed class EngineNewPayloadV1<
     // yet, so the recovery is stopped as soon as execution ends, whatever its outcome
     final SignatureRecoveryPrecomputation signatureRecovery =
         SignatureRecoveryPrecomputation.start(
-            mergeCoordinator.getEthScheduler(), blockParam.getTransactions());
+            mergeCoordinator.getEthScheduler(),
+            blockParam.getTransactions(),
+            protocolSpec.getBlockProcessor() instanceof MainnetParallelBlockProcessor);
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
