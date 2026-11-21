@@ -23,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -184,28 +183,6 @@ class OptimisticTransactionProcessorUnitTest {
   @Nested
   @DisplayName("Transaction Processing")
   class TransactionProcessingTests {
-
-    @Test
-    @DisplayName("The sender is recovered on the block's transaction before it is copied")
-    void recoversTheSenderBeforeCopyingTheTransaction() {
-      final Transaction transaction = mockTransaction();
-      stubSuccessfulTransaction(Optional.empty());
-
-      processor.runAsyncBlock(
-          env.protocolContext(),
-          env.blockHeader(),
-          Collections.singletonList(transaction),
-          MINING_BENEFICIARY,
-          EMPTY_BLOCK_HASH_LOOKUP,
-          BLOB_GAS_PRICE,
-          sameThreadExecutor,
-          Optional.empty(),
-          env.maybeParentHeader());
-
-      final InOrder order = inOrder(transaction);
-      order.verify(transaction).getSender();
-      order.verify(transaction).detachedCopy();
-    }
 
     @Test
     @DisplayName("Transaction processor is called with correct parameters")
@@ -1321,6 +1298,26 @@ class OptimisticTransactionProcessorUnitTest {
               eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
               any(),
               any());
+    }
+
+    @Test
+    @DisplayName("A warm-up recovers the sender on the block's transaction before copying it")
+    void warmUpRecoversTheSenderBeforeCopyingTheTransaction() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(tx1, tx2), task -> {});
+      assertThat(warmUps).hasSize(1);
+      warmUps.forEach(Runnable::run);
+
+      final InOrder inOrder = Mockito.inOrder(tx2);
+      inOrder.verify(tx2).getSender();
+      inOrder.verify(tx2).detachedCopy();
     }
 
     @Test

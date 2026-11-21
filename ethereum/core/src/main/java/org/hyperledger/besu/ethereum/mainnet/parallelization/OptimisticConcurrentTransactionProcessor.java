@@ -457,7 +457,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         transactionProcessor.processTransaction(
             ws.updater().updater(),
             blockHeader,
-            transaction.detachedCopy(),
+            detachedCopyWithSigners(transaction),
             miningBeneficiary,
             OperationTracer.NO_TRACING,
             blockHashLookup.forkForParallelWorker(),
@@ -595,9 +595,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (maybeParentHeader.isEmpty()) {
       return null;
     }
-    // on the block's transaction, whose lock the background recovery takes too, so that the copy
-    // executed below carries the sender instead of recovering it a second time
-    recoverSender(transaction);
     final BonsaiWorldState ws =
         getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
     if (ws == null) {
