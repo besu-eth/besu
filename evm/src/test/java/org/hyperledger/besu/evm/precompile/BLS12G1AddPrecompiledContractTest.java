@@ -27,12 +27,14 @@ import java.util.stream.Collectors;
 
 import com.google.common.io.CharStreams;
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
+@ExtendWith(WindowsBlsNativeCondition.class)
 class BLS12G1AddPrecompiledContractTest {
 
   final BLS12G1AddPrecompiledContract contract = new BLS12G1AddPrecompiledContract();

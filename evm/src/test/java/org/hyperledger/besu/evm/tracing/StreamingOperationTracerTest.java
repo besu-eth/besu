@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.evm.tracing;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -35,7 +36,7 @@ class StreamingOperationTracerTest {
   void eip3155ModifiedTestCaseStrictTypes() {
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    PrintStream out = new PrintStream(baos);
+    PrintStream out = new PrintStream(baos, false, UTF_8);
     var executor = new EVMExecutor(EvmSpec.evmSpec(EvmSpecVersion.ISTANBUL));
     StreamingOperationTracer tracer =
         new StreamingOperationTracer(
@@ -61,8 +62,8 @@ class StreamingOperationTracerTest {
     //  (e) if return data is zero length or null, it is not included even if `showReturnData` is
     // true
     //  (f) if error is zero length or null it is not included.
-    assertThat(baos)
-        .hasToString(
+    assertThat(baos.toString(UTF_8))
+        .isEqualToNormalizingNewlines(
             """
                         {"pc":0,"op":96,"gas":"0x2540be400","gasCost":"0x3","memSize":0,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"}
                         {"pc":2,"op":128,"gas":"0x2540be3fd","gasCost":"0x3","memSize":0,"stack":["0x40"],"depth":1,"refund":0,"opName":"DUP1"}
@@ -86,7 +87,7 @@ class StreamingOperationTracerTest {
   void eip3155ModifiedTestCase() {
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    PrintStream out = new PrintStream(baos);
+    PrintStream out = new PrintStream(baos, false, UTF_8);
     var executor = new EVMExecutor(EvmSpec.evmSpec(EvmSpecVersion.ISTANBUL));
     StreamingOperationTracer tracer =
         new StreamingOperationTracer(
@@ -112,8 +113,8 @@ class StreamingOperationTracerTest {
     //  (e) if return data is zero length or null, it is not included even if `showReturnData` is
     // true
     //  (f) if error is zero length or null it is not included.
-    assertThat(baos)
-        .hasToString(
+    assertThat(baos.toString(UTF_8))
+        .isEqualToNormalizingNewlines(
             """
                                 {"pc":0,"op":"0x60","gas":10000000000,"gasCost":3,"memSize":0,"stack":[],"depth":1,"refund":0,"opName":"PUSH1"}
                                 {"pc":2,"op":"0x80","gas":9999999997,"gasCost":3,"memSize":0,"stack":["0x40"],"depth":1,"refund":0,"opName":"DUP1"}
@@ -137,7 +138,7 @@ class StreamingOperationTracerTest {
   void updatedStorageTestCase() {
 
     ByteArrayOutputStream baos = new ByteArrayOutputStream();
-    PrintStream out = new PrintStream(baos);
+    PrintStream out = new PrintStream(baos, false, UTF_8);
     var executor = new EVMExecutor(EvmSpec.evmSpec(EvmSpecVersion.ISTANBUL));
     StreamingOperationTracer tracer =
         new StreamingOperationTracer(
@@ -154,8 +155,8 @@ class StreamingOperationTracerTest {
     var codeBytes = Bytes.fromHexString("0x604080536040604055604060006040600060025afa6040f3");
     executor.execute(codeBytes, Bytes.EMPTY, Wei.ZERO, Address.ZERO);
 
-    assertThat(baos)
-        .hasToString(
+    assertThat(baos.toString(UTF_8))
+        .isEqualToNormalizingNewlines(
             """
                         {"pc":0,"op":"0x60","gas":10000000000,"gasCost":3,"memSize":0,"depth":1,"refund":0,"opName":"PUSH1"}
                         {"pc":2,"op":"0x80","gas":9999999997,"gasCost":3,"memSize":0,"depth":1,"refund":0,"opName":"DUP1"}

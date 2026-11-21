@@ -30,6 +30,7 @@ import org.apache.tuweni.bytes.MutableBytes;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * Verifies that precompile result caches key on the semantic-prefix slice rather than the full
@@ -113,6 +114,7 @@ class PrecompileCachePrefixBoundTest {
   }
 
   @Test
+  @ExtendWith(WindowsBlsNativeCondition.class)
   void bls12G1AddTailPaddedInputHitsCacheAndReturnsSameResult() {
     final BLS12G1AddPrecompiledContract contract = new BLS12G1AddPrecompiledContract();
     final List<CacheEvent> events = new ArrayList<>();

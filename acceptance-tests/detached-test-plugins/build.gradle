@@ -78,7 +78,8 @@ allprojects {
 
 def getBesuVersion() {
   def besuRootDir = project.projectDir.toPath().resolve('../..').toFile().canonicalFile
-  def gradlewPath = new File(besuRootDir, 'gradlew').absolutePath
+  def wrapperName = org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'gradlew.bat' : 'gradlew'
+  def gradlewPath = new File(besuRootDir, wrapperName).absolutePath
   def process = new ProcessBuilder(gradlewPath, 'printVersion', '-q')
     .directory(besuRootDir)
     .redirectErrorStream(true)
