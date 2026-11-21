@@ -105,6 +105,9 @@ application {
 //   ./hive --sim ethereum/eels/consume-engine  ->  ./gradlew consumeEngineTestsStable
 //   ./hive --sim ethereum/eels/consume-rlp     ->  ./gradlew consumeRlpTestsStable
 //
+// Both run blocks on the parallel block processor, as a Bonsai node does. The *Sequential variants
+// run the same fixtures with --bal-sequential, so the sequential block processor stays covered.
+//
 // Both run over the stable fixtures, reusing the download/extract from the :ethereum:referencetests
 // project (extractStableFixtures — no separate download), and fail the build on any fixture
 // failure. The stable fixtures follow the current specs, which can be ahead of the last devnet
@@ -214,8 +217,9 @@ def registerHiveEquivalentTask(project, String taskName, String subcommand, Stri
 // hive.ethpandaops.io, which is what CI runs.
 def GLAMSTERDAM_SIM_LIMIT = '.*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*'
 
-// The fixture directories of consumeEngineTestsStable and consumeRlpTestsStable are also listed in
-// the matrix of .github/workflows/devnet-tests.yml, where each CI job unpacks only its directory:
+// The fixture directories of consumeEngineTestsStable, consumeRlpTestsStable and their *Sequential
+// variants are also listed in the matrix of .github/workflows/devnet-tests.yml, where each CI job
+// unpacks only its directory:
 // change them in both places.
 
 // hive ethereum/eels/consume-engine
@@ -223,12 +227,20 @@ registerHiveEquivalentTask(project, 'consumeEngineTestsStable', 'engine-test', '
   'Hive consume-engine equivalent: replays the stable blockchain_tests_engine fixtures through the real Engine API.',
   [], GLAMSTERDAM_SIM_LIMIT, true)
 
+registerHiveEquivalentTask(project, 'consumeEngineTestsStableSequential', 'engine-test', 'blockchain_tests_engine',
+  'consumeEngineTestsStable on the sequential block processor (--bal-sequential).',
+  ['--bal-sequential'], GLAMSTERDAM_SIM_LIMIT, true)
+
 // hive ethereum/eels/consume-rlp. Not redundant with consume-engine: blockchain_tests_engine has no
 // pre-merge fork groups, so for_frontier, for_homestead, for_tangerinewhistle, for_spuriousdragon,
 // for_byzantium, for_constantinoplefix, for_istanbul, for_berlin and for_london exist only here.
 registerHiveEquivalentTask(project, 'consumeRlpTestsStable', 'block-test', 'blockchain_tests',
   'Hive consume-rlp equivalent: replays the stable blockchain_tests fixtures through the RLP block-import path.',
   [], GLAMSTERDAM_SIM_LIMIT, true)
+
+registerHiveEquivalentTask(project, 'consumeRlpTestsStableSequential', 'block-test', 'blockchain_tests',
+  'consumeRlpTestsStable on the sequential block processor (--bal-sequential).',
+  ['--bal-sequential'], GLAMSTERDAM_SIM_LIMIT, true)
 
 // No hive simulator consumes state_tests — they are the EVM/state-transition-only slice, covered by
 // neither consume-engine nor consume-rlp. Kept because that coverage is real, and it reuses the same

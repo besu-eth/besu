@@ -24,11 +24,30 @@ import java.util.Optional;
 /** Contains the outputs of processing a block. */
 public class BlockProcessingResult extends BlockValidationResult {
 
+  /** The executor that ran a block's transactions. */
+  public enum ExecutionPath {
+    /** In parallel, scheduled from the block access list. */
+    PARALLEL_BAL,
+    /** In parallel, optimistically, with no block access list to schedule from. */
+    PARALLEL_OPTIMISTIC,
+    /**
+     * Sequentially, because sequential execution was requested or the block processor does not run
+     * transactions in parallel.
+     */
+    SEQUENTIAL,
+    /** Sequentially, because the world state cannot run transactions in parallel. */
+    SEQUENTIAL_NOT_PATH_BASED,
+    /** Sequentially, after the parallel attempt failed the block. */
+    SEQUENTIAL_FALLBACK
+  }
+
   private final Optional<BlockProcessingOutputs> yield;
   private final boolean isPartial;
   private Optional<Integer> nbParallelizedTransactions = Optional.empty();
   private final Optional<BlockAccessList> maybeGeneratedBlockAccessList;
   private final boolean worldStateUnavailable;
+  private Optional<ExecutionPath> executionPath = Optional.empty();
+  private Optional<String> parallelErrorMessage = Optional.empty();
 
   /** A result indicating that processing failed. */
   public static final BlockProcessingResult FAILED = new BlockProcessingResult("processing failed");
@@ -167,6 +186,54 @@ public class BlockProcessingResult extends BlockValidationResult {
     this.worldStateUnavailable = false;
   }
 
+  private BlockProcessingResult(
+      final BlockProcessingResult source,
+      final Optional<ExecutionPath> executionPath,
+      final Optional<String> parallelErrorMessage) {
+    super(source);
+    this.yield = source.yield;
+    this.isPartial = source.isPartial;
+    this.nbParallelizedTransactions = source.nbParallelizedTransactions;
+    this.maybeGeneratedBlockAccessList = source.maybeGeneratedBlockAccessList;
+    this.worldStateUnavailable = source.worldStateUnavailable;
+    this.executionPath = executionPath;
+    this.parallelErrorMessage = parallelErrorMessage;
+  }
+
+  /**
+   * Returns a copy of this result that records the executor that ran the block.
+   *
+   * @param executionPath the executor that ran the block
+   * @return the copy
+   */
+  public BlockProcessingResult withExecutionPath(final ExecutionPath executionPath) {
+    return new BlockProcessingResult(this, Optional.of(executionPath), Optional.empty());
+  }
+
+  /**
+   * Returns a copy of this sequential rerun's result that records the parallel attempt's failure.
+   *
+   * @param parallelErrorMessage the error the parallel attempt failed the block with
+   * @return the copy
+   */
+  public BlockProcessingResult withSequentialFallback(final Optional<String> parallelErrorMessage) {
+    return new BlockProcessingResult(
+        this, Optional.of(ExecutionPath.SEQUENTIAL_FALLBACK), parallelErrorMessage);
+  }
+
+  /**
+   * Returns a copy of this result that keeps the executor recorded on another result for the same
+   * block, for a result built after processing.
+   *
+   * @param processed the result of processing the block
+   * @return the copy, or this result when the other records no executor
+   */
+  public BlockProcessingResult withExecutionPathOf(final BlockProcessingResult processed) {
+    return processed.executionPath.isEmpty()
+        ? this
+        : new BlockProcessingResult(this, processed.executionPath, processed.parallelErrorMessage);
+  }
+
   /**
    * Gets the block processing outputs of the result.
    *
@@ -219,6 +286,26 @@ public class BlockProcessingResult extends BlockValidationResult {
    */
   public Optional<BlockAccessList> getGeneratedBlockAccessList() {
     return maybeGeneratedBlockAccessList;
+  }
+
+  /**
+   * Returns the executor that ran the block's transactions, or empty when processing stopped before
+   * they ran.
+   *
+   * @return the execution path
+   */
+  public Optional<ExecutionPath> getExecutionPath() {
+    return executionPath;
+  }
+
+  /**
+   * Returns the error the parallel attempt failed the block with, when the block was then rerun
+   * sequentially.
+   *
+   * @return the parallel attempt's error
+   */
+  public Optional<String> getParallelErrorMessage() {
+    return parallelErrorMessage;
   }
 
   /**

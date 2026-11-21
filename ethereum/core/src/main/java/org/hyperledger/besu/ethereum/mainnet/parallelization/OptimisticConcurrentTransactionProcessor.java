@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -799,5 +800,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       future.cancel(true);
     }
     return Optional.empty();
+  }
+
+  @Override
+  public ExecutionPath getExecutionPath() {
+    return ExecutionPath.PARALLEL_OPTIMISTIC;
   }
 }

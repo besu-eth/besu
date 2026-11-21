@@ -371,7 +371,9 @@ public class MainnetBlockValidator implements BlockValidator {
             ommerValidationMode,
             BodyValidationMode.STATE_ROOT_ONLY,
             OptionalLong.of(cumulativeBlockGasUsed))) {
-          result = new BlockProcessingResult("failed to validate output of imported block");
+          result =
+              new BlockProcessingResult("failed to validate output of imported block")
+                  .withExecutionPathOf(result);
           handleFailedBlockProcessing(
               block, blockAccessList, result, shouldRecordBadBlock, context);
           return result;
@@ -382,22 +384,23 @@ public class MainnetBlockValidator implements BlockValidator {
         context.getBadBlockManager().removeBadBlock(block.getHash());
 
         return new BlockProcessingResult(
-            Optional.of(
-                new BlockProcessingOutputs(
-                    worldState,
-                    receipts,
-                    maybeRequests,
-                    processedBlockAccessList,
-                    cumulativeBlockGasUsed,
-                    accessedAncestors,
-                    result
-                        .getYield()
-                        .map(BlockProcessingOutputs::getInclusionListValidationResult)
-                        .orElseGet(InclusionListValidationResult::valid),
-                    worldState instanceof PathBasedWorldState pathBasedWorldState
-                        ? pathBasedWorldState.takeTrieLogWrite()
-                        : () -> {})),
-            result.getNbParallelizedTransactions());
+                Optional.of(
+                    new BlockProcessingOutputs(
+                        worldState,
+                        receipts,
+                        maybeRequests,
+                        processedBlockAccessList,
+                        cumulativeBlockGasUsed,
+                        accessedAncestors,
+                        result
+                            .getYield()
+                            .map(BlockProcessingOutputs::getInclusionListValidationResult)
+                            .orElseGet(InclusionListValidationResult::valid),
+                        worldState instanceof PathBasedWorldState pathBasedWorldState
+                            ? pathBasedWorldState.takeTrieLogWrite()
+                            : () -> {})),
+                result.getNbParallelizedTransactions())
+            .withExecutionPathOf(result);
       }
     } catch (MerkleTrieException ex) {
       LOG.debug(
