@@ -72,6 +72,8 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
+- Report exceptional halts on root precompile calls in Parity traces instead of showing a successful call frame. [#11347](https://github.com/besu-eth/besu/pull/11347)
+- `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` return empty struct logs for a transaction sent directly to a precompile instead of a synthetic entry with an empty `op`. [#11347](https://github.com/besu-eth/besu/pull/11347)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
