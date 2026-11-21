@@ -63,6 +63,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -214,6 +215,75 @@ public class EthEstimateGasTest {
         new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
 
     assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldSimulateWithProvidedGasLimit() {
+    // https://github.com/besu-eth/besu/issues/11848
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(eip1559TransactionCallParameter())
+            .withGas(300_000L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethEstimateGasRequest(callParameter);
+    final TransactionSimulatorResult mockTxSimResult = mock(TransactionSimulatorResult.class);
+    final TransactionProcessingResult mockResult = mock(TransactionProcessingResult.class);
+    when(mockResult.getRevertReason()).thenReturn(Optional.empty());
+    when(mockTxSimResult.result()).thenReturn(mockResult);
+    when(mockTxSimResult.isSuccessful()).thenReturn(false);
+    when(transactionSimulator.processOnPending(
+            any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader)))
+        .thenReturn(Optional.of(mockTxSimResult));
+
+    final JsonRpcResponse response = method.response(request);
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+
+    final ArgumentCaptor<CallParameter> callParameterCaptor =
+        ArgumentCaptor.forClass(CallParameter.class);
+    verify(transactionSimulator)
+        .processOnPending(
+            callParameterCaptor.capture(),
+            eq(Optional.empty()),
+            any(),
+            any(),
+            eq(pendingBlockHeader));
+    assertThat(callParameterCaptor.getValue().getGas()).hasValue(300_000L);
+  }
+
+  @Test
+  public void shouldFloorEstimateAtIntrinsicCostForPlainTransferWithSmallerGasLimit() {
+    // a plain value transfer is always feasible at its intrinsic cost, so the
+    // estimate is floored there even when the caller provides a smaller gas
+    // limit; all execution clients behave this way
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO, Optional.empty()))
+            .withGas(1L);
+    final JsonRpcRequestContext request = ethEstimateGasRequest(callParameter);
+    mockTransientProcessorResultGasEstimate(MIN_TX_GAS_COST, true, false, pendingBlockHeader);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldReturnErrorWhenProvidedGasLimitIsTooLow() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(eip1559TransactionCallParameter())
+            .withGas(22_000L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethEstimateGasRequest(callParameter);
+    final TransactionSimulatorResult mockTxSimResult = mock(TransactionSimulatorResult.class);
+    final TransactionProcessingResult mockResult = mock(TransactionProcessingResult.class);
+    when(mockResult.getRevertReason()).thenReturn(Optional.empty());
+    when(mockTxSimResult.result()).thenReturn(mockResult);
+    when(mockTxSimResult.isSuccessful()).thenReturn(false);
+    when(transactionSimulator.processOnPending(
+            any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader)))
+        .thenReturn(Optional.of(mockTxSimResult));
+
+    final JsonRpcResponse response = method.response(request);
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
   }
 
   @Test

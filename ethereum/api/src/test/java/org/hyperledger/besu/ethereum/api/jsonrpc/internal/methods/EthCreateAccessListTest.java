@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.tracing.AccessListOperationTracer;
 
 import java.util.List;
@@ -245,6 +246,81 @@ public class EthCreateAccessListTest {
             any(),
             eq(latestBlockHeader));
     assertThat(callParameterCaptor.getValue().getAccessList()).contains(List.of());
+  }
+
+  @Test
+  public void shouldSimulateWithProvidedGasLimit() {
+    // https://github.com/besu-eth/besu/issues/11848
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO))
+            .withGas(300_000L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethCreateAccessListRequest(callParameter, "latest");
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, latestBlockHeader);
+
+    method.response(request);
+
+    final ArgumentCaptor<CallParameter> callParameterCaptor =
+        ArgumentCaptor.forClass(CallParameter.class);
+    verify(transactionSimulator)
+        .process(
+            callParameterCaptor.capture(),
+            eq(Optional.empty()),
+            any(),
+            any(),
+            eq(latestBlockHeader));
+    assertThat(callParameterCaptor.getValue().getGas()).hasValue(300_000L);
+  }
+
+  @Test
+  public void shouldTreatZeroGasLimitAsUnspecified() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO))
+            .withGas(0L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethCreateAccessListRequest(callParameter, "latest");
+    mockTransactionSimulatorResult(true, false, MIN_TX_GAS_COST, latestBlockHeader);
+
+    method.response(request);
+
+    final ArgumentCaptor<CallParameter> callParameterCaptor =
+        ArgumentCaptor.forClass(CallParameter.class);
+    verify(transactionSimulator)
+        .process(
+            callParameterCaptor.capture(),
+            eq(Optional.empty()),
+            any(),
+            any(),
+            eq(latestBlockHeader));
+    assertThat(callParameterCaptor.getValue().getGas()).hasValue(BLOCK_GAS_LIMIT);
+  }
+
+  @Test
+  public void shouldReportOutOfGasWhenProvidedGasLimitIsTooLow() {
+    // https://github.com/besu-eth/besu/issues/11848
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO))
+            .withGas(22_000L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethCreateAccessListRequest(callParameter, "latest");
+
+    final TransactionProcessingResult mockResult = mock(TransactionProcessingResult.class);
+    when(mockResult.getRevertReason()).thenReturn(Optional.empty());
+    when(mockResult.getExceptionalHaltReason())
+        .thenReturn(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+    final TransactionSimulatorResult mockTxSimResult = mock(TransactionSimulatorResult.class);
+    when(mockTxSimResult.result()).thenReturn(mockResult);
+    when(mockTxSimResult.isSuccessful()).thenReturn(false);
+    when(mockTxSimResult.getGasEstimate()).thenReturn(22_000L);
+    when(transactionSimulator.process(
+            any(), eq(Optional.empty()), any(), any(), eq(latestBlockHeader)))
+        .thenReturn(Optional.of(mockTxSimResult));
+
+    final JsonRpcResponse response = method.response(request);
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final CreateAccessListResult result =
+        (CreateAccessListResult) ((JsonRpcSuccessResponse) response).getResult();
+    assertThat(result.getErrorMessage()).hasValue("Out of gas");
   }
 
   @Test

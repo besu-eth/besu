@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulatorResult;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.tracing.AccessListOperationTracer;
 
 import java.util.List;
@@ -33,6 +34,8 @@ import java.util.Optional;
 import java.util.function.Function;
 
 public class EthCreateAccessList extends AbstractEstimateGas {
+
+  private static final String DEFAULT_FAILURE_MESSAGE = "execution reverted";
 
   public EthCreateAccessList(
       final BlockchainQueries blockchainQueries, final TransactionSimulator transactionSimulator) {
@@ -73,6 +76,21 @@ public class EthCreateAccessList extends AbstractEstimateGas {
     } else {
       return createResponse(requestContext, new AccessListSimulatorResult(firstResult, tracer));
     }
+  }
+
+  @Override
+  protected long adjustGasLimitUpperBound(
+      final CallParameter callParameter, final long gasLimitUpperBound, final long minTxCost) {
+    // honour the gas limit provided by the caller: a call that fails within
+    // the provided limit must be reported as failed instead of being
+    // simulated with a larger allowance, see
+    // https://github.com/besu-eth/besu/issues/11848
+    // a gas limit of 0 means "not specified" (the same convention the other
+    // execution clients use for JSON-RPC calls)
+    if (callParameter.getGas().isEmpty() || callParameter.getGas().getAsLong() == 0) {
+      return gasLimitUpperBound;
+    }
+    return Math.min(callParameter.getGas().getAsLong(), gasLimitUpperBound);
   }
 
   private CallParameter withAccessList(final CallParameter callParams) {
@@ -117,7 +135,18 @@ public class EthCreateAccessList extends AbstractEstimateGas {
         new CreateAccessListResult(
             operationTracer.getAccessList(),
             result.getGasEstimate(),
-            result.isSuccessful() ? Optional.empty() : Optional.of("execution reverted"));
+            result.isSuccessful() ? Optional.empty() : Optional.of(failureMessage(result)));
+  }
+
+  private String failureMessage(final TransactionSimulatorResult result) {
+    if (result.result().getRevertReason().isPresent()) {
+      return DEFAULT_FAILURE_MESSAGE;
+    }
+    return result
+        .result()
+        .getExceptionalHaltReason()
+        .map(ExceptionalHaltReason::getDescription)
+        .orElse(DEFAULT_FAILURE_MESSAGE);
   }
 
   private AccessListSimulatorResult processTransactionWithAccessListOverride(
