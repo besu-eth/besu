@@ -28,6 +28,7 @@
 - `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 - JSON-RPC methods will reject a malformed address parameter with `Invalid params` (`-32602`). An address must be `0x` or `0X` followed by exactly 40 hex digits (20 bytes). Today a shorter value is left-padded with zeros, so a call can read or act on a different account than intended. This also applies to the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. Clients that send short or unprefixed addresses will need to send the full 20-byte address. [#11888](https://github.com/besu-eth/besu/pull/11888)
+- The `evmstacksize` genesis option is deprecated and will be removed in a future release; system calls already ignore it and use a stack size of 1024. [#12014](https://github.com/besu-eth/besu/pull/12014)
 
 ### Bug fixes
 - `admin_logsRemoveCache` now removes every log bloom cache segment intersecting the requested block range, including the final segment when the start block is not aligned to a cache segment boundary. [#11949](https://github.com/besu-eth/besu/pull/11949)
