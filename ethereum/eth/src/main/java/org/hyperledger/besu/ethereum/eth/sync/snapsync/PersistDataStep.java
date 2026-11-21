@@ -55,7 +55,7 @@ public class PersistDataStep {
 
   public List<Task<SnapDataRequest>> persist(final List<Task<SnapDataRequest>> tasks) {
     try {
-      final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+      final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.batchUpdater();
       for (Task<SnapDataRequest> task : tasks) {
         if (task.getData().isResponseReceived()) {
           // enqueue child requests
