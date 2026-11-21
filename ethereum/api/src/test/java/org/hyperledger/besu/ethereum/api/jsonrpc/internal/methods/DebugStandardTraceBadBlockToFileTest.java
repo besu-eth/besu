@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -104,7 +105,7 @@ public class DebugStandardTraceBadBlockToFileTest {
 
     when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
     when(transactionTracer.traceTransactionToFile(
-            any(MutableWorldState.class), eq(block.getHash()), any(), any()))
+            any(MutableWorldState.class), eq(block.getHash()), any(), any(), anyLong()))
         .thenReturn(paths);
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) debugStandardTraceBadBlockToFile.response(request);
