@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.BLOCK_IMPORT_ERROR;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INTERNAL_ERROR;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNKNOWN_BLOCK;
 
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -80,29 +83,41 @@ public class DebugReplayBlock extends AbstractBlockParameterMethod {
 
     final Block block = maybeBlock.get();
 
+    // remember the current head so it can be restored if the replay does not complete
+    final Hash originalHead = protocolContext.getBlockchain().getChainHeadHash();
+
     // rewind to the block before the one we want to replay
     protocolContext.getBlockchain().rewindToBlock(blockNumber - 1);
 
+    final BlockProcessingResult result;
     try {
       // replay block and persist it
-      protocolSchedule
-          .getByBlockHeader(block.getHeader())
-          .getBlockValidator()
-          .validateAndProcessBlock(
-              protocolContext,
-              block,
-              HeaderValidationMode.FULL,
-              HeaderValidationMode.NONE,
-              Optional.empty(),
-              InclusionListTransactions.EMPTY,
-              true);
+      result =
+          protocolSchedule
+              .getByBlockHeader(block.getHeader())
+              .getBlockValidator()
+              .validateAndProcessBlock(
+                  protocolContext,
+                  block,
+                  HeaderValidationMode.FULL,
+                  HeaderValidationMode.NONE,
+                  Optional.empty(),
+                  InclusionListTransactions.EMPTY,
+                  true);
     } catch (Exception e) {
       LOG.error(e.getMessage());
+      protocolContext.getBlockchain().rewindToBlock(originalHead);
       return new JsonRpcErrorResponse(request.getRequest().getId(), INTERNAL_ERROR);
     }
 
+    if (result.isFailed()) {
+      result.errorMessage.ifPresent(LOG::error);
+      protocolContext.getBlockchain().rewindToBlock(originalHead);
+      return new JsonRpcErrorResponse(request.getRequest().getId(), BLOCK_IMPORT_ERROR);
+    }
+
     // set head to newly imported block
-    protocolContext.getBlockchain().forwardToBlock(maybeBlock.get().getHeader());
+    protocolContext.getBlockchain().forwardToBlock(block.getHeader());
 
     return JsonRpcSuccessResponse.SUCCESS_RESULT;
   }
