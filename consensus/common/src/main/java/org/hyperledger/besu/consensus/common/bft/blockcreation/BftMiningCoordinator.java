@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,7 +73,7 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   private volatile long blockAddedObserverId = NOT_REGISTERED;
   private final AtomicReference<State> state = new AtomicReference<>(State.UNINITIALIZED);
 
-  private SyncState syncState;
+  private final @Nullable SyncState syncState;
 
   /**
    * Instantiates a new Bft mining coordinator.
@@ -98,6 +99,7 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
     this.eventQueue = eventQueue;
 
     this.blockchain = blockchain;
+    this.syncState = null;
   }
 
   /**

@@ -95,16 +95,7 @@ public class EthGetProof extends AbstractBlockParameterOrBlockHashMethod {
             () ->
                 new JsonRpcErrorResponse(
                     requestContext.getRequest().getId(),
-                    isHeadWorldStateAvailable(blockchain, worldStateArchive)
-                        ? RpcErrorType.PRUNED_HISTORY_UNAVAILABLE
-                        : RpcErrorType.WORLD_STATE_UNAVAILABLE));
-  }
-
-  // Without the head state the node is still syncing, so the gap is temporary, not pruned.
-  private static boolean isHeadWorldStateAvailable(
-      final Blockchain blockchain, final WorldStateArchive worldStateArchive) {
-    final BlockHeader head = blockchain.getChainHeadHeader();
-    return worldStateArchive.isWorldStateAvailable(head.getStateRoot(), head.getHash());
+                    WorldStateUnavailable.error(blockchain, worldStateArchive)));
   }
 
   @Override

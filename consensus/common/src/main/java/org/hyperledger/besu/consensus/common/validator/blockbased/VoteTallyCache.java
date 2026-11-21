@@ -29,6 +29,7 @@ import java.util.concurrent.ExecutionException;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import org.jspecify.annotations.Nullable;
 
 class VoteTallyCache {
 
@@ -102,7 +103,7 @@ class VoteTallyCache {
     return constructMissingCacheEntries(intermediateBlocks, voteTally);
   }
 
-  protected VoteTally getValidatorsAfter(final BlockHeader header) {
+  protected @Nullable VoteTally getValidatorsAfter(final BlockHeader header) {
     if (epochManager.isEpochBlock(header.getNumber())) {
       return new VoteTally(blockInterface.validatorsInBlock(header));
     }
