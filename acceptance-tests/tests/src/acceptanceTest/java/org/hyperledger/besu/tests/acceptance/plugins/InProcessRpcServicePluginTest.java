@@ -124,4 +124,9 @@ public class InProcessRpcServicePluginTest extends AcceptanceTestBase {
     assertThat(estimateGas(UNFUNDED, TO, "unset", "7"))
         .isEqualTo("ERROR -32004 Upfront gas cost exceeds account balance");
   }
+
+  @Test
+  public void nonStrictUnfundedSenderWithGasPriceGetsEstimate() throws IOException {
+    assertThat(estimateGas(UNFUNDED, TO, "false", "7")).isEqualTo("SUCCESS 0x5208");
+  }
 }
