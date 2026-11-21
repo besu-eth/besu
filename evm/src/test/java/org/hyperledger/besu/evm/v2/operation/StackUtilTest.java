@@ -16,6 +16,8 @@ package org.hyperledger.besu.evm.v2.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Wei;
+
 import java.math.BigInteger;
 import java.util.Random;
 
@@ -108,6 +110,18 @@ class StackUtilTest {
     assertThat(StackUtil.readBytes32At(stack, 2, 1))
         .isEqualTo(Bytes32.leftPad(Bytes.of(0x12, 0x34)));
     assertThat(StackUtil.isZeroAt(stack, 2, 0)).isTrue();
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @CsvSource({
+    "0x00",
+    "0x07",
+    "0x0100000000000000000000000000000000000000000000000000000000000000",
+    "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  })
+  void readsAWeiValue(final String word) {
+    assertThat(StackUtil.readWeiAt(stackOf(word), 1, 0))
+        .isEqualTo(Wei.wrap(Bytes32.fromHexStringLenient(word)));
   }
 
   private static long[] stackOf(final String word) {

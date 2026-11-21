@@ -24,8 +24,10 @@ import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
+import org.hyperledger.besu.evm.processor.MessageCallProcessorV2;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -80,7 +82,12 @@ public class EVMExecutor {
   private MessageCallProcessor thisMessageCallProcessor() {
     return Objects.requireNonNullElseGet(
         messageCallProcessor,
-        () -> new MessageCallProcessor(evmSpec.getEvm(), evmSpec.getPrecompileContractRegistry()));
+        () ->
+            MessageCallProcessorV2.forEvm(
+                evmSpec.getEvm(),
+                evmSpec.getPrecompileContractRegistry(),
+                Set.of(),
+                TransferLogEmitter.NOOP));
   }
 
   private ContractCreationProcessor thisContractCreationProcessor() {
