@@ -58,7 +58,7 @@ final class Snap2SyncController implements SnapSyncController {
   private static final Logger LOG = LoggerFactory.getLogger(Snap2SyncController.class);
   private static final int MAX_RESTARTS = 3;
   private static final Duration RETRY_DELAY = Duration.ofSeconds(5);
-  // until the fork that adds block access lists, which is far
+  // until the pivot, 64 blocks behind the head, passes the fork that adds block access lists
   private static final Duration FORK_DELAY = Duration.ofSeconds(30);
   private static final Duration PROGRESS_PERIOD = Duration.ofSeconds(30);
 

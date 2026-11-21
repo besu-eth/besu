@@ -463,6 +463,11 @@ public class DefaultP2PNetwork implements P2PNetwork {
   }
 
   @Override
+  public void addCapability(final Capability capability) {
+    localNode.addCapability(capability);
+  }
+
+  @Override
   public void subscribeConnect(final ConnectCallback callback) {
     rlpxAgent.subscribeConnect(callback);
   }

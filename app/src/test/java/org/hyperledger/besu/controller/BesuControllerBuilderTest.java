@@ -23,16 +23,37 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class BesuControllerBuilderTest {
 
+  @TempDir Path dataDirectory;
+
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
+  private final SynchronizerConfiguration snap2 =
+      SynchronizerConfiguration.builder()
+          .syncMode(SyncMode.SNAP2)
+          .syncMinimumPeerCount(3)
+          .downloaderHeadersRequestSize(100)
+          .build();
 
   @BeforeEach
   void setUp() {
@@ -67,5 +88,114 @@ class BesuControllerBuilderTest {
     when(protocolSchedule.milestoneFor(FUTURE_EIPS)).thenReturn(Optional.of(0L));
 
     assertThat(BesuControllerBuilder.amsterdamOrLaterMilestone(protocolSchedule)).contains(0L);
+  }
+
+  @Test
+  void snap2OrSnapKeepsAnotherSyncMode() {
+    final SynchronizerConfiguration snap =
+        SynchronizerConfiguration.builder().syncMode(SyncMode.SNAP).build();
+
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap, protocolSchedule, at(0), dataDirectory))
+        .isSameAs(snap);
+  }
+
+  @Test
+  void snap2OrSnapSyncsWithSnapWhenNoForkAddsBlockAccessLists() {
+    when(protocolSchedule.milestoneFor(OSAKA)).thenReturn(Optional.of(10L));
+
+    final SynchronizerConfiguration resolved =
+        BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(100), dataDirectory);
+
+    assertThat(resolved.getSyncMode()).isEqualTo(SyncMode.SNAP);
+    assertThat(resolved).usingRecursiveComparison().ignoringFields("syncMode").isEqualTo(snap2);
+  }
+
+  @Test
+  void snap2OrSnapSyncsWithSnapBeforeTheFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(999), dataDirectory)
+                .getSyncMode())
+        .isEqualTo(SyncMode.SNAP);
+  }
+
+  @Test
+  void snap2OrSnapKeepsSnap2FromTheFork() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+
+    assertThat(BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000), dataDirectory))
+        .isSameAs(snap2);
+  }
+
+  @Test
+  void snap2OrSnapSyncsWithSnapBeforeAForkTooFarAheadForAnInstant() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(Long.MAX_VALUE));
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000), dataDirectory)
+                .getSyncMode())
+        .isEqualTo(SyncMode.SNAP);
+  }
+
+  @Test
+  void snap2OrSnapReadsTheForkTimeAsUnsigned() {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(-1L));
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(1_000), dataDirectory)
+                .getSyncMode())
+        .isEqualTo(SyncMode.SNAP);
+  }
+
+  @Test
+  void snap2OrSnapFinishesAnUnfinishedSnapSyncAfterTheFork() throws IOException {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+    final BlockHeader pivot = new BlockHeaderTestFixture().number(1_000).buildHeader();
+    new ChainSyncStateStorage(Files.createDirectories(dataDirectory.resolve("syncFolder")))
+        .storeState(new ChainSyncState(pivot, pivot, pivot, false));
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory)
+                .getSyncMode())
+        .isEqualTo(SyncMode.SNAP);
+  }
+
+  @Test
+  void snap2OrSnapKeepsSnap2OverSyncProgressTheSnapSyncCannotResume() throws IOException {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+    // a list holding only a format version the sync no longer reads
+    Files.write(
+        Files.createDirectories(dataDirectory.resolve("syncFolder"))
+            .resolve("chain-sync-state.rlp"),
+        new byte[] {(byte) 0xc1, 0x01});
+
+    assertThat(
+            BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory))
+        .isSameAs(snap2);
+  }
+
+  @Test
+  void snap2OrSnapDropsTheSnap2SyncThatWaitedForTheFork() throws IOException {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+    final Path marker = Files.createFile(dataDirectory.resolve("snap2-sync-in-progress"));
+
+    BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(999), dataDirectory);
+
+    assertThat(marker).doesNotExist();
+  }
+
+  @Test
+  void snap2OrSnapKeepsTheMarkOfAnUnfinishedSnap2Sync() throws IOException {
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(1_000L));
+    final Path marker = Files.createFile(dataDirectory.resolve("snap2-sync-in-progress"));
+
+    BesuControllerBuilder.snap2OrSnap(snap2, protocolSchedule, at(10_000), dataDirectory);
+
+    assertThat(marker).exists();
+  }
+
+  private static Clock at(final long epochSecond) {
+    return Clock.fixed(Instant.ofEpochSecond(epochSecond), ZoneOffset.UTC);
   }
 }

@@ -26,6 +26,13 @@ public interface MutableLocalNode extends LocalNode {
 
   void setEnode(EnodeURLImpl enode) throws NodeAlreadySetException;
 
+  /**
+   * Adds a capability to those the local node advertises, unless it has it already.
+   *
+   * @param capability the capability
+   */
+  void addCapability(Capability capability);
+
   class NodeAlreadySetException extends RuntimeException {
     public NodeAlreadySetException(final String message) {
       super(message);

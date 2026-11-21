@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.p2p.peers;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -26,7 +27,8 @@ class DefaultLocalNode implements MutableLocalNode {
   private final AtomicBoolean isReady = new AtomicBoolean(false);
   private final String clientId;
   private final int p2pVersion;
-  private final List<Capability> supportedCapabilities;
+  // replaced, with the peer info, when a capability is added
+  private volatile List<Capability> supportedCapabilities;
   private volatile Optional<PeerInfo> peerInfo = Optional.empty();
   private volatile Optional<Peer> peer = Optional.empty();
 
@@ -43,7 +45,7 @@ class DefaultLocalNode implements MutableLocalNode {
   }
 
   @Override
-  public void setEnode(final EnodeURLImpl enode) throws NodeAlreadySetException {
+  public synchronized void setEnode(final EnodeURLImpl enode) throws NodeAlreadySetException {
     if (peer.isPresent()) {
       throw new NodeAlreadySetException("Attempt to set already initialized local node");
     }
@@ -57,6 +59,25 @@ class DefaultLocalNode implements MutableLocalNode {
                 enode.getNodeId()));
     this.peer = Optional.of(DefaultPeer.fromEnodeURL(enode));
     isReady.set(true);
+  }
+
+  @Override
+  public synchronized void addCapability(final Capability capability) {
+    if (supportedCapabilities.contains(capability)) {
+      return;
+    }
+    final List<Capability> capabilities = new ArrayList<>(supportedCapabilities);
+    capabilities.add(capability);
+    supportedCapabilities = List.copyOf(capabilities);
+    peerInfo =
+        peerInfo.map(
+            info ->
+                new PeerInfo(
+                    info.getVersion(),
+                    info.getClientId(),
+                    supportedCapabilities,
+                    info.getPort(),
+                    info.getNodeId()));
   }
 
   @Override

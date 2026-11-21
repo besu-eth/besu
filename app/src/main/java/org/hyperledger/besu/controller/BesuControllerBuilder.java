@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
 import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskRequestSender;
+import org.hyperledger.besu.ethereum.eth.manager.snap.Snap2Advertiser;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
@@ -74,7 +75,9 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.Snap2SyncFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.ForkchoiceHeadTracker;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -117,6 +120,7 @@ import java.io.Closeable;
 import java.math.BigInteger;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -683,6 +687,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final List<Closeable> closeables = new ArrayList<>();
     final ProtocolSchedule protocolSchedule = createProtocolSchedule();
+    final boolean snap2Requested = syncConfig.getSyncMode() == SyncMode.SNAP2;
+    syncConfig = snap2OrSnap(syncConfig, protocolSchedule, clock, dataDirectory);
 
     final VariablesStorage variablesStorage = storageProvider.createVariablesStorage();
 
@@ -919,6 +925,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             snapMessages,
             scheduler,
             synchronizer);
+    // a SNAP2 node that syncs with SNAP serves block access lists over snap/2 once it holds them
+    if (snap2Requested && syncConfig.getSyncMode() == SyncMode.SNAP) {
+      maybeSnapProtocolManager.ifPresent(
+          snapProtocolManager -> Snap2Advertiser.start(snapProtocolManager, syncState, blockchain));
+    }
 
     final MiningCoordinator miningCoordinator =
         createMiningCoordinator(
@@ -1413,6 +1424,64 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             protocolContext,
             synchronizer,
             metricsSystem));
+  }
+
+  /**
+   * Returns the sync configuration with SNAP in place of SNAP2 until the fork that adds block
+   * access lists, which the SNAP2 sync moves its pivot with, and while a SNAP sync from an earlier
+   * start is unfinished. Started past the fork, SNAP2 waits for a pivot with a block access list
+   * after it. A node that syncs with SNAP then advertises snap/2 once it executed enough blocks
+   * past that fork to serve a SNAP2 pivot.
+   *
+   * @param syncConfig the configured sync
+   * @param protocolSchedule the protocol schedule
+   * @param clock tells whether the fork passed
+   * @param dataDirectory holds the progress of an unfinished sync
+   * @return the sync configuration the node runs
+   */
+  static SynchronizerConfiguration snap2OrSnap(
+      final SynchronizerConfiguration syncConfig,
+      final ProtocolSchedule protocolSchedule,
+      final Clock clock,
+      final Path dataDirectory) {
+    if (syncConfig.getSyncMode() != SyncMode.SNAP2) {
+      return syncConfig;
+    }
+    if (SnapDownloaderFactory.isSyncInProgress(dataDirectory, protocolSchedule)) {
+      // SNAP2 cannot resume it, and would take the chain it imported for a finished sync
+      LOG.info("A SNAP sync from an earlier start did not finish: finishing it with SNAP");
+      return snapInstead(syncConfig, dataDirectory);
+    }
+    final Optional<Long> fork = amsterdamOrLaterMilestone(protocolSchedule);
+    final long now = clock.instant().getEpochSecond();
+    if (fork.isPresent() && Long.compareUnsigned(now, fork.get()) >= 0) {
+      return syncConfig;
+    }
+    fork.ifPresentOrElse(
+        time ->
+            LOG.info(
+                "SNAP2 needs block access lists, which start with the fork at {}: syncing with"
+                    + " SNAP",
+                forkTime(time)),
+        () ->
+            LOG.info(
+                "SNAP2 needs block access lists, and no fork that adds them is scheduled: syncing"
+                    + " with SNAP"));
+    return snapInstead(syncConfig, dataDirectory);
+  }
+
+  private static SynchronizerConfiguration snapInstead(
+      final SynchronizerConfiguration syncConfig, final Path dataDirectory) {
+    // otherwise a restart after the fork would wipe the state the SNAP sync downloaded
+    Snap2SyncFactory.deleteUnfinishedSyncMarker(dataDirectory);
+    return syncConfig.withSyncMode(SyncMode.SNAP);
+  }
+
+  // a genesis may schedule a fork past the last instant Java can represent
+  private static Object forkTime(final long time) {
+    return time >= 0 && time <= Instant.MAX.getEpochSecond()
+        ? Instant.ofEpochSecond(time)
+        : Long.toUnsignedString(time);
   }
 
   /**

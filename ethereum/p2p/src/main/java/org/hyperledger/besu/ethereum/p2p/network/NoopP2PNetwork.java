@@ -53,6 +53,9 @@ public class NoopP2PNetwork implements P2PNetwork {
   public void subscribe(final Capability capability, final MessageCallback callback) {}
 
   @Override
+  public void addCapability(final Capability capability) {}
+
+  @Override
   public void subscribeConnect(final ConnectCallback callback) {}
 
   @Override
