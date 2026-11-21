@@ -2042,7 +2042,7 @@ public class MessageFrame {
     /**
      * Sets whether the experimental EVM v2 (long[] stack) runs the frame. A frame built for EVM v2
      * has no v1 stack. A child frame runs on the interpreter of its parent, so it is built for EVM
-     * v2 when its parent runs on it.
+     * v2 when its parent runs on it, whatever this is set to.
      *
      * @param enableEvmV2 true to enable EVM v2
      * @return the builder
@@ -2097,6 +2097,7 @@ public class MessageFrame {
       WorldUpdater updater;
       boolean newStatic;
       TxValues newTxValues;
+      boolean newEnableEvmV2;
 
       if (parentMessageFrame == null) {
         HashSet<Address> warmedUpAddresses = new HashSet<>();
@@ -2115,16 +2116,18 @@ public class MessageFrame {
                 initialStateGasReservoir);
         updater = worldUpdater;
         newStatic = isStatic;
+        newEnableEvmV2 = enableEvmV2;
       } else {
         newTxValues = parentMessageFrame.txValues;
         updater = parentMessageFrame.getWorldUpdater().updater();
         newStatic = isStatic || parentMessageFrame.isStatic;
+        newEnableEvmV2 = parentMessageFrame.runsOnEvmV2();
         parentMessageFrame.warmUpAddress(contract);
       }
 
       MessageFrame messageFrame =
           new MessageFrame(
-              enableEvmV2,
+              newEnableEvmV2,
               type,
               updater,
               initialGas,
