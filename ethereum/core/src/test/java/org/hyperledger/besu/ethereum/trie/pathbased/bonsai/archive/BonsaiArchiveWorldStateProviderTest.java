@@ -525,6 +525,57 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void archiverTargetsThePersistedHeadWhenEveryBlockIsFinal() {
+    genesisConfig = "{\"config\":{\"qbft\":{}}}";
+
+    assertThat(createProvider(true).archiverTarget()).isEqualTo(CHAIN_HEAD);
+  }
+
+  @Test
+  void archiverTargetsTheFinalizedBlock() {
+    final BlockHeader finalized = new BlockHeaderTestFixture().number(3).buildHeader();
+    when(blockchain.getFinalized()).thenReturn(Optional.of(finalized.getHash()));
+    when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
+
+    assertThat(provider.archiverTarget()).isEqualTo(3);
+  }
+
+  @Test
+  void archiverTargetsTheDepthWithoutAFinalizedBlock() {
+    when(blockchain.getFinalized()).thenReturn(Optional.empty());
+    networkHead = () -> 1000L;
+
+    assertThat(createProvider(true).archiverTarget()).isEqualTo(1000L - CONFIRMATION_DEPTH);
+  }
+
+  @Test
+  void archiverTargetIsCappedAtThePersistedHead() {
+    final BlockHeader finalized = new BlockHeaderTestFixture().number(CHAIN_HEAD + 5).buildHeader();
+    when(blockchain.getFinalized()).thenReturn(Optional.of(finalized.getHash()));
+    when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
+
+    assertThat(provider.archiverTarget()).isEqualTo(CHAIN_HEAD);
+  }
+
+  @Test
+  void archiverTargetIsCappedAtTheChainHead() {
+    genesisConfig = "{\"config\":{\"qbft\":{}}}";
+    final BonsaiArchiveWorldStateProvider bftProvider = createProvider(true);
+    // the head block's state is persisted, but the block isn't on the chain yet
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(CHAIN_HEAD - 1);
+
+    assertThat(bftProvider.archiverTarget()).isEqualTo(CHAIN_HEAD - 1);
+  }
+
+  @Test
+  void archiverHasNoTargetWithoutAPersistedState() {
+    genesisConfig = "{\"config\":{\"qbft\":{}}}";
+    seedWorldStateBlockHash = false;
+
+    assertThat(createProvider(true).archiverTarget()).isNegative();
+  }
+
+  @Test
   void startupFailsWhenProofsEnabledPastGenesisWithoutCoverage() {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
 
