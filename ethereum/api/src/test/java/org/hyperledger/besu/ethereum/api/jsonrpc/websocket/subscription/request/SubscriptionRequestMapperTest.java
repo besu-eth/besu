@@ -284,7 +284,7 @@ public class SubscriptionRequestMapperTest {
   public void mapRequestToLogsWithInvalidTopicInFilter() {
     final JsonRpcRequest jsonRpcRequest =
         parseWebSocketRpcRequest(
-            "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"logs\", {\"address\": \"0x0\", \"topics\": [\"0x1\"]}]}");
+            "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"logs\", {\"address\": \"0x0000000000000000000000000000000000000000\", \"topics\": [\"0x1\"]}]}");
 
     assertThatThrownBy(() -> mapper.mapSubscribeRequest(new JsonRpcRequestContext(jsonRpcRequest)))
         .isInstanceOf(InvalidSubscriptionRequestException.class)

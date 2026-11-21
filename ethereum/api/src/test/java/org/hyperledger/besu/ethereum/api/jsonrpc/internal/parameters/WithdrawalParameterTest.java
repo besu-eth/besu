@@ -15,14 +15,19 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameterTestFixture.WITHDRAWAL_PARAM_1;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class WithdrawalParameterTest {
 
@@ -35,6 +40,40 @@ public class WithdrawalParameterTest {
             Address.fromHexString("0x0000000000000000000000000000000000000000"),
             GWei.of(0L));
     assertThat(WITHDRAWAL_PARAM_1.toWithdrawal()).isEqualTo(expected);
+  }
+
+  @Test
+  public void toWithdrawalAcceptsUpperCasePrefix() {
+    final WithdrawalParameter parameter =
+        new WithdrawalParameter("0x0", "0x0", "0X00000000000000000000000000000000000000Ee", "0x1");
+    assertThat(parameter.toWithdrawal().getAddress())
+        .isEqualTo(Address.fromHexString("0x00000000000000000000000000000000000000ee"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "",
+        "0x",
+        "0x1",
+        "0xee",
+        "0x000000000000000000000000000000000000000",
+        "0x00000000000000000000000000000000000000000",
+        "00000000000000000000000000000000000000ee",
+        "0x00000000000000000000000000000000000000gg"
+      })
+  public void toWithdrawalRejectsMalformedAddress(final String address) {
+    final WithdrawalParameter parameter = new WithdrawalParameter("0x0", "0x0", address, "0x1");
+    assertThatThrownBy(parameter::toWithdrawal)
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+  }
+
+  @Test
+  public void toWithdrawalRejectsMissingAddress() {
+    final WithdrawalParameter parameter = new WithdrawalParameter("0x0", "0x0", null, "0x1");
+    assertThatThrownBy(parameter::toWithdrawal).isInstanceOf(InvalidJsonRpcParameters.class);
   }
 
   @Test

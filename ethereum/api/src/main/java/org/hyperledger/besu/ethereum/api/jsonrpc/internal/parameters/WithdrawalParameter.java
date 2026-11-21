@@ -16,6 +16,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.Objects;
@@ -53,11 +56,27 @@ public class WithdrawalParameter {
         withdrawal.getAmount().toShortHexString());
   }
 
+  /**
+   * Converts this parameter to a withdrawal.
+   *
+   * @return the withdrawal
+   * @throws InvalidJsonRpcParameters if the address is not {@code 0x} or {@code 0X} followed by
+   *     exactly 40 hex digits, so a truncated address is rejected instead of being left-padded to a
+   *     different account
+   */
   public Withdrawal toWithdrawal() {
+    final Address withdrawalAddress =
+        JsonRpcObjectMapperFactory.parseStrictAddress(address)
+            .orElseThrow(
+                () ->
+                    new InvalidJsonRpcParameters(
+                        "Invalid withdrawal address: "
+                            + JsonRpcObjectMapperFactory.STRICT_ADDRESS_MESSAGE,
+                        RpcErrorType.INVALID_PARAMS));
     return new Withdrawal(
         UInt64.fromHexString(index),
         UInt64.fromHexString(validatorIndex),
-        Address.fromHexString(address),
+        withdrawalAddress,
         GWei.fromHexString(amount));
   }
 
