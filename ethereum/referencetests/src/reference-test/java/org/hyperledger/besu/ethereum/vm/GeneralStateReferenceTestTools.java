@@ -55,16 +55,18 @@ import org.slf4j.LoggerFactory;
 public class GeneralStateReferenceTestTools {
   private static final Logger LOG = LoggerFactory.getLogger(GeneralStateReferenceTestTools.class);
 
-  private static MainnetTransactionProcessor transactionProcessor(final String name) {
-    return protocolSpec(name).getTransactionProcessor();
-  }
-
-  private static ProtocolSpec protocolSpec(final String name) {
-    return PROTOCOL_SCHEDULES.getByName(name).getByBlockHeader(BlockHeaderBuilder.createDefault().buildBlockHeader());
+  private static ProtocolSpec protocolSpec(final GeneralStateTestCaseEipSpec spec) {
+    // The fixture's own config.blobSchedule is passed through: without one, BPO1, BPO2 and
+    // every fork built on them keep Prague's blob target, max and update fraction.
+    return ReferenceTestProtocolSchedules.cached(
+            ReferenceTestProtocolSchedules.evmConfiguration(),
+            spec.getBlobScheduleOptions().orElse(null),
+            List.of())
+        .getByName(spec.getFork())
+        .getByBlockHeader(BlockHeaderBuilder.createDefault().buildBlockHeader());
   }
 
   private static final List<String> EIPS_TO_RUN;
-  private static final ReferenceTestProtocolSchedules PROTOCOL_SCHEDULES;
 
   static {
     final String eips =
@@ -73,7 +75,6 @@ public class GeneralStateReferenceTestTools {
             "Frontier,Homestead,EIP150,EIP158,Byzantium,Constantinople,ConstantinopleFix,Istanbul,Berlin,"
                 + "London,Merge,Paris,Shanghai,Cancun,Prague,Osaka,Amsterdam,Bogota,Polis,Bangkok");
     EIPS_TO_RUN = Arrays.asList(eips.split(","));
-    PROTOCOL_SCHEDULES = ReferenceTestProtocolSchedules.create();
   }
 
   private static final JsonTestParameters<?, ?> params =
@@ -137,7 +138,7 @@ public class GeneralStateReferenceTestTools {
     final BlockHeader blockHeader = spec.getBlockHeader();
     final ReferenceTestWorldState initialWorldState = spec.getInitialWorldState();
     final Transaction transaction = spec.getTransaction(0);
-    ProtocolSpec protocolSpec = protocolSpec(spec.getFork());
+    ProtocolSpec protocolSpec = protocolSpec(spec);
 
     BlockchainReferenceTestTools.verifyJournaledEVMAccountCompatability(initialWorldState, protocolSpec);
 
@@ -160,7 +161,7 @@ public class GeneralStateReferenceTestTools {
       return;
     }
 
-    final MainnetTransactionProcessor processor = transactionProcessor(spec.getFork());
+    final MainnetTransactionProcessor processor = protocolSpec.getTransactionProcessor();
     final WorldUpdater worldStateUpdater = worldState.updater();
     final ReferenceTestBlockchain blockchain = new ReferenceTestBlockchain(blockHeader.getNumber());
     final Wei blobGasPrice =

@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
@@ -35,7 +36,14 @@ import org.hyperledger.besu.ethereum.eth.transactions.layered.BaseTransactionPoo
 import java.util.List;
 import java.util.Optional;
 import java.util.Random;
+import java.util.concurrent.CopyOnWriteArrayList;
 
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 
 /** Stripping a blob transaction's sidecar and putting it back from the cache. */
@@ -84,6 +92,24 @@ class BlobCacheTest extends BaseTransactionPoolTest {
   }
 
   @Test
+  void ignoresAFrameTransactionThatCarriesNoBlobs() {
+    // EIP-8141 frame transactions may carry blobs, so their type supports blobs, but one without
+    // any has nothing to cache or restore and is not an error when it comes back from a reorg.
+    final Transaction frameTransaction =
+        new TransactionTestFixture().type(TransactionType.FRAME).createTransaction(KEYS);
+
+    final List<LogEvent> events =
+        withLogCapture(
+            () -> {
+              blobCache.cacheBlobs(frameTransaction);
+              assertThat(blobCache.restoreBlob(frameTransaction)).isEmpty();
+            });
+
+    assertThat(blobCache.size()).isZero();
+    assertThat(events).noneMatch(event -> event.getLevel().isMoreSpecificThan(Level.WARN));
+  }
+
+  @Test
   void doesNotCacheATransactionHoldingOnlySampledCells() {
     final Transaction withBlobs = createEIP4844CellProofsTransaction(0, 2);
     final Transaction sampled = holdingOnlyCellsOf(withBlobs, withBlobs.getVersionedHashes().get());
@@ -114,6 +140,28 @@ class BlobCacheTest extends BaseTransactionPoolTest {
     assertThat(restored).isPresent();
     assertThat(restored.get().getBlobsWithCommitments())
         .isEqualTo(withBlobs.getBlobsWithCommitments());
+  }
+
+  @SuppressWarnings("BannedMethod")
+  private static List<LogEvent> withLogCapture(final Runnable action) {
+    final Logger logger = (Logger) LogManager.getLogger(BlobCache.class);
+    final List<LogEvent> events = new CopyOnWriteArrayList<>();
+    final AbstractAppender appender =
+        new AbstractAppender("test-capture", null, null, false, Property.EMPTY_ARRAY) {
+          @Override
+          public void append(final LogEvent event) {
+            events.add(event.toImmutable());
+          }
+        };
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      action.run();
+    } finally {
+      logger.removeAppender(appender);
+      appender.stop();
+    }
+    return events;
   }
 
   private Transaction createEIP4844CellProofsTransaction(final long nonce, final int blobCount) {

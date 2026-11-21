@@ -11,5 +11,19 @@
   "difficulty": "0x10000",
   "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "coinbase": "0x0000000000000000000000000000000000000000",
-  "baseFeePerGas": "0xA"
+  "baseFeePerGas": "0xA",
+  "alloc": {
+    "fe3b557e8fb62b89f4916b721be55ceb828dbd73": {
+      "balance": "0xd3c21bcecceda1000000"
+    },
+    "8141000000000000000000000000000000000001": {
+      "balance": "0xd3c21bcecceda1000000",
+      "code": "0x00"
+    },
+    "81413f0cf12e9b6a49b1d0439e081c577d57ffff": {
+      "balance": "0x0",
+      "nonce": "0x1",
+      "code": "0x60083614600a575f5ffd5b5f3560c01c4211601657005b5f5ffd"
+    }
+  }
 }

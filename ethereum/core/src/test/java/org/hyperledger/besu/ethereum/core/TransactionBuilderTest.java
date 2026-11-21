@@ -35,6 +35,8 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class TransactionBuilderTest {
   private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
@@ -121,6 +123,31 @@ class TransactionBuilderTest {
             .codeDelegations(List.of());
 
     assertThat(ttf.createTransaction(senderKeys).getCodeDelegationList()).contains(List.of());
+  }
+
+  @Test
+  void frameTransactionHasNoPublicKey() {
+    final Transaction frameTx =
+        new TransactionTestFixture().type(TransactionType.FRAME).createTransaction(senderKeys);
+
+    assertThat(frameTx.getPublicKey()).isEmpty();
+  }
+
+  @ParameterizedTest(name = "maxFee={0}, gasLimit={1}")
+  @CsvSource({"15000, 5000, 3", "15001, 5000, 3", "4999, 5000, 0"})
+  void frameTransactionFeeCapsComeFromItsMaxFee(
+      final long maxFee, final long gasLimit, final long expectedMaxGasPrice) {
+    final Transaction frameTx =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .value(Wei.ZERO)
+            .gasLimit(gasLimit)
+            .maxFee(Optional.of(Wei.of(maxFee)))
+            .createTransaction(senderKeys);
+
+    assertThat(frameTx.getMaxGasPrice()).isEqualTo(Wei.of(expectedMaxGasPrice));
+    assertThat(frameTx.getMaxUpfrontGasCost(0L)).isEqualTo(Wei.of(maxFee));
+    assertThat(frameTx.getUpfrontCost(0L)).isEqualTo(Wei.of(maxFee));
   }
 
   @Test

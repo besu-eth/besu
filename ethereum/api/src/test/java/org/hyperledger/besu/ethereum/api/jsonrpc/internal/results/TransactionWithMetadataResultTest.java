@@ -149,6 +149,44 @@ public class TransactionWithMetadataResultTest {
   }
 
   @Test
+  public void frameTransactionRendersMaxFee() {
+    final Transaction frameTx =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .createTransaction(new BlockDataGenerator().generateKeyPair());
+
+    final JsonNode json =
+        new ObjectMapper()
+            .valueToTree(
+                new TransactionWithMetadataResult(
+                    new TransactionWithMetadata(
+                        frameTx, 0L, Optional.of(Wei.of(7L)), Hash.ZERO, 0, 0L)));
+
+    assertThat(json.get("maxFee").asText()).isEqualTo("0xde0b6b3a7640000");
+    assertThat(json.get("maxPriorityFeePerGas").asText()).isEqualTo("0x1f4");
+    // the base fee of 7 plus the full tip of 500
+    assertThat(json.get("gasPrice").asText()).isEqualTo("0x1fb");
+    assertThat(json.has("maxFeePerGas")).isFalse();
+    assertThat(json.has("maxFeePerBlobGas")).isFalse();
+  }
+
+  @Test
+  public void frameTransactionWithoutBaseFeeSpreadsMaxFeeOverGasLimit() {
+    final Transaction frameTx =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .gasLimit(5000)
+            .createTransaction(new BlockDataGenerator().generateKeyPair());
+
+    final TransactionBaseResult result = new TransactionBaseResult(frameTx);
+
+    // 1 ETH over 5000 gas
+    assertThat(result.getGasPrice()).isEqualTo("0xb5e620f48000");
+    assertThat(result.getMaxFee()).isEqualTo("0xde0b6b3a7640000");
+    assertThat(result.getMaxFeePerGas()).isNull();
+  }
+
+  @Test
   public void legacyTransactionStillOmitsNonNullFields() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final Transaction legacy =
@@ -166,6 +204,7 @@ public class TransactionWithMetadataResultTest {
             "maxPriorityFeePerGas",
             "maxFeePerGas",
             "maxFeePerBlobGas",
+            "maxFee",
             "blobVersionedHashes",
             "authorizationList",
             "yParity")) {

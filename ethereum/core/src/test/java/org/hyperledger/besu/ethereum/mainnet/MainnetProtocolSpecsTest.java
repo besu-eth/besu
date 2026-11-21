@@ -33,6 +33,9 @@ import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.ZeroNonceStorageAccountsPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -43,6 +46,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import org.apache.tuweni.bytes.Bytes;
@@ -50,6 +54,9 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -328,5 +335,40 @@ public class MainnetProtocolSpecsTest {
                 .create(TransactionType.EIP1559, result, 21_000)
                 .getBloomFilter())
         .isEqualTo(expectedBloom);
+  }
+
+  static Stream<Arguments> bogotaZeroNonceStorageAccounts() {
+    final List<Address> listed = List.of(Address.fromHexString("0x1001"));
+    return Stream.of(
+        Arguments.of(
+            listed, OptionalLong.of(15_000L), ZeroNonceStorageAccountsPreExecutionProcessor.class),
+        Arguments.of(List.of(), OptionalLong.of(15_000L), PraguePreExecutionProcessor.class),
+        Arguments.of(listed, OptionalLong.empty(), PraguePreExecutionProcessor.class));
+  }
+
+  @ParameterizedTest(name = "{index}: accounts {0}, bogotaTime {1}")
+  @MethodSource("bogotaZeroNonceStorageAccounts")
+  public void bogotaDefinitionWrapsPreExecutionOnlyWithAccountsAndBogotaTime(
+      final List<Address> zeroNonceStorageAccounts,
+      final OptionalLong bogotaTime,
+      final Class<? extends PreExecutionProcessor> expectedProcessor) {
+    when(genesisConfigOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
+    when(genesisConfigOptions.getZeroNonceStorageAccounts()).thenReturn(zeroNonceStorageAccounts);
+    when(genesisConfigOptions.getBogotaTime()).thenReturn(bogotaTime);
+
+    final var protocolSpec =
+        MainnetProtocolSpecs.bogotaDefinition(
+                chainId,
+                enableRevertReason,
+                genesisConfigOptions,
+                evmConfiguration,
+                MiningConfiguration.newDefault(),
+                isParallelTxProcessingEnabled,
+                balConfiguration,
+                metricsSystem)
+            .badBlocksManager(badBlockManager)
+            .build(protocolSchedule);
+
+    assertThat(protocolSpec.getPreExecutionProcessor()).isExactlyInstanceOf(expectedProcessor);
   }
 }

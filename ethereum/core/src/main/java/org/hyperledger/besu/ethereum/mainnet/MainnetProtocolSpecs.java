@@ -69,6 +69,7 @@ import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcess
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.ZeroNonceStorageAccountsPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
@@ -1326,10 +1327,74 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem)
+        // EIP-8141: frame transaction opcodes (APPROVE and introspection)
         .evmBuilder(
             (gasCalculator, __) ->
                 MainnetEVMs.bogota(gasCalculator, evmChainId(chainId), evmConfiguration))
+        // EIP-8141: accept the frame transaction type
+        .transactionValidatorFactoryBuilder(
+            (evm, gasLimitCalculator, feeMarket) ->
+                new TransactionValidatorFactory(
+                    evm.getGasCalculator(),
+                    gasLimitCalculator,
+                    feeMarket,
+                    true,
+                    chainId,
+                    Set.of(
+                        TransactionType.FRONTIER,
+                        TransactionType.ACCESS_LIST,
+                        TransactionType.EIP1559,
+                        TransactionType.BLOB,
+                        TransactionType.DELEGATE_CODE,
+                        TransactionType.FRAME),
+                    Set.of(BlobType.KZG_CELL_PROOFS),
+                    evm.getMaxInitcodeSize()))
+        // EIP-8141: frame transaction execution
+        .transactionProcessorBuilder(
+            (gasCalculator,
+                feeMarket,
+                transactionValidator,
+                contractCreationProcessor,
+                messageCallProcessor) ->
+                MainnetTransactionProcessor.builder()
+                    .gasCalculator(gasCalculator)
+                    .transactionValidatorFactory(transactionValidator)
+                    .contractCreationProcessor(contractCreationProcessor)
+                    .messageCallProcessor(messageCallProcessor)
+                    .clearEmptyAccounts(true)
+                    .warmCoinbase(true)
+                    .maxStackSize(evmConfiguration.evmStackSize())
+                    .feeMarket(feeMarket)
+                    .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.eip1559())
+                    .codeDelegationProcessor(
+                        new CodeDelegationProcessor(
+                            chainId,
+                            SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+                            new CodeDelegationService()))
+                    .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
+                    .supportsFrameTransactions(true)
+                    .build())
+        // EIP-8141: frame transaction receipts
+        .transactionReceiptFactory(new BogotaTransactionReceiptFactory(enableRevertReason))
+        // EIP-8151: account code restricted ecrecover
+        .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::bogota)
+        // EIP-8253: bump the zero-nonce storage accounts at the fork block
+        .preExecutionProcessor(getBogotaPreExecutionProcessor(genesisConfigOptions))
         .hardforkId(BOGOTA);
+  }
+
+  private static PreExecutionProcessor getBogotaPreExecutionProcessor(
+      final GenesisConfigOptions genesisConfigOptions) {
+    final PreExecutionProcessor praguePreExecutionProcessor =
+        getPraguePreExecutionProcessor(genesisConfigOptions);
+    final List<Address> zeroNonceStorageAccounts =
+        genesisConfigOptions.getZeroNonceStorageAccounts();
+    final OptionalLong bogotaTime = genesisConfigOptions.getBogotaTime();
+    if (zeroNonceStorageAccounts.isEmpty() || bogotaTime.isEmpty()) {
+      return praguePreExecutionProcessor;
+    }
+    return new ZeroNonceStorageAccountsPreExecutionProcessor(
+        praguePreExecutionProcessor, bogotaTime.getAsLong(), zeroNonceStorageAccounts);
   }
 
   private static ProtocolSpecBuilder applyBlobSchedule(
@@ -1477,6 +1542,35 @@ public abstract class MainnetProtocolSpecs {
           result.getLogs(),
           result.getLogsBloom(),
           revertReasonEnabled ? result.getRevertReason() : Optional.empty());
+    }
+  }
+
+  /**
+   * Bogota: EIP-8141 frame transactions have their own receipt payload {@code [cumulative_gas_used,
+   * payer, [frame_receipt, ...]]}; every other type keeps the Berlin typed status receipt.
+   */
+  static class BogotaTransactionReceiptFactory extends BerlinTransactionReceiptFactory {
+
+    public BogotaTransactionReceiptFactory(final boolean revertReasonEnabled) {
+      super(revertReasonEnabled);
+    }
+
+    @Override
+    public TransactionReceipt create(
+        final TransactionType transactionType,
+        final TransactionProcessingResult result,
+        final long gasUsed) {
+      if (transactionType.supportsFrames()) {
+        final var outcome =
+            result
+                .getFrameTransactionOutcome()
+                .orElseThrow(
+                    () ->
+                        new IllegalStateException(
+                            "Frame transaction result is missing its frame outcome"));
+        return new TransactionReceipt(outcome.payer(), gasUsed, outcome.frameReceipts());
+      }
+      return super.create(transactionType, result, gasUsed);
     }
   }
 

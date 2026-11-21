@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.transactions.FrameTransactionPoolPolicy;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.AccountState;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
@@ -68,6 +70,9 @@ public class LayeredPendingTransactions implements PendingTransactions {
   private final TransactionPoolConfiguration poolConfig;
   private final AbstractPrioritizedTransactions prioritizedTransactions;
   private final EthScheduler ethScheduler;
+  // Deadlines of pooled frame transactions with an expiry verifier frame, by hash. Entries of
+  // transactions that left the pool by other means are removed lazily.
+  private final Map<Hash, Long> expiryDeadlineByHash = new HashMap<>();
 
   public LayeredPendingTransactions(
       final ProtocolContext protocolContext,
@@ -94,6 +99,7 @@ public class LayeredPendingTransactions implements PendingTransactions {
   @Override
   public synchronized void reset() {
     prioritizedTransactions.reset();
+    expiryDeadlineByHash.clear();
   }
 
   @Override
@@ -114,11 +120,63 @@ public class LayeredPendingTransactions implements PendingTransactions {
       return nonceChecksResult;
     }
 
+    TransactionAddedResult result;
     try {
-      return prioritizedTransactions.add(pendingTransaction, (int) nonceDistance, NEW);
+      result = prioritizedTransactions.add(pendingTransaction, (int) nonceDistance, NEW);
     } catch (final Throwable throwable) {
-      return reconcileAndRetryAdd(
-          pendingTransaction, stateSenderNonce, (int) nonceDistance, throwable);
+      result =
+          reconcileAndRetryAdd(
+              pendingTransaction, stateSenderNonce, (int) nonceDistance, throwable);
+    }
+    if (result.isSuccess()) {
+      trackExpiryDeadline(pendingTransaction);
+    }
+    return result;
+  }
+
+  private void trackExpiryDeadline(final PendingTransaction pendingTransaction) {
+    final OptionalLong maybeDeadline =
+        FrameTransactionPoolPolicy.expiryDeadline(pendingTransaction.getTransaction());
+    if (maybeDeadline.isPresent()) {
+      // Live entries never outnumber the pool, so at this size at least half are stale. Purging
+      // them here keeps the map bounded when no block arrives to sweep it.
+      if (expiryDeadlineByHash.size() >= 2 * prioritizedTransactions.count()) {
+        expiryDeadlineByHash
+            .keySet()
+            .removeIf(hash -> prioritizedTransactions.getByHash(hash).isEmpty());
+      }
+      expiryDeadlineByHash.put(pendingTransaction.getHash(), maybeDeadline.getAsLong());
+    }
+  }
+
+  /**
+   * Drops the pending transactions whose expiry verifier frame fails at the block timestamp, as
+   * EIP-8141 requires of every node, whether or not it builds blocks.
+   *
+   * @param blockTimestamp the timestamp of the new chain head
+   */
+  private void dropExpiredTransactions(final long blockTimestamp) {
+    final var itDeadlines = expiryDeadlineByHash.entrySet().iterator();
+    while (itDeadlines.hasNext()) {
+      final var deadlineEntry = itDeadlines.next();
+      final Optional<PendingTransaction> maybePooledTx =
+          prioritizedTransactions.getByHash(deadlineEntry.getKey());
+      if (maybePooledTx.isEmpty()) {
+        itDeadlines.remove();
+      } else {
+        final long deadline = deadlineEntry.getValue();
+        if (Long.compareUnsigned(deadline, blockTimestamp) < 0) {
+          itDeadlines.remove();
+          final PendingTransaction expiredTx = maybePooledTx.get();
+          prioritizedTransactions.remove(expiredTx, INVALIDATED);
+          LOG.atTrace()
+              .setMessage("Transaction {} removed, its expiry deadline {} is before block time {}")
+              .addArgument(expiredTx::toTraceLog)
+              .addArgument(() -> Long.toUnsignedString(deadline))
+              .addArgument(blockTimestamp)
+              .log();
+        }
+      }
     }
   }
 
@@ -442,6 +500,15 @@ public class LayeredPendingTransactions implements PendingTransactions {
     final var maxConfirmedNonceBySender = maxNonceBySender(blockHeader, confirmedTransactions);
 
     synchronized (this) {
+      // Before blockAdded, so that its promotions refill the slots the expired ones free.
+      try {
+        dropExpiredTransactions(blockHeader.getTimestamp());
+      } catch (final Throwable throwable) {
+        LOG.warn(
+            "Unexpected error when dropping expired transactions for block {}",
+            blockHeader.toLogString(),
+            throwable);
+      }
       try {
         prioritizedTransactions.blockAdded(feeMarket, blockHeader, maxConfirmedNonceBySender);
       } catch (final Throwable throwable) {
@@ -523,9 +590,16 @@ public class LayeredPendingTransactions implements PendingTransactions {
   private static Map<Address, Long> maxNonceBySenderOnly(
       final List<Transaction> confirmedTransactions) {
     return confirmedTransactions.stream()
+        .filter(LayeredPendingTransactions::usesAccountNonce)
         .collect(
             groupingBy(
                 Transaction::getSender, mapping(Transaction::getNonce, reducing(0L, Math::max))));
+  }
+
+  // EIP-8250: a frame transaction with a non-empty nonce key set consumes sequences held by the
+  // nonce manager, and its nonce is one of those sequences, not the sender's account nonce.
+  private static boolean usesAccountNonce(final Transaction transaction) {
+    return transaction.getNonceKeys().map(KeyedNonces::isLegacy).orElse(true);
   }
 
   @Override

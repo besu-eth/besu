@@ -211,7 +211,7 @@ public class FlatCallTracer implements OperationTracer {
             new FlatCallTracerResult.Result(
                 node.getTo(), orEmptyHex(node.getOutput()), node.getGasUsed(), null);
       }
-      case CallTracer.SELFDESTRUCT -> {
+      case CallTracer.SELFDESTRUCT, CallTracer.SENDALL -> {
         type = "suicide";
         action =
             new FlatCallTracerResult.Action(

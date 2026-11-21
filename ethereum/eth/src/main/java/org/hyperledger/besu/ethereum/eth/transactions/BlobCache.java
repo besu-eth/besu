@@ -44,7 +44,7 @@ public class BlobCache {
   }
 
   public void cacheBlobs(final Transaction t) {
-    if (t.getType().supportsBlob()) {
+    if (t.getBlobCount() > 0) {
       var bwc = t.getBlobsWithCommitments();
       if (bwc.isPresent() && !bwc.get().hasBlobData()) {
         // Only full blobs are cached. A bundle is kept per versioned hash, not per transaction, so
@@ -66,35 +66,23 @@ public class BlobCache {
   }
 
   public Optional<Transaction> restoreBlob(final Transaction transaction) {
-    if (transaction.getType().supportsBlob()) {
-      Optional<List<VersionedHash>> maybeHashes = transaction.getVersionedHashes();
-      if (maybeHashes.isPresent()) {
-        if (!maybeHashes.get().isEmpty()) {
-          final List<BlobProofBundle> blobProofBundles =
-              maybeHashes.get().stream().map(cache::getIfPresent).toList();
+    if (transaction.getBlobCount() > 0) {
+      final List<BlobProofBundle> blobProofBundles =
+          transaction.getVersionedHashes().orElseThrow().stream().map(cache::getIfPresent).toList();
 
-          // A miss leaves a null in the list, so it has to be found before the bundles are used
-          // for anything: the entries are keyed by the hash they were looked up with, so a
-          // non-null one always matches, and a null one is the only way a restore can fail.
-          if (blobProofBundles.stream().anyMatch(Objects::isNull)) {
-            LOG.debug("did not find all versioned hashes to restore from cache");
-            return Optional.empty();
-          }
-
-          return Optional.of(
-              Transaction.builder()
-                  .copiedFrom(transaction)
-                  .blobsWithCommitments(BlobsWithCommitments.createFromBundles(blobProofBundles))
-                  .build());
-        } else {
-          LOG.warn("can't restore blobs for transaction with empty list of versioned hashes");
-          return Optional.empty();
-        }
-      } else {
-        LOG.warn("can't restore blobs for transaction without list of versioned hashes");
+      // A miss leaves a null in the list, so it has to be found before the bundles are used
+      // for anything: the entries are keyed by the hash they were looked up with, so a
+      // non-null one always matches, and a null one is the only way a restore can fail.
+      if (blobProofBundles.stream().anyMatch(Objects::isNull)) {
+        LOG.debug("did not find all versioned hashes to restore from cache");
         return Optional.empty();
       }
 
+      return Optional.of(
+          Transaction.builder()
+              .copiedFrom(transaction)
+              .blobsWithCommitments(BlobsWithCommitments.createFromBundles(blobProofBundles))
+              .build());
     } else {
       LOG.debug(
           "can't restore blobs for non-blob transaction of type {}", transaction.getType().name());

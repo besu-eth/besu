@@ -27,6 +27,11 @@
   "alloc": {
     "fe3b557e8fb62b89f4916b721be55ceb828dbd73": {
       "balance": "0xad78ebc5ac6200000"
+    },
+    "81413f0cf12e9b6a49b1d0439e081c577d57ffff": {
+      "nonce": "0x1",
+      "balance": "0x0",
+      "code": "0x60083614600a575f5ffd5b5f3560c01c4211601657005b5f5ffd"
     }
   }
 }

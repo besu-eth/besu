@@ -45,10 +45,18 @@ public class TransactionEncoder {
           TransactionType.BLOB,
           BlobTransactionEncoder::encode,
           TransactionType.DELEGATE_CODE,
-          CodeDelegationTransactionEncoder::encode);
+          CodeDelegationTransactionEncoder::encode,
+          TransactionType.FRAME,
+          FrameTransactionEncoder::encode);
 
+  // A frame transaction's blobs travel in full: its encoder has no eth/72 elided form.
   private static final ImmutableMap<TransactionType, PooledEncoder> POOLED_TRANSACTION_ENCODERS =
-      ImmutableMap.of(TransactionType.BLOB, BlobPooledTransactionEncoder::encode);
+      ImmutableMap.of(
+          TransactionType.BLOB,
+          BlobPooledTransactionEncoder::encode,
+          TransactionType.FRAME,
+          (transaction, elideBlobs, output) ->
+              FramePooledTransactionEncoder.encode(transaction, output));
 
   /**
    * Encodes a transaction into RLP format.

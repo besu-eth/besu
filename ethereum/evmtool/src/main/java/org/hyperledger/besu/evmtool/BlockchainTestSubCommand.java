@@ -385,10 +385,13 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
     // The fixture's own config.blobSchedule is passed through, because a devnet sets blob target
     // and max to values Besu's defaults do not carry. Build the schedule without it and every blob
-    // test is validated against the wrong parameters.
+    // test is validated against the wrong parameters. The EIP-8253 account list is passed through
+    // too, because each EIP-8253 fixture names its own accounts to bump.
     final ProtocolSchedule schedule =
         ReferenceTestProtocolSchedules.cached(
-                parentCommand.getEvmConfiguration(), spec.getBlobScheduleOptions().orElse(null))
+                parentCommand.getEvmConfiguration(),
+                spec.getBlobScheduleOptions().orElse(null),
+                spec.getZeroNonceStorageAccounts())
             .getByName(spec.getNetwork());
     if (schedule == null) {
       // Recorded against this test, as engine-test does. Left to throw, it escaped the whole file,

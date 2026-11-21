@@ -1,0 +1,130 @@
+/*
+ * Copyright contributors to Hyperledger Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.evm.frame;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.toy.ToyWorld;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.IntStream;
+
+import org.apache.tuweni.units.bigints.UInt256;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+class KeyedNoncesTest {
+
+  private static final UInt256 ONE = UInt256.ONE;
+  private static final UInt256 TWO = UInt256.valueOf(2);
+
+  @Test
+  void acceptsTheEmptySetAndStrictlyIncreasingKeys() {
+    assertThat(KeyedNonces.LEGACY_NONCE_KEYS).isEmpty();
+    assertThat(KeyedNonces.validate(KeyedNonces.LEGACY_NONCE_KEYS)).isEmpty();
+    assertThat(KeyedNonces.validate(List.of(ONE, TWO))).isEmpty();
+    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO))).isEmpty();
+    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO, ONE))).isEmpty();
+    final List<UInt256> sixteen = IntStream.rangeClosed(1, 16).mapToObj(UInt256::valueOf).toList();
+    assertThat(KeyedNonces.validate(sixteen)).isEmpty();
+    assertThat(KeyedNonces.isLegacy(KeyedNonces.LEGACY_NONCE_KEYS)).isTrue();
+    assertThat(KeyedNonces.isLegacy(List.of(UInt256.ZERO))).isFalse();
+    assertThat(KeyedNonces.isLegacy(List.of(ONE))).isFalse();
+  }
+
+  @Test
+  void rejectsMalformedKeySets() {
+    final List<UInt256> seventeen =
+        IntStream.rangeClosed(1, 17).mapToObj(UInt256::valueOf).toList();
+    assertThat(KeyedNonces.validate(seventeen)).contains("invalid nonce key count");
+    assertThat(KeyedNonces.validate(List.of(TWO, ONE)))
+        .contains("nonce keys not strictly increasing");
+    assertThat(KeyedNonces.validate(List.of(ONE, ONE)))
+        .contains("nonce keys not strictly increasing");
+    assertThat(KeyedNonces.validate(List.of(UInt256.ZERO, UInt256.ZERO)))
+        .contains("nonce keys not strictly increasing");
+  }
+
+  @Test
+  void theZeroKeyReadsTheNonceManagerNotTheAccountNonce() {
+    final Address sender = Address.fromHexString("0x01");
+    final ToyWorld world = new ToyWorld();
+    final WorldUpdater updater = world.updater();
+    updater.createAccount(sender, 7, Wei.ZERO);
+    updater
+        .createAccount(KeyedNonces.NONCE_MANAGER)
+        .setStorageValue(KeyedNonces.nonceSlot(sender, UInt256.ZERO), UInt256.valueOf(3));
+    updater.commit();
+    final Eip7928AccessList accessList = mock(Eip7928AccessList.class);
+
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, UInt256.ZERO, Optional.of(accessList)))
+        .isEqualTo(UInt256.valueOf(3));
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, ONE, Optional.empty()))
+        .isEqualTo(UInt256.ZERO);
+    verify(accessList)
+        .addSlotAccessForAccount(
+            KeyedNonces.NONCE_MANAGER, KeyedNonces.nonceSlot(sender, UInt256.ZERO));
+  }
+
+  @Test
+  void slotsDependOnSenderAndKey() {
+    final Address a = Address.fromHexString("0x01");
+    final Address b = Address.fromHexString("0x02");
+    assertThat(KeyedNonces.nonceSlot(a, ONE)).isEqualTo(KeyedNonces.nonceSlot(a, ONE));
+    assertThat(KeyedNonces.nonceSlot(a, ONE)).isNotEqualTo(KeyedNonces.nonceSlot(a, TWO));
+    assertThat(KeyedNonces.nonceSlot(a, ONE)).isNotEqualTo(KeyedNonces.nonceSlot(b, ONE));
+  }
+
+  @Test
+  void singleUseNeedsKeysAndTheMaxSequence() {
+    assertThat(KeyedNonces.isSingleUse(List.of(UInt256.ZERO), KeyedNonces.MAX_NONCE_SEQ)).isTrue();
+    assertThat(KeyedNonces.isSingleUse(List.of(ONE, TWO), KeyedNonces.MAX_NONCE_SEQ)).isTrue();
+    assertThat(KeyedNonces.isSingleUse(KeyedNonces.LEGACY_NONCE_KEYS, KeyedNonces.MAX_NONCE_SEQ))
+        .isFalse();
+    assertThat(KeyedNonces.isSingleUse(List.of(ONE), KeyedNonces.MAX_NONCE_SEQ - 1)).isFalse();
+  }
+
+  @ParameterizedTest(name = "sequence {0} is consumed as {1}")
+  @CsvSource({
+    "0, 0x01",
+    "-2, 0xffffffffffffffff", // MAX - 1 advances to MAX, exhausting the key
+    "-1, 0xffffffffffffffff", // single-use exhausts the key rather than wrapping to zero
+  })
+  void consumingWritesTheNextSequenceToEveryKey(final long nonceSeq, final String expected) {
+    final Address sender = Address.fromHexString("0x01");
+    final ToyWorld world = new ToyWorld();
+    final WorldUpdater updater = world.updater();
+
+    KeyedNonces.consumeKeyed(updater, sender, List.of(ONE, TWO), nonceSeq, Optional.empty());
+    updater.commit();
+
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, ONE, Optional.empty()))
+        .isEqualTo(UInt256.fromHexString(expected));
+    assertThat(KeyedNonces.currentNonceSeq(world, sender, TWO, Optional.empty()))
+        .isEqualTo(UInt256.fromHexString(expected));
+  }
+
+  @Test
+  void sequencesAreUnsigned() {
+    assertThat(KeyedNonces.unsigned(-1L)).isEqualTo(UInt256.fromHexString("0xffffffffffffffff"));
+  }
+}

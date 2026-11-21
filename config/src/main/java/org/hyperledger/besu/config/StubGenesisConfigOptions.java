@@ -77,6 +77,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   private boolean fixedBaseFee = false;
 
   private Optional<BlobScheduleOptions> blobScheduleOptions = Optional.empty();
+  private List<Address> zeroNonceStorageAccounts = List.of();
 
   /** Default constructor. */
   public StubGenesisConfigOptions() {
@@ -376,6 +377,9 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
     getContractSizeLimit().ifPresent(l -> builder.put("contractSizeLimit", l));
     getEvmStackSize().ifPresent(l -> builder.put("evmStackSize", l));
     getDepositContractAddress().ifPresent(l -> builder.put("depositContractAddress", l));
+    if (!zeroNonceStorageAccounts.isEmpty()) {
+      builder.put("zeroNonceStorageAccounts", zeroNonceStorageAccounts);
+    }
     if (isClique()) {
       builder.put("clique", getCliqueConfigOptions().asMap());
     }
@@ -439,6 +443,11 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   @Override
   public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
     return blobScheduleOptions;
+  }
+
+  @Override
+  public List<Address> getZeroNonceStorageAccounts() {
+    return zeroNonceStorageAccounts;
   }
 
   /**
@@ -891,6 +900,18 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
    */
   public StubGenesisConfigOptions transitions(final TransitionsConfigOptions transitions) {
     this.transitions = transitions;
+    return this;
+  }
+
+  /**
+   * Zero-nonce storage accounts stub genesis config options.
+   *
+   * @param zeroNonceStorageAccounts the EIP-8253 zero-nonce storage accounts
+   * @return the stub genesis config options
+   */
+  public StubGenesisConfigOptions zeroNonceStorageAccounts(
+      final List<Address> zeroNonceStorageAccounts) {
+    this.zeroNonceStorageAccounts = List.copyOf(zeroNonceStorageAccounts);
     return this;
   }
 }

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -74,5 +75,29 @@ public class BlockAccessListResultTest {
     assertThat(json).doesNotContain("postBalance");
     assertThat(json).doesNotContain("newNonce");
     assertThat(json).doesNotContain("newCode");
+  }
+
+  @Test
+  public void shouldSerializeAdoptedCodeHash() throws Exception {
+    final Hash codeHash = Hash.hash(Bytes.fromHexString("0x60806040"));
+    final AccountChanges accountChanges =
+        new AccountChanges(
+            Address.fromHexString("0x1234567890123456789012345678901234567890"),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(),
+            List.of(CodeChange.adoptedCode(2, codeHash)));
+
+    final String json =
+        objectMapper.writeValueAsString(
+            BlockAccessListResult.fromBlockAccessList(
+                new BlockAccessList(List.of(accountChanges))));
+
+    assertThat(json)
+        .contains(
+            "\"codeChanges\":[{\"index\":\"0x2\",\"code\":\"0x\",\"newCodeHash\":\""
+                + codeHash.toHexString()
+                + "\"}]");
   }
 }

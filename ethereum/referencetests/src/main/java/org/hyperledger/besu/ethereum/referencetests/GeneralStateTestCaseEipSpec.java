@@ -14,11 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
+import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 public class GeneralStateTestCaseEipSpec {
@@ -49,6 +51,7 @@ public class GeneralStateTestCaseEipSpec {
   private final int gasIndex;
   private final int valueIndex;
   private final String expectException;
+  private final Optional<BlobScheduleOptions> blobScheduleOptions;
 
   public GeneralStateTestCaseEipSpec(
       final String fork,
@@ -60,7 +63,8 @@ public class GeneralStateTestCaseEipSpec {
       final int dataIndex,
       final int gasIndex,
       final int valueIndex,
-      final String expectException) {
+      final String expectException,
+      final Optional<BlobScheduleOptions> blobScheduleOptions) {
     this.fork = fork;
     this.transactionSuppliers = transactionSuppliers;
     this.initialWorldState = initialWorldState;
@@ -71,6 +75,7 @@ public class GeneralStateTestCaseEipSpec {
     this.gasIndex = gasIndex;
     this.valueIndex = valueIndex;
     this.expectException = expectException;
+    this.blobScheduleOptions = blobScheduleOptions;
   }
 
   public String getFork() {
@@ -123,5 +128,15 @@ public class GeneralStateTestCaseEipSpec {
 
   public String getExpectException() {
     return expectException;
+  }
+
+  /**
+   * The blob schedule from the fixture's {@code config.blobSchedule}, which sets the blob target,
+   * max and base fee update fraction the test's fork runs with.
+   *
+   * @return the blob schedule options, or empty when the fixture carries no blob schedule
+   */
+  public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
+    return blobScheduleOptions;
   }
 }

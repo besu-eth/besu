@@ -34,6 +34,7 @@ import org.hyperledger.besu.config.GenesisAccount;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
+import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
@@ -44,6 +45,7 @@ import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
@@ -57,6 +59,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -67,14 +71,17 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
+import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionBroadcaster;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.AbstractPendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTransactionsSorter;
@@ -123,12 +130,14 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 
 import com.google.common.base.Suppliers;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -317,6 +326,117 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(blobGasUsage).isNotZero();
     BlobGas excessBlobGas = blockCreationResult.getBlock().getHeader().getExcessBlobGas().get();
     assertThat(excessBlobGas).isNotNull();
+  }
+
+  @Test
+  public void blobGasUsedCountsTheBlobsOfFrameTransactions() {
+    // The genesis deploys no request contracts, so the block skips EIP-7685 request processing.
+    final CreateOn miningOn =
+        createBlockCreator(
+            GenesisConfig.fromResource("/block-creation-bogota-genesis.json"),
+            ProtocolSpecAdapters.create(
+                0, specBuilder -> specBuilder.requestProcessorCoordinator(null)));
+    final Transaction frameTransaction =
+        signedFrameTransaction(
+            KEYS1,
+            List.of(selfVerifyFrame(100_000L)),
+            new BlobTestFixture().createBlobsWithCommitments(2).getVersionedHashes());
+
+    final BlockCreationResult blockCreationResult =
+        miningOn.blockCreator.createBlock(
+            Optional.of(List.of(frameTransaction)), Optional.empty(), 1L, miningOn.parentHeader);
+
+    assertThat(blockCreationResult.getBlock().getBody().getTransactions())
+        .containsExactly(frameTransaction);
+    // EIP-4844: each blob uses 2^17 blob gas
+    assertThat(blockCreationResult.getBlock().getHeader().getBlobGasUsed()).contains(2 * 131_072L);
+  }
+
+  @Test
+  public void selectsPooledDirectlyEvaluableFrameTransaction() {
+    final CreateOn miningOn =
+        createBlockCreator(
+            GenesisConfig.fromResource("/block-creation-bogota-genesis.json"),
+            ProtocolSpecAdapters.create(
+                0, specBuilder -> specBuilder.requestProcessorCoordinator(null)),
+            AbstractBlockCreatorTest::layeredTransactionPool);
+    final Transaction frameTransaction =
+        signedFrameTransaction(
+            KEYS1,
+            List.of(
+                selfVerifyFrame(5_000L),
+                new Frame(
+                    Frame.MODE_SENDER,
+                    0,
+                    Optional.of(
+                        Address.fromHexString("0x2000000000000000000000000000000000000002")),
+                    50_000L,
+                    0L,
+                    Wei.ZERO,
+                    Bytes.EMPTY)),
+            List.of());
+    assertThat(miningOn.transactionPool.addTransactionViaApi(frameTransaction))
+        .isEqualTo(ValidationResult.valid());
+
+    final BlockCreationResult blockCreationResult =
+        miningOn.blockCreator.createBlock(
+            Optional.empty(), Optional.empty(), 1L, miningOn.parentHeader);
+
+    assertThat(blockCreationResult.getBlock().getBody().getTransactions())
+        .containsExactly(frameTransaction);
+    assertThat(blockCreationResult.getTransactionSelectionResults().getSelectedTransactions())
+        .containsExactly(frameTransaction);
+  }
+
+  private static Frame selfVerifyFrame(final long executionGasLimit) {
+    return new Frame(
+        Frame.MODE_VERIFY,
+        Frame.APPROVE_SCOPE_MASK,
+        Optional.empty(),
+        executionGasLimit,
+        0L,
+        Wei.ZERO,
+        Bytes.EMPTY);
+  }
+
+  /** Builds a frame transaction whose single signature entry is by {@code keys}. */
+  private static Transaction signedFrameTransaction(
+      final KeyPair keys, final List<Frame> frames, final List<VersionedHash> versionedHashes) {
+    final Address sender = Address.extract(keys.getPublicKey());
+    final Hash signatureHash =
+        frameTransaction(sender, frames, versionedHashes, Bytes.repeat((byte) 0, 65))
+            .getFrameSignatureHash();
+    final SECPSignature signature =
+        SIGNATURE_ALGORITHM.sign(Bytes32.wrap(signatureHash.getBytes()), keys);
+    return frameTransaction(
+        sender,
+        frames,
+        versionedHashes,
+        Bytes.concatenate(
+            Bytes.of(signature.getRecId()),
+            UInt256.valueOf(signature.getR()),
+            UInt256.valueOf(signature.getS())));
+  }
+
+  private static Transaction frameTransaction(
+      final Address sender,
+      final List<Frame> frames,
+      final List<VersionedHash> versionedHashes,
+      final Bytes rawSignature) {
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.valueOf(42))
+        .nonce(0)
+        .sender(sender)
+        .frames(frames)
+        .frameSignatures(
+            List.of(
+                new FrameSignature(
+                    FrameSignature.SCHEME_SECP256K1, Bytes.EMPTY, Bytes.EMPTY, rawSignature)))
+        .maxPriorityFeePerGas(Wei.ONE)
+        .maxFee(Wei.fromEth(1))
+        .versionedHashes(versionedHashes)
+        .build();
   }
 
   private CreateOn blockCreatorWithBlobGasSupport() {
@@ -621,6 +741,7 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     try {
       final CreateOn miningOn =
           createBlockCreator(
+              genesisConfig,
               ProtocolSpecAdapters.create(0, specBuilder -> specBuilder),
               miningConfiguration,
               asyncEthScheduler,
@@ -702,6 +823,39 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
 
   private CreateOn createBlockCreator(
       final ProtocolSpecAdapters protocolSpecAdapters, final boolean saveTrieLog) {
+    return createBlockCreator(genesisConfig, protocolSpecAdapters, saveTrieLog);
+  }
+
+  private CreateOn createBlockCreator(
+      final GenesisConfig genesis, final ProtocolSpecAdapters protocolSpecAdapters) {
+    return createBlockCreator(genesis, protocolSpecAdapters, false);
+  }
+
+  private CreateOn createBlockCreator(
+      final GenesisConfig genesis,
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final boolean saveTrieLog) {
+    return createBlockCreator(
+        genesis,
+        protocolSpecAdapters,
+        saveTrieLog,
+        AbstractBlockCreatorTest::sequencedTransactionPool);
+  }
+
+  private CreateOn createBlockCreator(
+      final GenesisConfig genesis,
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final BiFunction<ExecutionContextTestFixture, EthScheduler, TransactionPool>
+          transactionPoolFactory) {
+    return createBlockCreator(genesis, protocolSpecAdapters, false, transactionPoolFactory);
+  }
+
+  private CreateOn createBlockCreator(
+      final GenesisConfig genesis,
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final boolean saveTrieLog,
+      final BiFunction<ExecutionContextTestFixture, EthScheduler, TransactionPool>
+          transactionPoolFactory) {
     final MiningConfiguration miningConfiguration =
         ImmutableMiningConfiguration.builder()
             .mutableInitValues(
@@ -712,25 +866,47 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
                     .build())
             .build();
     return createBlockCreator(
+        genesis,
         protocolSpecAdapters,
         miningConfiguration,
         ethScheduler,
         UnaryOperator.identity(),
-        saveTrieLog);
+        saveTrieLog,
+        transactionPoolFactory);
   }
 
   private CreateOn createBlockCreator(
+      final GenesisConfig genesis,
       final ProtocolSpecAdapters protocolSpecAdapters,
       final MiningConfiguration miningConfiguration,
       final EthScheduler ethScheduler,
       final UnaryOperator<ProtocolContext> protocolContextDecorator,
       final boolean saveTrieLog) {
+    return createBlockCreator(
+        genesis,
+        protocolSpecAdapters,
+        miningConfiguration,
+        ethScheduler,
+        protocolContextDecorator,
+        saveTrieLog,
+        AbstractBlockCreatorTest::sequencedTransactionPool);
+  }
+
+  private CreateOn createBlockCreator(
+      final GenesisConfig genesis,
+      final ProtocolSpecAdapters protocolSpecAdapters,
+      final MiningConfiguration miningConfiguration,
+      final EthScheduler ethScheduler,
+      final UnaryOperator<ProtocolContext> protocolContextDecorator,
+      final boolean saveTrieLog,
+      final BiFunction<ExecutionContextTestFixture, EthScheduler, TransactionPool>
+          transactionPoolFactory) {
 
     final ExecutionContextTestFixture executionContextTestFixture =
-        ExecutionContextTestFixture.builder(genesisConfig)
+        ExecutionContextTestFixture.builder(genesis)
             .protocolSchedule(
                 new ProtocolScheduleBuilder(
-                        genesisConfig.getConfigOptions(),
+                        genesis.getConfigOptions(),
                         Optional.of(BigInteger.valueOf(42)),
                         protocolSpecAdapters,
                         false,
@@ -744,6 +920,28 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             .dataStorageFormat(DataStorageFormat.BONSAI)
             .build();
 
+    final BlockHeader parentHeader =
+        executionContextTestFixture.getBlockchain().getChainHeadHeader();
+    final TransactionPool transactionPool =
+        transactionPoolFactory.apply(executionContextTestFixture, ethScheduler);
+
+    return new CreateOn(
+        new TestBlockCreator(
+            miningConfiguration,
+            (__, ___) -> Address.ZERO,
+            __ -> Bytes.fromHexString("deadbeef"),
+            transactionPool,
+            protocolContextDecorator.apply(executionContextTestFixture.getProtocolContext()),
+            executionContextTestFixture.getProtocolSchedule(),
+            ethScheduler,
+            saveTrieLog),
+        parentHeader,
+        transactionPool);
+  }
+
+  private static TransactionPool sequencedTransactionPool(
+      final ExecutionContextTestFixture executionContextTestFixture,
+      final EthScheduler ethScheduler) {
     final MutableBlockchain blockchain = executionContextTestFixture.getBlockchain();
     BlockHeader parentHeader = blockchain.getChainHeadHeader();
     final TransactionPoolConfiguration poolConf =
@@ -774,19 +972,29 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
             new BlobCache(),
             transactionEventNotifier);
     transactionPool.setEnabled();
+    return transactionPool;
+  }
 
-    return new CreateOn(
-        new TestBlockCreator(
-            miningConfiguration,
-            (__, ___) -> Address.ZERO,
-            __ -> Bytes.fromHexString("deadbeef"),
-            transactionPool,
-            protocolContextDecorator.apply(executionContextTestFixture.getProtocolContext()),
+  /** The layered pool as the node wires it, which is the only pool that admits frame txs. */
+  private static TransactionPool layeredTransactionPool(
+      final ExecutionContextTestFixture executionContextTestFixture,
+      final EthScheduler ethScheduler) {
+    final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
+    when(ethContext.getScheduler()).thenReturn(ethScheduler);
+    final TransactionPool transactionPool =
+        TransactionPoolFactory.createTransactionPool(
             executionContextTestFixture.getProtocolSchedule(),
-            ethScheduler,
-            saveTrieLog),
-        parentHeader,
-        transactionPool);
+            executionContextTestFixture.getProtocolContext(),
+            ethContext,
+            Clock.systemUTC(),
+            new NoOpMetricsSystem(),
+            mock(SyncState.class),
+            ImmutableTransactionPoolConfiguration.builder().build(),
+            EthProtocolConfiguration.DEFAULT,
+            new BlobCache(),
+            MiningConfiguration.newDefault());
+    transactionPool.setEnabled();
+    return transactionPool;
   }
 
   static class TestBlockCreator extends AbstractBlockCreator {

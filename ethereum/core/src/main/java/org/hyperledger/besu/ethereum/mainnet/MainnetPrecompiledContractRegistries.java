@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import static org.hyperledger.besu.evm.precompile.MainnetPrecompiledContracts.populateForBogota;
 import static org.hyperledger.besu.evm.precompile.MainnetPrecompiledContracts.populateForByzantium;
 import static org.hyperledger.besu.evm.precompile.MainnetPrecompiledContracts.populateForCancun;
 import static org.hyperledger.besu.evm.precompile.MainnetPrecompiledContracts.populateForFrontier;
@@ -66,6 +67,13 @@ public interface MainnetPrecompiledContractRegistries {
       final PrecompiledContractConfiguration precompiledContractConfiguration) {
     final PrecompileContractRegistry registry = new PrecompileContractRegistry();
     populateForOsaka(registry, precompiledContractConfiguration.getGasCalculator());
+    return registry;
+  }
+
+  static PrecompileContractRegistry bogota(
+      final PrecompiledContractConfiguration precompiledContractConfiguration) {
+    final PrecompileContractRegistry registry = new PrecompileContractRegistry();
+    populateForBogota(registry, precompiledContractConfiguration.getGasCalculator());
     return registry;
   }
 

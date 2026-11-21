@@ -530,7 +530,7 @@ public class BlockDataGenerator {
       case EIP1559 -> eip1559Transaction(payload, to);
       case ACCESS_LIST -> accessListTransaction(payload, to);
       case BLOB -> blobTransaction(payload, to);
-      case DELEGATE_CODE -> null;
+      case DELEGATE_CODE, FRAME -> null;
     };
   }
 
@@ -863,7 +863,10 @@ public class BlockDataGenerator {
 
     final List<BlockAccessList.CodeChange> codeChanges = new ArrayList<>();
     for (int i = 0; i < codeChangeCount; i++) {
-      codeChanges.add(new BlockAccessList.CodeChange(i, bytesValue(10, 100)));
+      codeChanges.add(
+          random.nextBoolean()
+              ? BlockAccessList.CodeChange.adoptedCode(i, hash())
+              : new BlockAccessList.CodeChange(i, bytesValue(10, 100)));
     }
 
     return new BlockAccessList.AccountChanges(

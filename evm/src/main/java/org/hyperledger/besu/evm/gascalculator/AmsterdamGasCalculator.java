@@ -68,7 +68,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   protected static final long COLD_ACCOUNT_ACCESS = 3_000L;
 
   /** Cold storage slot access cost. */
-  protected static final long COLD_STORAGE_ACCESS = 2_100L;
+  public static final long COLD_STORAGE_ACCESS = 2_100L;
 
   /** Account write cost (value-bearing CALL / new account). */
   protected static final long ACCOUNT_WRITE = 9_000L;
@@ -88,7 +88,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
    * Berlin SSTORE set/reset distinction; the set-from-zero surcharge now lives entirely in state
    * gas (see {@link Eip8037StateGasCostCalculator#storageSetStateGas}).
    */
-  private static final long STORAGE_WRITE = 10_000L;
+  public static final long STORAGE_WRITE = 10_000L;
 
   /** Refund for clearing a slot: {@code (STORAGE_WRITE + COLD_STORAGE_ACCESS) * 4800 / 5000}. */
   private static final long STORAGE_CLEAR_REFUND =

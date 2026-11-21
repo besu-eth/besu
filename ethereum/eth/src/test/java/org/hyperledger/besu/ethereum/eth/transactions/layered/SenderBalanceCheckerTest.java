@@ -82,6 +82,17 @@ public class SenderBalanceCheckerTest extends BaseTransactionPoolTest {
         .createTransaction(KEYS1);
   }
 
+  private Transaction createFrameTransaction(final long nonce, final Wei maxFee) {
+    return new TransactionTestFixture()
+        .type(TransactionType.FRAME)
+        .value(Wei.ZERO)
+        .sender(SENDER1)
+        .nonce(nonce)
+        .gasLimit(5000)
+        .maxFee(Optional.of(maxFee))
+        .createTransaction(KEYS1);
+  }
+
   @Test
   public void zeroBalanceSenderHasEnoughBalanceForZeroUpfrontCostTransaction() {
     // on free gas networks sender accounts commonly have zero balance,
@@ -140,6 +151,20 @@ public class SenderBalanceCheckerTest extends BaseTransactionPoolTest {
     // the depleted cached balance is zero, which still covers a zero upfront cost transaction
     assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(zeroCostTx)))
         .isTrue();
+  }
+
+  @Test
+  public void frameTransactionsAreChargedTheirMaxFeeCumulatively() {
+    // EIP-8141: max_fee caps the whole fee, and 15001 wei over 5000 gas is not a whole price per
+    // gas, so a check at the price per gas times the gas limit would charge only 15000
+    final var frameTx0 = createFrameTransaction(0, Wei.of(15_001L));
+    final var frameTx1 = createFrameTransaction(1, Wei.of(15_001L));
+    setSenderBalance(Wei.of(2 * 15_001L - 1));
+
+    assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(frameTx0)))
+        .isTrue();
+    assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(frameTx1)))
+        .isFalse();
   }
 
   @Test

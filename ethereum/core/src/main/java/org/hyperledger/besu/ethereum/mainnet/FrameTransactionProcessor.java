@@ -1,0 +1,721 @@
+/*
+ * Copyright contributors to Hyperledger Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.mainnet;
+
+import org.hyperledger.besu.collections.undo.UndoSet;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Log;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameReceipt;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
+import org.hyperledger.besu.ethereum.core.FrameTransactionFees;
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
+import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.FrameTransactionContext;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.frame.TransactionDiff;
+import org.hyperledger.besu.evm.frame.TxValues;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.operation.ApproveOperation;
+import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
+import org.hyperledger.besu.evm.processor.MessageCallProcessor;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Executes EIP-8141 frame transactions: validates the declared signatures, runs each frame as an
+ * isolated top-level call with explicit execution and state gas budgets, applies the APPROVE-based
+ * payment model, and settles gas per the EIP's two-dimensional accounting.
+ */
+public class FrameTransactionProcessor {
+
+  private static final Logger LOG = LoggerFactory.getLogger(FrameTransactionProcessor.class);
+
+  private final GasCalculator gasCalculator;
+  private final TransactionValidatorFactory transactionValidatorFactory;
+  private final MessageCallProcessor messageCallProcessor;
+  private final ContractCreationProcessor contractCreationProcessor;
+  private final TopLevelTransactionSupport topLevelSupport;
+  private final boolean clearEmptyAccounts;
+  private final int maxStackSize;
+
+  FrameTransactionProcessor(
+      final GasCalculator gasCalculator,
+      final TransactionValidatorFactory transactionValidatorFactory,
+      final MessageCallProcessor messageCallProcessor,
+      final ContractCreationProcessor contractCreationProcessor,
+      final TopLevelTransactionSupport topLevelSupport,
+      final boolean clearEmptyAccounts,
+      final int maxStackSize) {
+    this.gasCalculator = gasCalculator;
+    this.transactionValidatorFactory = transactionValidatorFactory;
+    this.messageCallProcessor = messageCallProcessor;
+    this.contractCreationProcessor = contractCreationProcessor;
+    this.topLevelSupport = topLevelSupport;
+    this.clearEmptyAccounts = clearEmptyAccounts;
+    this.maxStackSize = maxStackSize;
+  }
+
+  /** The mutable execution state of one frame while it is being processed. */
+  private static final class FrameExecution {
+    int status = FrameReceipt.STATUS_FAILURE;
+    long executionGasUsed = 0L;
+    List<Log> logs = List.of();
+    boolean skipped = false;
+  }
+
+  /**
+   * Applies a frame transaction to the current world state.
+   *
+   * @param worldState the current world state
+   * @param blockHeader the current block header
+   * @param transaction the frame transaction
+   * @param miningBeneficiary the coinbase
+   * @param operationTracer the tracer
+   * @param blockHashLookup the BLOCKHASH lookup
+   * @param transactionValidationParams the validation parameters
+   * @param blobGasPrice the current blob gas price
+   * @param accessLocationTracker the EIP-7928 access location tracker for this transaction, when
+   *     the fork builds a block access list
+   * @return the processing result
+   */
+  public TransactionProcessingResult processTransaction(
+      final WorldUpdater worldState,
+      final ProcessableBlockHeader blockHeader,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final OperationTracer operationTracer,
+      final BlockHashLookup blockHashLookup,
+      final TransactionValidationParams transactionValidationParams,
+      final Wei blobGasPrice,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
+    final var transactionValidator = transactionValidatorFactory.get();
+    ValidationResult<TransactionInvalidReason> validationResult =
+        transactionValidator.validate(
+            transaction,
+            blockHeader.getBaseFee(),
+            Optional.ofNullable(blobGasPrice),
+            transactionValidationParams);
+    if (!validationResult.isValid()) {
+      LOG.debug("Invalid frame transaction: {}", validationResult.getErrorMessage());
+      return TransactionProcessingResult.invalid(validationResult);
+    }
+
+    final Address senderAddress = transaction.getSender();
+    // EIP-7928: the declared sender is touched by the transaction regardless of which frames run.
+    accessLocationTracker.ifPresent(t -> t.addTouchedAccount(senderAddress));
+    final Account senderAtStart = worldState.get(senderAddress);
+
+    // EIP-8250: the empty key set requires the account nonce to hold the transaction's sequence.
+    // A keyed set at MAX_NONCE_SEQ requires every selected key to be unused; any other keyed set
+    // requires every selected key to hold the sequence. The nonce set is consumed by APPROVE.
+    // EIP-3607 is deliberately not applied. The reference implementation checks the nonce set
+    // last, after the static rules, the signature entries and the fee budget the validator checks.
+    final long legacyNonce = senderAtStart == null ? 0L : senderAtStart.getNonce();
+    final List<UInt256> nonceKeys =
+        transaction.getNonceKeys().orElse(KeyedNonces.LEGACY_NONCE_KEYS);
+    if (KeyedNonces.isLegacy(nonceKeys)) {
+      final int order = Long.compareUnsigned(legacyNonce, transaction.getNonce());
+      if (order != 0) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                order > 0
+                    ? TransactionInvalidReason.NONCE_TOO_LOW
+                    : TransactionInvalidReason.NONCE_TOO_HIGH,
+                String.format(
+                    "transaction nonce %s %s sender account nonce %s",
+                    Long.toUnsignedString(transaction.getNonce()),
+                    order > 0 ? "below" : "does not match",
+                    Long.toUnsignedString(legacyNonce))));
+      }
+    }
+    final boolean singleUse = KeyedNonces.isSingleUse(nonceKeys, transaction.getNonce());
+    for (final UInt256 nonceKey : nonceKeys) {
+      final UInt256 current =
+          KeyedNonces.currentNonceSeq(worldState, senderAddress, nonceKey, accessLocationTracker);
+      final int order;
+      if (singleUse) {
+        // A used key is "too low" for a single-use transaction, whatever sequence it holds.
+        order = current.isZero() ? 0 : 1;
+      } else {
+        order = current.compareTo(KeyedNonces.unsigned(transaction.getNonce()));
+      }
+      if (order != 0) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                order > 0
+                    ? TransactionInvalidReason.NONCE_TOO_LOW
+                    : TransactionInvalidReason.NONCE_TOO_HIGH,
+                String.format(
+                    "transaction nonce %s %s nonce key %s sequence %s",
+                    Long.toUnsignedString(transaction.getNonce()),
+                    order > 0 ? "below" : "above",
+                    nonceKey.toShortHexString(),
+                    current.toDecimalString())));
+      }
+    }
+
+    final List<Frame> frames = transaction.getFrames().orElseThrow();
+    final List<FrameSignature> signatures = transaction.getFrameSignatures().orElse(List.of());
+    final Bytes32 signatureHash = Bytes32.wrap(transaction.getFrameSignatureHash().getBytes());
+
+    // Gas anchors.
+    final long intrinsicGas =
+        FrameTransactionGas.intrinsicGas(
+            frames, signatures, senderAddress, nonceKeys, transaction.getNonce());
+    final long calldataFloorGas =
+        FrameTransactionGas.calldataFloorGas(
+            frames, signatures, senderAddress, nonceKeys, transaction.getNonce());
+    final long totalExecutionGas = FrameTransactionGas.totalExecutionGasLimit(frames);
+    final long totalStateGas = FrameTransactionGas.totalStateGasLimit(frames);
+    final long standardGasLimit = intrinsicGas + totalExecutionGas + totalStateGas;
+    final long maxGas = transaction.getGasLimit();
+
+    // EIP-8141 fee budget: the validator has checked that max_fee covers the required fee.
+    final Wei baseFee = blockHeader.getBaseFee().orElse(Wei.ZERO);
+    final Wei blobBaseFee = blobGasPrice == null ? Wei.ZERO : blobGasPrice;
+    final long blobGas = gasCalculator.blobGasCost(transaction.getBlobCount());
+    final Wei maxPriorityFeePerGas = transaction.getMaxPriorityFeePerGas().orElseThrow();
+    final Wei maxFee = transaction.getMaxFee().orElseThrow();
+    final FrameTransactionFees.Escrow escrow =
+        FrameTransactionFees.escrow(
+            maxFee, maxPriorityFeePerGas, maxGas, baseFee, blobGas, blobBaseFee);
+    final Wei maxCost = escrow.maxCost();
+    final Wei gasPrice = escrow.gasPrice();
+
+    // Build the EVM-visible transaction context.
+    final List<FrameTransactionContext.FrameInfo> frameInfos = new ArrayList<>(frames.size());
+    for (final Frame frame : frames) {
+      frameInfos.add(
+          new FrameTransactionContext.FrameInfo(
+              frame.mode(),
+              frame.flags(),
+              frame.resolvedTarget(senderAddress),
+              frame.executionGasLimit(),
+              frame.stateGasLimit(),
+              frame.value(),
+              frame.data()));
+    }
+    final List<FrameTransactionContext.SignatureInfo> signatureInfos =
+        new ArrayList<>(signatures.size());
+    for (final FrameSignature signature : signatures) {
+      final boolean arbitrary = signature.scheme() == FrameSignature.SCHEME_ARBITRARY;
+      signatureInfos.add(
+          new FrameTransactionContext.SignatureInfo(
+              signature.scheme(),
+              arbitrary ? null : signature.resolvedSigner(senderAddress),
+              signature.msg().isEmpty() ? null : Bytes32.wrap(signature.msg()),
+              arbitrary ? signature.signature() : null));
+    }
+    final FrameTransactionContext context =
+        new FrameTransactionContext(
+            frameInfos,
+            signatureInfos,
+            senderAddress,
+            signatureHash,
+            transaction.getNonce(),
+            nonceKeys,
+            legacyNonce,
+            maxPriorityFeePerGas,
+            maxFee,
+            maxCost);
+
+    final WorldUpdater worldUpdater = worldState.updater();
+    operationTracer.traceStartTransaction(worldUpdater, transaction);
+
+    // Warm addresses at transaction start: the sender and the coinbase (EIP-3651); precompiles
+    // are warm by construction. Frame targets are not pre-warmed and ENTRY_POINT is never warmed.
+    final TreeSet<Address> initialWarmth = new TreeSet<>();
+    initialWarmth.add(senderAddress);
+    initialWarmth.add(miningBeneficiary);
+    final TxValues txValues =
+        TxValues.forTransaction(
+            blockHashLookup,
+            maxStackSize,
+            UndoSet.of(initialWarmth),
+            senderAddress,
+            gasPrice,
+            blobBaseFee,
+            blockHeader,
+            miningBeneficiary,
+            transaction.getVersionedHashes().map(List::copyOf),
+            0L);
+    txValues.setFrameTransactionContext(context);
+    final long txStartMark = txValues.transientStorage().mark();
+
+    // Frame loop state.
+    final FrameExecution[] executions = new FrameExecution[frames.size()];
+    WorldUpdater batchUpdater = null;
+    long batchMark = 0L;
+    int skipUntil = -1; // inclusive index up to which frames are skipped by a failed batch
+
+    // EIP-7906 state. ASSERT frames form a trailing suffix, so the transaction has assertions
+    // exactly when its last frame is one; every other frame transaction runs as before. Once the
+    // validation prefix ends, the execution body runs in its own layer above the transaction
+    // updater, so a failing ASSERT frame can revert it as an atomic batch unroll does.
+    final boolean hasAssertFrame = frames.get(frames.size() - 1).mode() == Frame.MODE_ASSERT;
+    WorldUpdater bodyUpdater = null;
+    long bodyMark = 0L;
+    int bodyStart = -1; // the first frame of the execution body, once the prefix has ended
+    boolean assertStarted = false;
+
+    for (int i = 0; i < frames.size(); i++) {
+      final Frame frame = frames.get(i);
+      final FrameExecution execution = new FrameExecution();
+      executions[i] = execution;
+      context.setCurrentFrameIndex(i);
+
+      if (i <= skipUntil) {
+        execution.skipped = true;
+        execution.status = FrameReceipt.STATUS_SKIPPED;
+        context.recordFrameSkipped(i);
+        continue;
+      }
+
+      // EIP-7906: what the assertions observe is final once the ASSERT suffix starts.
+      if (frame.mode() == Frame.MODE_ASSERT && !assertStarted) {
+        assertStarted = true;
+        installTransactionDiff(context, worldState, worldUpdater, bodyUpdater, executions, i);
+      }
+
+      // Open an atomic batch at its first frame. Body frames and their batches nest in the body.
+      final WorldUpdater frameParent = bodyUpdater != null ? bodyUpdater : worldUpdater;
+      final boolean batchOpen = batchUpdater != null;
+      if (!batchOpen && frame.isAtomicBatch()) {
+        batchUpdater = frameParent.updater();
+        batchMark = txValues.transientStorage().mark();
+      }
+      final WorldUpdater activeUpdater = batchUpdater != null ? batchUpdater : frameParent;
+
+      // SENDER frames require prior execution approval; otherwise the transaction is invalid.
+      if (frame.mode() == Frame.MODE_SENDER && !context.senderApproved()) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.FRAME_SENDER_NOT_APPROVED,
+                "SENDER frame " + i + " executed before execution approval"));
+      }
+
+      // Discard transient storage between frames.
+      txValues.transientStorage().undo(txStartMark);
+
+      final Address caller =
+          frame.mode() == Frame.MODE_SENDER ? senderAddress : FrameTransactionContext.ENTRY_POINT;
+      txValues.setOriginator(caller);
+
+      // Seed the frame's isolated state-gas pool before the frame's undo mark is taken, so a
+      // frame revert restores the seeded value rather than unwinding it.
+      txValues.stateGasReservoir().set(frame.stateGasLimit());
+
+      final Address resolvedTarget = frame.resolvedTarget(senderAddress);
+      final Account targetAccount = activeUpdater.get(resolvedTarget);
+      final boolean isPrecompile = gasCalculator.isPrecompile(resolvedTarget);
+      final boolean hasEmptyCode =
+          targetAccount == null
+              || targetAccount.getCodeHash() == null
+              || targetAccount.getCodeHash().equals(Hash.EMPTY);
+
+      final MessageFrame.Builder evmFrameBuilder =
+          MessageFrame.builder()
+              .txValues(txValues)
+              .type(MessageFrame.Type.MESSAGE_CALL)
+              .worldUpdater(activeUpdater.updater())
+              .initialGas(frame.executionGasLimit())
+              .address(resolvedTarget)
+              .contract(resolvedTarget)
+              .inputData(frame.data())
+              .sender(caller)
+              .value(frame.value())
+              .apparentValue(frame.value())
+              .code(
+                  topLevelSupport.accountCode(
+                      targetAccount,
+                      delegated ->
+                          CodeDelegationHelper.getTarget(
+                                  activeUpdater,
+                                  gasCalculator::isPrecompile,
+                                  delegated,
+                                  Optional.empty())
+                              .code()))
+              // EIP-7906: ASSERT frames assert the outcome read-only, as VERIFY frames validate.
+              .isStatic(frame.mode() == Frame.MODE_VERIFY || frame.mode() == Frame.MODE_ASSERT)
+              .maxStackSize(maxStackSize)
+              .originator(caller)
+              .gasPrice(gasPrice)
+              .blobGasPrice(blobBaseFee)
+              .blockValues(blockHeader)
+              .miningBeneficiary(miningBeneficiary)
+              .blockHashLookup(blockHashLookup)
+              .completer(__ -> {})
+              .enableEvmV2(messageCallProcessor.runsOnEvmV2());
+      // Shared across every frame: one tracker per transaction, as for a non-frame transaction.
+      accessLocationTracker.ifPresent(evmFrameBuilder::eip7928AccessList);
+      final MessageFrame evmFrame = evmFrameBuilder.build();
+
+      boolean prepared = true;
+      boolean exceptionalPreparation = false;
+
+      // Charge the resolved target's warm/cold account access from the frame's execution pool.
+      if (!topLevelSupport.chargeAccountAccess(evmFrame, resolvedTarget)) {
+        prepared = false;
+        exceptionalPreparation = true;
+      } else {
+        // EIP-7928: record the target only once its access has actually been paid for. A frame
+        // that halts on the entry charge never accessed it, so it must not appear in the block
+        // access list -- including when the halt unrolls an atomic batch.
+        accessLocationTracker.ifPresent(t -> t.addTouchedAccount(resolvedTarget));
+      }
+
+      boolean nativeDefaultVerify = false;
+      if (prepared && frame.mode() == Frame.MODE_VERIFY && !isPrecompile && hasEmptyCode) {
+        // Protocol-defined default code: draws no execution gas of its own.
+        nativeDefaultVerify = true;
+      }
+
+      boolean valueBalanceFailure = false;
+      if (prepared && !nativeDefaultVerify) {
+        if (!frame.value().isZero() && balanceOf(activeUpdater, caller).lessThan(frame.value())) {
+          // Revert-style failure: keeps the unspent execution gas.
+          prepared = false;
+          valueBalanceFailure = true;
+        } else if (!topLevelSupport.chargeTransactionEntry(
+            evmFrame, activeUpdater, resolvedTarget)) {
+          // EIP-2780 dispatch entry: NEW_ACCOUNT for value to an empty target, then the access to
+          // a delegated target's delegation target, as for a top-level call.
+          prepared = false;
+          exceptionalPreparation = true;
+        }
+      }
+
+      if (!prepared) {
+        // The frame never executed: unwind its journal entries (target warmth, state charges).
+        evmFrame.rollback();
+        txValues.messageFrameStack().clear();
+        execution.status = FrameReceipt.STATUS_FAILURE;
+        execution.executionGasUsed =
+            exceptionalPreparation
+                ? frame.executionGasLimit()
+                : frame.executionGasLimit() - evmFrame.getRemainingGas();
+        context.recordFrameCompletion(i, execution.status, execution.executionGasUsed, 0L);
+        if (valueBalanceFailure) {
+          LOG.trace("Frame {} value transfer exceeds balance", i);
+        }
+      } else if (nativeDefaultVerify) {
+        final boolean approved = executeDefaultVerifyCode(evmFrame, context, frame);
+        txValues.messageFrameStack().clear();
+        if (approved) {
+          evmFrame.getWorldUpdater().commit();
+          execution.status = FrameReceipt.STATUS_SUCCESS;
+          execution.executionGasUsed = frame.executionGasLimit() - evmFrame.getRemainingGas();
+          context.recordFrameCompletion(
+              i,
+              execution.status,
+              execution.executionGasUsed,
+              frame.stateGasLimit() - evmFrame.getStateGasReservoir());
+        } else {
+          evmFrame.rollback();
+          execution.status = FrameReceipt.STATUS_FAILURE;
+          execution.executionGasUsed = frame.executionGasLimit();
+          context.recordFrameCompletion(i, execution.status, execution.executionGasUsed, 0L);
+        }
+      } else {
+        // Run the frame in the EVM.
+        while (!txValues.messageFrameStack().isEmpty()) {
+          final MessageFrame current = txValues.messageFrameStack().peekFirst();
+          // A CREATE inside a frame pushes a contract-creation frame, which needs the creation
+          // processor: run as a call it gets no nonce 1, no code deposit and no deposit charge.
+          (current.getType() == MessageFrame.Type.CONTRACT_CREATION
+                  ? contractCreationProcessor
+                  : messageCallProcessor)
+              .process(current, operationTracer);
+        }
+        final boolean success = evmFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS;
+        execution.status = success ? FrameReceipt.STATUS_SUCCESS : FrameReceipt.STATUS_FAILURE;
+        execution.executionGasUsed = frame.executionGasLimit() - evmFrame.getRemainingGas();
+        execution.logs = success ? List.copyOf(evmFrame.getLogs()) : List.of();
+        context.recordFrameCompletion(
+            i,
+            execution.status,
+            execution.executionGasUsed,
+            success ? frame.stateGasLimit() - evmFrame.getStateGasReservoir() : 0L);
+      }
+
+      // A failed VERIFY frame invalidates the whole transaction.
+      if (frame.mode() == Frame.MODE_VERIFY && execution.status != FrameReceipt.STATUS_SUCCESS) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.FRAME_VERIFICATION_FAILED,
+                "VERIFY frame " + i + " failed"));
+      }
+
+      // EIP-7906: a failed assertion reverts the execution body, whatever batches it held, and
+      // skips the remaining frames. The transaction stays valid, and the payer still pays the
+      // execution gas of every frame that ran.
+      if (frame.mode() == Frame.MODE_ASSERT && execution.status == FrameReceipt.STATUS_FAILURE) {
+        if (bodyUpdater != null) {
+          // Rolls back refunds, self-destructs, creations, warmth, transient storage, the
+          // approval context and the state gas of every receipt to the end of the prefix.
+          txValues.undoChanges(bodyMark);
+          bodyUpdater.revert();
+          bodyUpdater = null;
+          // The executed frames keep their status and execution gas, and lose their logs.
+          for (int j = bodyStart; j <= i; j++) {
+            executions[j].logs = List.of();
+          }
+        }
+        // Without a validation prefix nothing is reverted, and the transaction is invalid below
+        // because no frame approved payment.
+        for (int j = i + 1; j < frames.size(); j++) {
+          final FrameExecution skipped = new FrameExecution();
+          skipped.skipped = true;
+          skipped.status = FrameReceipt.STATUS_SKIPPED;
+          executions[j] = skipped;
+          context.recordFrameSkipped(j);
+        }
+        break;
+      }
+
+      // Atomic batch bookkeeping.
+      if (batchUpdater != null) {
+        if (execution.status == FrameReceipt.STATUS_FAILURE) {
+          // Unroll: discard the batch's state, roll back the journal (which also zeroes the
+          // executed batch frames' state-gas receipts and undoes refills to earlier receipts),
+          // discard executed batch frames' logs, and skip the remaining batch frames.
+          txValues.undoChanges(batchMark);
+          for (int j = 0; j <= i; j++) {
+            if (executions[j] != null && !executions[j].skipped) {
+              // Frames at or after the batch start lose their logs.
+              if (jInCurrentBatch(frames, j, i)) {
+                executions[j].logs = List.of();
+              }
+            }
+          }
+          int j = i + 1;
+          while (j < frames.size() && frames.get(j - 1).isAtomicBatch()) {
+            skipUntil = j;
+            j++;
+          }
+          batchUpdater = null;
+        } else if (!frame.isAtomicBatch()) {
+          // The batch terminator succeeded: commit the whole batch.
+          batchUpdater.commit();
+          batchUpdater = null;
+        }
+      }
+
+      // EIP-7906: the validation prefix ends with the first frame that leaves the payer set.
+      // Approval scope is banned on batched frames, so no batch is open here.
+      if (hasAssertFrame && bodyStart < 0 && context.payer() != null) {
+        bodyUpdater = worldUpdater.updater();
+        bodyMark = txValues.transientStorage().mark();
+        bodyStart = i + 1;
+      }
+    }
+
+    // Every ASSERT frame held: the body is part of the outcome. Committed before anything else
+    // writes the transaction updater.
+    if (bodyUpdater != null) {
+      bodyUpdater.commit();
+    }
+
+    context.setCurrentFrameIndex(frames.size());
+
+    final Address payer = context.payer();
+    if (payer == null) {
+      return TransactionProcessingResult.invalid(
+          ValidationResult.invalid(
+              TransactionInvalidReason.FRAME_PAYMENT_NOT_APPROVED,
+              "no frame approved payment for the transaction"));
+    }
+
+    // Settlement (EIP-8141 gas accounting).
+    long txUnusedGas = 0L;
+    long txStateGas = 0L;
+    for (int i = 0; i < frames.size(); i++) {
+      final long stateUsed = context.frameStateGasUsed(i);
+      txUnusedGas += (frames.get(i).executionGasLimit() - executions[i].executionGasUsed);
+      txUnusedGas += (frames.get(i).stateGasLimit() - stateUsed);
+      txStateGas += stateUsed;
+    }
+    final long gasUsedBeforeRefund = standardGasLimit - txUnusedGas;
+    final long refundCounter = txValues.gasRefunds().get();
+    final long appliedRefund =
+        Math.min(refundCounter, gasUsedBeforeRefund / gasCalculator.getMaxRefundQuotient());
+    final long gasUsedAfterRefund = gasUsedBeforeRefund - appliedRefund;
+    final long txExecutionGas = Math.max(gasUsedAfterRefund - txStateGas, calldataFloorGas);
+    final long gasUsed = txExecutionGas + txStateGas;
+    // EIP-7778: the block accounts execution gas before the refund.
+    final long blockExecutionGas = Math.max(gasUsedBeforeRefund - txStateGas, calldataFloorGas);
+
+    final FrameTransactionFees.Disbursement disbursement =
+        FrameTransactionFees.disburse(
+            maxCost, maxPriorityFeePerGas, gasUsed, baseFee, blobGas, blobBaseFee);
+    // EIP-7928: the payer settles the fee and so is touched, even when it is not the sender.
+    accessLocationTracker.ifPresent(t -> t.addTouchedAccount(payer));
+    final MutableAccount payerAccount = worldUpdater.getOrCreate(payer);
+    payerAccount.incrementBalance(disbursement.payerRefund());
+
+    final Wei coinbaseWeiDelta = disbursement.priorityFeePaid();
+    operationTracer.traceBeforeRewardTransaction(worldUpdater, transaction, coinbaseWeiDelta);
+    TopLevelTransactionSupport.creditCoinbase(
+        worldUpdater, miningBeneficiary, coinbaseWeiDelta, accessLocationTracker);
+
+    worldUpdater.commit();
+
+    final Set<Address> selfDestructs = Set.copyOf(txValues.selfDestructs());
+    topLevelSupport.settleSelfDestructs(worldState, selfDestructs);
+    if (clearEmptyAccounts) {
+      worldState.clearAccountsThatAreEmpty();
+    }
+
+    // Build the frame receipts and the concatenated transaction logs.
+    final List<FrameReceipt> frameReceipts = new ArrayList<>(frames.size());
+    final List<Log> allLogs = new ArrayList<>();
+    for (int i = 0; i < frames.size(); i++) {
+      final FrameExecution execution = executions[i];
+      frameReceipts.add(
+          new FrameReceipt(
+              execution.status,
+              execution.executionGasUsed,
+              context.frameStateGasUsed(i),
+              execution.logs));
+      allLogs.addAll(execution.logs);
+    }
+
+    operationTracer.traceEndTransaction(
+        worldState.updater(), transaction, true, Bytes.EMPTY, allLogs, gasUsed, selfDestructs, 0L);
+
+    // Built after self-destruct settlement and empty-account clearing, so the diff against the
+    // transaction updater sees the final state, matching MainnetTransactionProcessor.
+    final Optional<PartialBlockAccessView> partialBlockAccessView =
+        accessLocationTracker.map(
+            tracker -> tracker.createPartialBlockAccessView(worldState, txValues.adoptedCode()));
+
+    final TransactionProcessingResult result =
+        TransactionProcessingResult.successful(
+            allLogs,
+            gasUsed,
+            maxGas - gasUsed,
+            gasUsed,
+            txStateGas,
+            Bytes.EMPTY,
+            partialBlockAccessView,
+            validationResult);
+    result.setExecutionGasUsedForBlock(blockExecutionGas);
+    result.setFrameTransactionOutcome(
+        new TransactionProcessingResult.FrameTransactionOutcome(payer, frameReceipts));
+    return result;
+  }
+
+  /**
+   * Installs what the EIP-7906 assertion operations read, at the first ASSERT frame: the diff of
+   * the writes in the transaction updater and the body layer against the transaction prestate, with
+   * the logs of the frames completed so far. The diff is computed on its first read. It cannot
+   * change across the ASSERT suffix: ASSERT frames neither write values nor emit logs, and the loop
+   * stops at the first one that fails.
+   */
+  private static void installTransactionDiff(
+      final FrameTransactionContext context,
+      final WorldUpdater transactionPrestate,
+      final WorldUpdater worldUpdater,
+      final WorldUpdater bodyUpdater,
+      final FrameExecution[] executions,
+      final int firstAssert) {
+    final List<Log> events = new ArrayList<>();
+    for (int j = 0; j < firstAssert; j++) {
+      events.addAll(executions[j].logs);
+    }
+    final List<Log> frozenEvents = List.copyOf(events);
+    final List<WorldUpdater> writeLayers =
+        bodyUpdater == null ? List.of(worldUpdater) : List.of(worldUpdater, bodyUpdater);
+    final WorldUpdater post = bodyUpdater == null ? worldUpdater : bodyUpdater;
+    context.installTransactionDiff(
+        () -> TransactionDiff.compute(transactionPrestate, post, writeLayers, frozenEvents));
+  }
+
+  /** Whether frame {@code j} belongs to the batch that frame {@code failedIndex} failed in. */
+  private static boolean jInCurrentBatch(
+      final List<Frame> frames, final int j, final int failedIndex) {
+    if (j > failedIndex) {
+      return false;
+    }
+    // Walk back from the failed frame to the batch start: every predecessor with the atomic
+    // batch flag chains the batch backwards.
+    int start = failedIndex;
+    while (start > 0 && frames.get(start - 1).isAtomicBatch()) {
+      start--;
+    }
+    return j >= start;
+  }
+
+  private static Wei balanceOf(final WorldUpdater worldUpdater, final Address address) {
+    final Account account = worldUpdater.get(address);
+    return account == null ? Wei.ZERO : account.getBalance();
+  }
+
+  /**
+   * The protocol-defined default code of a VERIFY frame targeting an account without code: requires
+   * a matching SECP256K1 signature entry and applies {@code APPROVE(allowed_scope)}.
+   *
+   * @return true when the approval succeeded
+   */
+  private boolean executeDefaultVerifyCode(
+      final MessageFrame evmFrame, final FrameTransactionContext context, final Frame frame) {
+    final int allowedScope = frame.allowedApprovalScope();
+    if (allowedScope == 0) {
+      return false;
+    }
+    final int sigIndex = (allowedScope & Frame.FLAG_APPROVE_EXECUTION) != 0 ? 0 : 1;
+    final List<FrameTransactionContext.SignatureInfo> signatures = context.signatures();
+    if (sigIndex >= signatures.size()) {
+      return false;
+    }
+    final FrameTransactionContext.SignatureInfo signature = signatures.get(sigIndex);
+    if (signature.scheme() != FrameTransactionContext.SCHEME_SECP256K1
+        || signature.msg() != null
+        || !signature
+            .resolvedSigner()
+            .getBytes()
+            .equals(context.currentFrame().resolvedTarget().getBytes())) {
+      return false;
+    }
+    return ApproveOperation.attemptApproval(
+            evmFrame, context, allowedScope, gasCalculator.stateGasCostCalculator())
+        == ApproveOperation.ApprovalResult.SUCCESS;
+  }
+}

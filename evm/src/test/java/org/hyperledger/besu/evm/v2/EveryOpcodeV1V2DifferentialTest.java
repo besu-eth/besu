@@ -71,7 +71,8 @@ class EveryOpcodeV1V2DifferentialTest {
    * take as offsets, sizes and indices, calls to the callee with and without value, one with more
    * value than the contract has, values at the top of the word range, signed values on both sides
    * of zero, the accounts of the test world as the addresses PAY, BALANCE, the EXTCODE operations
-   * and SELFDESTRUCT read, and a mix of values whose limbs all differ.
+   * and SELFDESTRUCT read, the callee alone, whose code SETCODEFROM adopts, and a mix of values
+   * whose limbs all differ.
    */
   private static final Map<String, List<Bytes>> STACKS = new LinkedHashMap<>();
 
@@ -109,6 +110,7 @@ class EveryOpcodeV1V2DifferentialTest {
             CONTRACT.getBytes(),
             SECOND_CALLEE.getBytes(),
             SENDER.getBytes()));
+    STACKS.put("callee", List.of(CALLEE.getBytes()));
     STACKS.put(
         "mixed values",
         List.of(

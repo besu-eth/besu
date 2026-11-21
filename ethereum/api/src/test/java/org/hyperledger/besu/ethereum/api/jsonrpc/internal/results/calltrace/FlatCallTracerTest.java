@@ -25,6 +25,8 @@ import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 @DisplayName("FlatCallTracer")
 class FlatCallTracerTest {
@@ -84,6 +86,49 @@ class FlatCallTracerTest {
     assertThat(out.get(0).subtraces()).isEqualTo(1);
     assertThat(out.get(1).traceAddress()).containsExactly(0);
     assertThat(out.get(1).action().to()).isEqualTo(PRECOMPILE_1.getBytes().toHexString());
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"SELFDESTRUCT", "SENDALL"})
+  @DisplayName("SELFDESTRUCT and SENDALL children both flatten to a suicide action")
+  void sweepFlattensToSuicide(final String opcodeName) {
+    final CallTracerResult sweep =
+        CallTracerResult.builder()
+            .type(opcodeName)
+            .from("0x1000000000000000000000000000000000000001")
+            .to("0x2000000000000000000000000000000000000002")
+            .gas(0L)
+            .gasUsed(0L)
+            .value("0x64")
+            .input("0x")
+            .build();
+
+    final CallTracerResult root =
+        CallTracerResult.builder()
+            .type("CALL")
+            .from("0x0000000000000000000000000000000000000000")
+            .to("0x1000000000000000000000000000000000000001")
+            .gas(50000L)
+            .gasUsed(20000L)
+            .value("0x0")
+            .input("0x")
+            .output("0x")
+            .addCall(sweep)
+            .build();
+
+    final FlatCallTracer.Context ctx =
+        new FlatCallTracer.Context("0xabc", 1L, "0xdef", 0, false, false, Set.of());
+
+    final List<FlatCallTracerResult> out = new ArrayList<>();
+    FlatCallTracer.flatten(root, List.of(), ctx, out);
+
+    assertThat(out).hasSize(2);
+    assertThat(out.get(1).type()).isEqualTo("suicide");
+    assertThat(out.get(1).action().address())
+        .isEqualTo("0x1000000000000000000000000000000000000001");
+    assertThat(out.get(1).action().refundAddress())
+        .isEqualTo("0x2000000000000000000000000000000000000002");
+    assertThat(out.get(1).action().balance()).isEqualTo("0x64");
   }
 
   @Test

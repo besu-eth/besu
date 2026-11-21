@@ -380,7 +380,8 @@ public class T8nExecutor {
                 .getPreExecutionProcessor()
                 .createBlockHashLookup(blockchain, referenceTestEnv),
             OperationTracer.NO_TRACING,
-            Optional.empty());
+            Optional.empty(),
+            referenceTestEnv.getParentTimestamp());
 
     if (!referenceTestEnv.isStateTest()) {
       protocolSpec.getPreExecutionProcessor().process(blockProcessingContext, Optional.empty());
@@ -463,7 +464,10 @@ public class T8nExecutor {
       long transactionGasUsed = transaction.getGasLimit() - result.getGasRemaining();
 
       gasUsed += transactionGasUsed;
-      long intrinsicGas = gasCalculator.transactionIntrinsicGasCost(transaction, 0);
+      long intrinsicGas =
+          transaction.getType().supportsFrames()
+              ? org.hyperledger.besu.ethereum.core.FrameTransactionGas.intrinsicGas(transaction)
+              : gasCalculator.transactionIntrinsicGasCost(transaction, 0);
       TransactionReceipt receipt =
           protocolSpec
               .getTransactionReceiptFactory()

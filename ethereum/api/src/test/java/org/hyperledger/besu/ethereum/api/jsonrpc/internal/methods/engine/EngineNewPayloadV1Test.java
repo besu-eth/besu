@@ -92,6 +92,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -354,11 +356,18 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
-  @Test
-  public void shouldReturnInvalidOnMalformedTransactions() {
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "0xDEAD",
+        // An EIP-8141 frame transaction in its network wrapper, 0x06 || rlp([tx_payload_body,
+        // wrapper_version, blobs, commitments, cell_proofs]), which a block body must not carry.
+        "0x06c5c001c0c0c0"
+      })
+  public void shouldReturnInvalidOnMalformedTransactions(final String transaction) {
     BlockHeader mockHeader = setupPayloadV1(getMinSupportedTimestamp());
 
-    var executionPayload = mockEnginePayloadParam(mockHeader, List.of("0xDEAD", "0xBEEF"));
+    var executionPayload = mockEnginePayloadParam(mockHeader, List.of(transaction, "0xBEEF"));
 
     var resp = resp(requestParams(executionPayload));
 

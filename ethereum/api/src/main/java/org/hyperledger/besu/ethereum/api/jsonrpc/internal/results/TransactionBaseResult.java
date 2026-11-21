@@ -42,6 +42,7 @@ import org.apache.tuweni.bytes.Bytes;
   "maxPriorityFeePerGas",
   "maxFeePerGas",
   "maxFeePerBlobGas",
+  "maxFee",
   "hash",
   "input",
   "nonce",
@@ -75,6 +76,9 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final String maxFeePerBlobGas;
+
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  private final String maxFee;
 
   private final String hash;
   private final String input;
@@ -110,6 +114,7 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
     this.maxFeePerGas = transaction.getMaxFeePerGas().map(Wei::toShortHexString).orElse(null);
     this.maxFeePerBlobGas =
         transaction.getMaxFeePerBlobGas().map(Wei::toShortHexString).orElse(null);
+    this.maxFee = transaction.getMaxFee().map(Wei::toShortHexString).orElse(null);
     this.gasPrice =
         Quantity.create(
             transaction
@@ -118,7 +123,7 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
                     () ->
                         maybeBaseFee.isPresent()
                             ? transaction.getEffectiveGasPrice(maybeBaseFee)
-                            : transaction.getMaxFeePerGas().get()));
+                            : transaction.getMaxGasPrice()));
     this.hash = transaction.getHash().toString();
     this.input = transaction.getPayload().toString();
     this.nonce = Quantity.create(transaction.getNonce());
@@ -127,6 +132,11 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
       this.type = Quantity.create(0);
       this.yParity = null;
       this.v = Quantity.create(transaction.getV());
+    } else if (transactionType.supportsFrames()) {
+      // EIP-8141 frame transactions have no outer signature.
+      this.type = Quantity.create(transactionType.getSerializedType());
+      this.yParity = null;
+      this.v = null;
     } else {
       this.type = Quantity.create(transactionType.getSerializedType());
       this.yParity = Quantity.create(transaction.getYParity());
@@ -139,8 +149,8 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
               : null;
     }
     this.value = Quantity.create(transaction.getValue());
-    this.r = Quantity.create(transaction.getR());
-    this.s = Quantity.create(transaction.getS());
+    this.r = transaction.getR() == null ? null : Quantity.create(transaction.getR());
+    this.s = transaction.getS() == null ? null : Quantity.create(transaction.getS());
     this.versionedHashes =
         transaction
             .getVersionedHashes()
@@ -193,6 +203,11 @@ public class TransactionBaseResult implements TransactionResult, JsonRpcResult {
   @JsonGetter(value = "maxFeePerBlobGas")
   public String getMaxFeePerBlobGas() {
     return maxFeePerBlobGas;
+  }
+
+  @JsonGetter(value = "maxFee")
+  public String getMaxFee() {
+    return maxFee;
   }
 
   @JsonGetter(value = "hash")

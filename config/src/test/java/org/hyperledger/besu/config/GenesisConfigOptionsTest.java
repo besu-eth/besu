@@ -23,11 +23,14 @@ import org.hyperledger.besu.datatypes.Address;
 
 import java.math.BigInteger;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class GenesisConfigOptionsTest {
 
@@ -453,6 +456,56 @@ class GenesisConfigOptionsTest {
     assertThat(config.asMap())
         .containsOnlyKeys("consolidationRequestContractAddress")
         .containsValue(Address.ZERO);
+  }
+
+  @Test
+  void shouldGetZeroNonceStorageAccountsInGenesisOrder() {
+    final GenesisConfigOptions config =
+        fromConfigOptions(
+            Map.of(
+                "zeroNonceStorageAccounts",
+                List.of(
+                    "0xf468bcbc4a0bfdb06336e773382c5202e674db71",
+                    "0xD8253352F6044CFE55BCC0748C3FA37B7DF81F98")));
+
+    assertThat(config.getZeroNonceStorageAccounts())
+        .containsExactly(
+            Address.fromHexString("0xf468bcbc4a0bfdb06336e773382c5202e674db71"),
+            Address.fromHexString("0xd8253352f6044cfe55bcc0748c3fa37b7df81f98"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "{}",
+        "{\"zeroNonceStorageAccounts\": null}",
+        "{\"zeroNonceStorageAccounts\": []}"
+      })
+  void shouldNotHaveZeroNonceStorageAccountsWhenAbsentOrEmpty(final String configOptions) {
+    final GenesisConfigOptions config =
+        GenesisConfig.fromConfig("{\"config\": " + configOptions + "}").getConfigOptions();
+
+    assertThat(config.getZeroNonceStorageAccounts()).isEmpty();
+    assertThat(config.asMap()).doesNotContainKey("zeroNonceStorageAccounts");
+  }
+
+  @Test
+  void shouldRejectNonStringZeroNonceStorageAccount() {
+    final GenesisConfigOptions config =
+        fromConfigOptions(Map.of("zeroNonceStorageAccounts", List.of(1)));
+
+    assertThatExceptionOfType(IllegalArgumentException.class)
+        .isThrownBy(config::getZeroNonceStorageAccounts);
+  }
+
+  @Test
+  void asMapIncludesZeroNonceStorageAccounts() {
+    final GenesisConfigOptions config =
+        fromConfigOptions(Map.of("zeroNonceStorageAccounts", List.of("0x0")));
+
+    assertThat(config.asMap())
+        .containsOnlyKeys("zeroNonceStorageAccounts")
+        .containsValue(List.of(Address.ZERO));
   }
 
   @SuppressWarnings("unchecked")

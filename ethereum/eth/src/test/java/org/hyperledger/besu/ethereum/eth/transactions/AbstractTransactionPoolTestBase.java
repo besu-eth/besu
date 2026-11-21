@@ -61,7 +61,9 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredTransactionPoolBaseFeeTest;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.SenderBalanceChecker;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.LegacyTransactionPoolBaseFeeTest;
+import org.hyperledger.besu.ethereum.eth.transactions.sorter.LegacyTransactionPoolGasPriceTest;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
@@ -74,6 +76,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -212,6 +215,12 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
                         .getGasLimit())
                 .difficulty(Difficulty.ONE)
                 .baseFeePerGas(Wei.of(10L))
+                .stateRoot(
+                    executionContextTestFixture
+                        .getBlockchain()
+                        .getChainHeadBlock()
+                        .getHeader()
+                        .getStateRoot())
                 .parentHash(executionContextTestFixture.getBlockchain().getChainHeadHash())
                 .number(executionContextTestFixture.getBlockchain().getChainHeadBlockNumber() + 1)
                 .buildHeader(),
@@ -234,6 +243,9 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
     blockchain = executionContext.getBlockchain();
     when(protocolSpec.getTransactionValidatorFactory()).thenReturn(transactionValidatorFactory);
     when(protocolSpec.getFeeMarket()).thenReturn(getFeeMarket());
+    when(protocolSpec.getGasCalculator()).thenReturn(new AmsterdamGasCalculator());
+    when(protocolSpec.getBlockGasAccountingStrategy())
+        .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
     protocolSchedule = spy(executionContext.getProtocolSchedule());
     doReturn(protocolSpec).when(protocolSchedule).getByBlockHeader(any());
     blockGasLimit = blockchain.getChainHeadBlock().getHeader().getGasLimit();
@@ -324,6 +336,19 @@ public abstract class AbstractTransactionPoolTestBase extends TrustedSetupClassL
     return cz.equals(LegacyTransactionPoolBaseFeeTest.class)
         || cz.equals(LayeredTransactionPoolBaseFeeTest.class)
         || cz.equals(BlobV1TransactionPoolTest.class);
+  }
+
+  @SuppressWarnings("unused")
+  private static boolean isLayeredBaseFeeMarket(final ExtensionContext extensionContext) {
+    return extensionContext.getTestClass().get().equals(LayeredTransactionPoolBaseFeeTest.class);
+  }
+
+  @SuppressWarnings("unused")
+  private static boolean isSequencedPool(final ExtensionContext extensionContext) {
+    final Class<?> cz = extensionContext.getTestClass().get();
+
+    return cz.equals(LegacyTransactionPoolBaseFeeTest.class)
+        || cz.equals(LegacyTransactionPoolGasPriceTest.class);
   }
 
   protected void assertTransactionNotPending(final Transaction transaction) {

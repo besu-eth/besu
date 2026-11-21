@@ -42,9 +42,35 @@ public class TransactionReplacementByFeeMarketRule implements TransactionPoolRep
       final PendingTransaction newPendingTransaction,
       final Optional<Wei> maybeBaseFee) {
 
+    final Transaction existingTransaction = existingPendingTransaction.getTransaction();
+    final Transaction newTransaction = newPendingTransaction.getTransaction();
+    if (existingTransaction.getType().supportsFrames()
+        || newTransaction.getType().supportsFrames()) {
+      // a frame tx can only replace and be replaced by a frame tx
+      return existingTransaction.getType().supportsFrames()
+          && newTransaction.getType().supportsFrames()
+          && validFrameFeeReplacement(existingTransaction, newTransaction);
+    }
+
     return validExecutionPriceReplacement(
             existingPendingTransaction, newPendingTransaction, maybeBaseFee)
         && validBlobPriceReplacement(existingPendingTransaction, newPendingTransaction);
+  }
+
+  /**
+   * EIP-8141: a frame transaction caps its total fee rather than its fee per gas, so a replacement
+   * must raise both {@code max_fee} and {@code max_priority_fee_per_gas} by the price bump.
+   */
+  private boolean validFrameFeeReplacement(
+      final Transaction existingTransaction, final Transaction newTransaction) {
+    return isBumpedBy(
+            existingTransaction.getMaxFee().orElseThrow(),
+            newTransaction.getMaxFee().orElseThrow(),
+            priceBump)
+        && isBumpedBy(
+            existingTransaction.getMaxPriorityFeePerGas().orElseThrow(),
+            newTransaction.getMaxPriorityFeePerGas().orElseThrow(),
+            priceBump);
   }
 
   private boolean validExecutionPriceReplacement(

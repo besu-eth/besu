@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
+import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
@@ -49,16 +50,23 @@ public class GeneralStateTestCaseSpec {
       @JsonProperty("env") final ReferenceTestEnv blockHeader,
       @JsonProperty("pre") final ReferenceTestWorldState initialWorldState,
       @JsonProperty("post") final Map<String, List<PostSection>> postSection,
-      @JsonProperty("transaction") final StateTestVersionedTransaction versionedTransaction) {
+      @JsonProperty("transaction") final StateTestVersionedTransaction versionedTransaction,
+      @JsonProperty("config") final BlockchainReferenceTestCaseSpec.SpecConfig config) {
     this.finalStateSpecs =
-        generate(blockHeader, initialWorldState, postSection, versionedTransaction);
+        generate(
+            blockHeader,
+            initialWorldState,
+            postSection,
+            versionedTransaction,
+            config == null ? Optional.empty() : config.getBlobScheduleOptions());
   }
 
   private Map<String, List<GeneralStateTestCaseEipSpec>> generate(
       final BlockHeader rawBlockHeader,
       final ReferenceTestWorldState initialWorldState,
       final Map<String, List<PostSection>> postSections,
-      final StateTestVersionedTransaction versionedTransaction) {
+      final StateTestVersionedTransaction versionedTransaction,
+      final Optional<BlobScheduleOptions> blobScheduleOptions) {
     if (initialWorldState == null) {
       return Map.of();
     }
@@ -91,7 +99,8 @@ public class GeneralStateTestCaseSpec {
                 p.indexes.data,
                 p.indexes.gas,
                 p.indexes.value,
-                p.expectException));
+                p.expectException,
+                blobScheduleOptions));
       }
       res.put(eip, specs);
     }

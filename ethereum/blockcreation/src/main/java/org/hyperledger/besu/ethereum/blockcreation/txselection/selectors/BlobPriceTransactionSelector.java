@@ -65,7 +65,9 @@ public class BlobPriceTransactionSelector extends AbstractTransactionSelector {
    * @return True if the transaction's data price is below the minimum, false otherwise.
    */
   private boolean transactionBlobPriceBelowMin(final Transaction transaction) {
-    if (transaction.getType().supportsBlob()) {
+    // An EIP-8141 frame transaction has no max fee per blob gas, even when it carries blobs: its
+    // max fee covers the blob fee, and the transaction processor checks that budget.
+    if (transaction.getMaxFeePerBlobGas().isPresent()) {
       if (transaction.getMaxFeePerBlobGas().orElseThrow().lessThan(context.blobGasPrice())) {
         LOG.trace(
             "Max fee per Blob Gas {} below {}",

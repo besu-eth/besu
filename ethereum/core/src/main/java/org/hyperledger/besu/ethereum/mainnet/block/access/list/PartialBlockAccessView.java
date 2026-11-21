@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
@@ -112,6 +113,7 @@ public final class PartialBlockAccessView {
     private Optional<Wei> postBalance;
     private final Optional<Long> nonceChange;
     private final Optional<Bytes> newCode;
+    private final Optional<Hash> newCodeHash;
     private final List<StorageSlotKey> storageReads;
     private final List<SlotChange> storageChanges;
 
@@ -120,12 +122,14 @@ public final class PartialBlockAccessView {
         final Optional<Wei> postBalance,
         final Optional<Long> nonceChange,
         final Optional<Bytes> newCode,
+        final Optional<Hash> newCodeHash,
         final List<StorageSlotKey> storageReads,
         final List<SlotChange> storageChanges) {
       this.address = address;
       this.postBalance = postBalance;
       this.nonceChange = nonceChange;
       this.newCode = newCode;
+      this.newCodeHash = newCodeHash;
       this.storageReads = storageReads;
       this.storageChanges = storageChanges;
     }
@@ -148,6 +152,15 @@ public final class PartialBlockAccessView {
 
     public Optional<Bytes> getNewCode() {
       return newCode;
+    }
+
+    /**
+     * Returns the hash of the code the account adopted through EIP-8298 SETCODEFROM, which the
+     * block access list records in place of the bytes. {@link #getNewCode()} still carries the
+     * adopted bytes for consumers that apply the view to state.
+     */
+    public Optional<Hash> getNewCodeHash() {
+      return newCodeHash;
     }
 
     public List<StorageSlotKey> getStorageReads() {
@@ -173,6 +186,7 @@ public final class PartialBlockAccessView {
           + postBalance
           + ", newCode="
           + newCode
+          + newCodeHash.map(hash -> ", newCodeHash=" + hash).orElse("")
           + '}';
     }
   }
@@ -216,6 +230,7 @@ public final class PartialBlockAccessView {
     private Optional<Wei> postBalance = Optional.empty();
     private Optional<Long> nonceChange = Optional.empty();
     private Optional<Bytes> newCode = Optional.empty();
+    private Optional<Hash> newCodeHash = Optional.empty();
     private final List<StorageSlotKey> storageReads = new ArrayList<>();
     private final List<SlotChange> storageChanges = new ArrayList<>();
 
@@ -235,6 +250,14 @@ public final class PartialBlockAccessView {
 
     public AccountChangesBuilder withNewCode(final Bytes newCode) {
       this.newCode = Optional.ofNullable(newCode);
+      this.newCodeHash = Optional.empty();
+      return this;
+    }
+
+    /** Records code adopted through EIP-8298 SETCODEFROM: its bytes and its code hash. */
+    public AccountChangesBuilder withAdoptedCode(final Bytes code, final Hash codeHash) {
+      this.newCode = Optional.of(code);
+      this.newCodeHash = Optional.of(codeHash);
       return this;
     }
 
@@ -251,7 +274,7 @@ public final class PartialBlockAccessView {
 
     public AccountChanges build() {
       return new AccountChanges(
-          address, postBalance, nonceChange, newCode, storageReads, storageChanges);
+          address, postBalance, nonceChange, newCode, newCodeHash, storageReads, storageChanges);
     }
   }
 }

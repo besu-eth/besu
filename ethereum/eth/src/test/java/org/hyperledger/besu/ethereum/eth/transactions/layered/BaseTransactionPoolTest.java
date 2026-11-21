@@ -30,6 +30,9 @@ import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
+import org.hyperledger.besu.ethereum.core.Frame;
+import org.hyperledger.besu.ethereum.core.FrameSignature;
+import org.hyperledger.besu.ethereum.core.FrameTransactionGas;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.Util;
@@ -42,6 +45,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.frame.KeyedNonces;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
@@ -50,6 +54,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Random;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -193,6 +198,7 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
       case DELEGATE_CODE ->
           createTransaction(
               txType, nonce, maxGasPrice, payloadSize, List.of(CODE_DELEGATION_SENDER_1), keys);
+      case FRAME -> createFrameTransaction(nonce, maxGasPrice, maxGasPrice.divide(10), keys);
     };
   }
 
@@ -225,6 +231,9 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
       final BlobType blobType,
       final List<CodeDelegation> codeDelegations,
       final KeyPair keys) {
+    if (type.supportsFrames()) {
+      return createFrameTransaction(nonce, maxGasPrice, maxPriorityFeePerGas, keys);
+    }
     return prepareTransaction(
             type,
             nonce,
@@ -282,6 +291,67 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
       tx.gasPrice(maxGasPrice);
     }
     return tx;
+  }
+
+  /**
+   * Creates an EIP-8141 {@code [self_verify, user_op]} frame transaction from the address of the
+   * given keys, with a max fee that pays {@code maxGasPrice} on all of its gas.
+   */
+  protected Transaction createFrameTransaction(
+      final long nonce, final Wei maxGasPrice, final Wei maxPriorityFeePerGas, final KeyPair keys) {
+    return createFrameTransaction(nonce, maxGasPrice, maxPriorityFeePerGas, keys, List.of());
+  }
+
+  /**
+   * Creates the frame transaction of {@link #createFrameTransaction(long, Wei, Wei, KeyPair)} with
+   * {@code leadingFrames}, such as an expiry verifier frame, before its {@code self_verify} frame.
+   */
+  protected Transaction createFrameTransaction(
+      final long nonce,
+      final Wei maxGasPrice,
+      final Wei maxPriorityFeePerGas,
+      final KeyPair keys,
+      final List<Frame> leadingFrames) {
+    final Address sender = Util.publicKeyToAddress(keys.getPublicKey());
+    final Stream<Frame> prefixAndBody =
+        Stream.of(
+            new Frame(
+                Frame.MODE_VERIFY,
+                Frame.APPROVE_SCOPE_MASK,
+                Optional.empty(),
+                5_000L,
+                0L,
+                Wei.ZERO,
+                Bytes.EMPTY),
+            new Frame(
+                Frame.MODE_SENDER,
+                0,
+                Optional.of(Address.fromHexString("0x634316eA0EE79c701c6F67C53A4C54cBAfd2316d")),
+                50_000L,
+                0L,
+                Wei.ZERO,
+                Bytes.EMPTY));
+    final List<Frame> frames = Stream.concat(leadingFrames.stream(), prefixAndBody).toList();
+    final List<FrameSignature> signatures =
+        List.of(
+            new FrameSignature(
+                FrameSignature.SCHEME_SECP256K1,
+                Bytes.EMPTY,
+                Bytes.EMPTY,
+                Bytes.repeat((byte) 1, 65)));
+    final long gasLimit =
+        FrameTransactionGas.maxGas(
+            frames, signatures, sender, KeyedNonces.LEGACY_NONCE_KEYS, nonce);
+    return Transaction.builder()
+        .type(TransactionType.FRAME)
+        .chainId(BigInteger.ONE)
+        .nonce(nonce)
+        .sender(sender)
+        .frames(frames)
+        .frameSignatures(signatures)
+        .maxPriorityFeePerGas(maxPriorityFeePerGas)
+        .maxFee(maxGasPrice.multiply(gasLimit))
+        .build();
   }
 
   protected Transaction createTransactionReplacement(

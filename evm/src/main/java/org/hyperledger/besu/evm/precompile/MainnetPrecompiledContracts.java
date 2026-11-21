@@ -207,6 +207,20 @@ public interface MainnetPrecompiledContracts {
   }
 
   /**
+   * Populate registry for Bogota.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   */
+  static void populateForBogota(
+      final PrecompileContractRegistry registry, final GasCalculator gasCalculator) {
+    populateForOsaka(registry, gasCalculator);
+
+    // EIP-8151 - account code restricted ecrecover
+    registry.put(Address.ECREC, new AccountCodeRestrictedECRECPrecompiledContract(gasCalculator));
+  }
+
+  /**
    * FutureEIPs precompile contract registry.
    *
    * @param gasCalculator the gas calculator

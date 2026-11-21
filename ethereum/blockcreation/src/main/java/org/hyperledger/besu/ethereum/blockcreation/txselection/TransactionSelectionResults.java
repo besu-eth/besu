@@ -14,13 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation.txselection;
 
-import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 
-import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -37,8 +34,6 @@ public class TransactionSelectionResults {
   private static final Logger LOG = LoggerFactory.getLogger(TransactionSelectionResults.class);
 
   private final List<Transaction> selectedTransactions = Lists.newArrayList();
-  private final Map<TransactionType, List<Transaction>> transactionsByType =
-      new EnumMap<>(TransactionType.class);
   private final List<TransactionReceipt> receipts = Lists.newArrayList();
 
   /**
@@ -68,9 +63,6 @@ public class TransactionSelectionResults {
       final long stateGasUsed,
       final long evaluationTimeNanos) {
     selectedTransactions.add(transaction);
-    transactionsByType
-        .computeIfAbsent(transaction.getType(), type -> new ArrayList<>())
-        .add(transaction);
     receipts.add(receipt);
     cumulativeExecutionGasUsed += blockGasUsed;
     cumulativeReceiptGasUsed += receiptGasUsed;
@@ -94,10 +86,6 @@ public class TransactionSelectionResults {
 
   public List<Transaction> getSelectedTransactions() {
     return selectedTransactions;
-  }
-
-  public List<Transaction> getTransactionsByType(final TransactionType type) {
-    return transactionsByType.getOrDefault(type, List.of());
   }
 
   public List<TransactionReceipt> getReceipts() {

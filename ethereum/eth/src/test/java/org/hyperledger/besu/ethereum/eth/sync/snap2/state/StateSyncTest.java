@@ -22,6 +22,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.spy;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -181,6 +182,65 @@ class StateSyncTest {
 
     assertThat(completion).isCompleted();
     assertThat(build(storages).root()).isEqualTo(next.root());
+  }
+
+  // the block access list names an adopted code by its hash only (EIP-8298)
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void buildsTheRootOfAMoveThatAdoptsCode(final Format format) {
+    final TestWorld world = TestWorld.random(new Random(71), 300, 1, 100);
+    network.serve(world);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion = start(storages.sync(), header(1, world.root()));
+    runToEnd();
+    assertThat(completion).isCompleted();
+
+    final List<Address> contracts = world.contractsByHash();
+    final TestWorld next = world.copy();
+    final StateDiff diff = new StateDiff();
+    // with no nonce and no balance, only its code keeps the new account from being empty
+    diff.add(
+        next.adoptCode(
+            contracts.getFirst(),
+            List.of(contracts.getLast(), Address.fromHexString("0x8298")),
+            Bytes.EMPTY));
+    network.serve(next);
+    assertThat(stateSync.moveTo(header(2, next.root()), diff)).isCompleted();
+    round();
+
+    assertThat(build(storages).root()).isEqualTo(next.root());
+    assertThat(next.codes().keySet()).allMatch(storages.sync()::hasCode);
+  }
+
+  // the source of the adopted code, not downloaded yet, has another code at the new pivot: only
+  // the adoption asks for the adopted one
+  @ParameterizedTest
+  @EnumSource(Format.class)
+  void downloadsAnAdoptedCodeThatTheSourceNoLongerHolds(final Format format) {
+    final TestWorld world = TestWorld.random(new Random(73), 300, 1, 100);
+    network.serve(world);
+    network.maxResponseBytes(1024);
+    final Storages storages = SyncStorageFixture.create(format);
+    final CompletableFuture<Void> completion =
+        start(storages.sync(), accountRanges(1), header(1, world.root()));
+    runUntil(() -> stateSync.accountCoverage() > 0.5);
+
+    final List<Address> contracts = world.contractsByHash();
+    final Address adopter = contracts.getFirst();
+    final Address source = contracts.getLast();
+    // the single account range goes up from the lowest hash
+    assertThat(share(TestWorld.hash(adopter))).isLessThan(stateSync.accountCoverage());
+    assertThat(share(TestWorld.hash(source))).isGreaterThan(stateSync.accountCoverage());
+    final TestWorld next = world.copy();
+    final StateDiff diff = new StateDiff();
+    diff.add(next.adoptCode(source, List.of(adopter), Bytes.fromHexString("0x60016001f3")));
+    network.serve(next);
+    assertThat(stateSync.moveTo(header(2, next.root()), diff)).isCompleted();
+    runToEnd();
+
+    assertThat(completion).isCompleted();
+    assertThat(build(storages).root()).isEqualTo(next.root());
+    assertThat(next.codes().keySet()).allMatch(storages.sync()::hasCode);
   }
 
   // a write that fails loses the root node of the storage it completes, not the ranges of the other
@@ -936,6 +996,11 @@ class StateSyncTest {
 
   private long progress() {
     return stateSync.downloadedAccounts() + stateSync.downloadedSlots();
+  }
+
+  // the position of a key in the key space, from 0 to 1
+  private static double share(final Bytes32 key) {
+    return key.toUnsignedBigInteger().doubleValue() / Math.pow(2, 256);
   }
 
   // the download applies its last changes to the tries and stops first, as before the final build

@@ -26,9 +26,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -232,6 +235,30 @@ public class NewPooledTransactionHashesMessageSenderTest {
     verify(peer1).send(transactionsMessageContaining(transaction1));
     verify(peer1).getConnection();
     verifyNoMoreInteractions(ignoreStubs(peer1));
+  }
+
+  @Test
+  public void shouldAnnounceAFrameTransactionWithoutBlobsToAPreEth72Peer() throws Exception {
+    final Transaction frameTransaction =
+        new TransactionTestFixture()
+            .type(TransactionType.FRAME)
+            .createTransaction(SignatureAlgorithmFactory.getInstance().generateKeyPair());
+
+    transactionTracker.addToPeerAnnouncementsSendQueue(peer1, List.of(frameTransaction));
+
+    messageSender.sendTransactionAnnouncementsToPeer(peer1);
+
+    final ArgumentCaptor<MessageData> captor = ArgumentCaptor.forClass(MessageData.class);
+    verify(peer1).send(captor.capture());
+    assertThat(getAnnouncementsFromMessage(captor.getValue()))
+        .singleElement()
+        .satisfies(
+            announcement -> {
+              assertThat(announcement.hash()).isEqualTo(frameTransaction.getHash());
+              assertThat(announcement.type()).isEqualTo(TransactionType.FRAME);
+              assertThat(announcement.size())
+                  .isEqualTo((long) frameTransaction.getSizeForAnnouncement());
+            });
   }
 
   @Test

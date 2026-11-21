@@ -75,6 +75,7 @@ public class PrestateTracer implements OperationTracer {
   private static final int EXTCODEHASH = 0x3F;
   private static final int SLOAD = 0x54;
   private static final int SSTORE = 0x55;
+  private static final int SETCODEFROM = 0xA7;
   private static final int CREATE = 0xF0;
   private static final int CALL = 0xF1;
   private static final int CALLCODE = 0xF2;
@@ -189,7 +190,7 @@ public class PrestateTracer implements OperationTracer {
         final UInt256 value = account == null ? UInt256.ZERO : account.getStorageValue(key);
         pending = new Pending(accounts, self, key, value, null, null);
       }
-      case EXTCODECOPY, EXTCODEHASH, EXTCODESIZE, BALANCE -> {
+      case EXTCODECOPY, EXTCODEHASH, EXTCODESIZE, BALANCE, SETCODEFROM -> {
         final Address target = Words.toAddress(TracedStack.item(frame, 0));
         final List<Map.Entry<Address, AccountState>> accounts = new ArrayList<>(1);
         snapshotInto(accounts, world, target);
@@ -271,7 +272,10 @@ public class PrestateTracer implements OperationTracer {
       if (currentPending.createdAddress() != null) {
         created.add(currentPending.createdAddress());
       }
-      if (currentPending.deletedAddress() != null) {
+      // The opcode alone does not decide deletion: EIP-4758 SENDALL, which takes 0xFF from
+      // Bogota, never tags the account, so only an account the operation tagged is deleted.
+      if (currentPending.deletedAddress() != null
+          && frame.getSelfDestructs().contains(currentPending.deletedAddress())) {
         deleted.add(currentPending.deletedAddress());
       }
     }
@@ -456,7 +460,8 @@ public class PrestateTracer implements OperationTracer {
    * @param storageKey the storage slot key
    * @param storageValue the storage slot value read before execution
    * @param createdAddress address created by a CREATE/CREATE2 opcode (null when not creating)
-   * @param deletedAddress address marked deleted by SELFDESTRUCT (null when not deleting)
+   * @param deletedAddress address 0xFF deletes under Geth's rules, kept only if the operation
+   *     tagged it for self-destruct (null when not deleting)
    */
   private record Pending(
       List<Map.Entry<Address, AccountState>> accounts,

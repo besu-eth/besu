@@ -174,6 +174,40 @@ class BlobSizeTransactionSelectorTest {
     evaluateAndAssertNotSelected(txEvaluationContext2, TX_TOO_LARGE_FOR_REMAINING_BLOB_GAS);
   }
 
+  @Test
+  void frameTransactionWithoutBlobsIsSelectedWhenBlobsAreFull() {
+    final var blobTx = createBlobPendingTransaction(MAX_BLOBS);
+    final var txEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(), blobTx, null, null, null, NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertSelected(txEvaluationContext);
+
+    final var blobFreeFrameTx = createFramePendingTransaction(0);
+    final var blobFreeFrameTxEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(),
+            blobFreeFrameTx,
+            null,
+            null,
+            null,
+            NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertSelected(blobFreeFrameTxEvaluationContext);
+
+    final var blobFrameTx = createFramePendingTransaction(1);
+    final var blobFrameTxEvaluationContext =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(),
+            blobFrameTx,
+            null,
+            null,
+            null,
+            NEVER_CANCELLED);
+    selectorsStateManager.blockSelectionStarted();
+    evaluateAndAssertNotSelected(blobFrameTxEvaluationContext, BLOBS_FULL);
+  }
+
   private void evaluateAndAssertSelected(final TransactionEvaluationContext txEvaluationContext) {
     assertThat(selector.evaluateTransactionPreProcessing(txEvaluationContext)).isEqualTo(SELECTED);
     assertThat(
@@ -197,6 +231,19 @@ class BlobSizeTransactionSelectorTest {
   private PendingTransaction createBlobPendingTransaction(final int blobCount) {
     return PendingTransaction.newPendingTransaction(
         createTransaction(TransactionType.BLOB, blobCount), false, false, MAX_SCORE);
+  }
+
+  private PendingTransaction createFramePendingTransaction(final int blobCount) {
+    final var tx = new TransactionTestFixture().type(TransactionType.FRAME);
+    if (blobCount > 0) {
+      tx.versionedHashes(
+          Optional.of(
+              IntStream.range(0, blobCount)
+                  .mapToObj(i -> new VersionedHash((byte) 1, Hash.ZERO))
+                  .toList()));
+    }
+    return PendingTransaction.newPendingTransaction(
+        tx.createTransaction(KEYS), false, false, MAX_SCORE);
   }
 
   private Transaction createTransaction(final TransactionType type, final int blobCount) {

@@ -482,4 +482,12 @@ public interface GenesisConfigOptions {
    * @return the blob schedule
    */
   Optional<BlobScheduleOptions> getBlobScheduleOptions();
+
+  /**
+   * The EIP-8253 zero-nonce storage accounts: accounts with empty code, a zero nonce and non-empty
+   * storage, whose nonces are set to one at the start of the Bogota fork block.
+   *
+   * @return the configured accounts in genesis order, or an empty list when none are configured
+   */
+  List<Address> getZeroNonceStorageAccounts();
 }

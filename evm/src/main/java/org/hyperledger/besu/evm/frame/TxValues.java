@@ -47,7 +47,8 @@ public class TxValues {
   private final int maxStackSize;
   private final UndoSet<Address> warmedUpAddresses;
   private final UndoTable<Address, Bytes32, Boolean> warmedUpStorage;
-  private final Address originator;
+  // Mutable only for EIP-8141 frame transactions, where each frame rebinds ORIGIN to its caller.
+  private Address originator;
   private final Wei gasPrice;
   private final Wei blobGasPrice;
   private final BlockValues blockValues;
@@ -57,9 +58,12 @@ public class TxValues {
   private final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage;
   private final UndoSet<Address> creates;
   private final UndoSet<Address> selfDestructs;
+  private final UndoSet<Address> adoptedCode;
   private final UndoScalar<Long> gasRefunds;
   private final UndoScalar<Long> stateGasUsed;
   private final UndoScalar<Long> stateGasReservoir;
+  // Present only while processing an EIP-8141 frame transaction.
+  private Optional<FrameTransactionContext> frameTransactionContext = Optional.empty();
 
   TxValues(
       final BlockHashLookup blockHashLookup,
@@ -76,6 +80,7 @@ public class TxValues {
       final UndoMap<AddressStorageSlotKey, Bytes32> transientStorage,
       final UndoSet<Address> creates,
       final UndoSet<Address> selfDestructs,
+      final UndoSet<Address> adoptedCode,
       final UndoScalar<Long> gasRefunds,
       final UndoScalar<Long> stateGasUsed,
       final UndoScalar<Long> stateGasReservoir) {
@@ -93,6 +98,7 @@ public class TxValues {
     this.transientStorage = transientStorage;
     this.creates = creates;
     this.selfDestructs = selfDestructs;
+    this.adoptedCode = adoptedCode;
     this.gasRefunds = gasRefunds;
     this.stateGasUsed = stateGasUsed;
     this.stateGasReservoir = stateGasReservoir;
@@ -141,6 +147,7 @@ public class TxValues {
         new UndoMap<>(new HashMap<>()),
         UndoSet.of(new HashSet<>()),
         UndoSet.of(new HashSet<>()),
+        UndoSet.of(new HashSet<>()),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasReservoir));
@@ -157,9 +164,40 @@ public class TxValues {
     transientStorage.undo(mark);
     creates.undo(mark);
     selfDestructs.undo(mark);
+    adoptedCode.undo(mark);
     gasRefunds.undo(mark);
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
+    frameTransactionContext.ifPresent(context -> context.undoChanges(mark));
+  }
+
+  /**
+   * The EIP-8141 frame transaction context, present only while processing a frame transaction.
+   *
+   * @return the frame transaction context
+   */
+  public Optional<FrameTransactionContext> frameTransactionContext() {
+    return frameTransactionContext;
+  }
+
+  /**
+   * Attaches the EIP-8141 frame transaction context. Set once by the frame transaction processor
+   * before the first frame executes.
+   *
+   * @param context the frame transaction context
+   */
+  public void setFrameTransactionContext(final FrameTransactionContext context) {
+    this.frameTransactionContext = Optional.of(context);
+  }
+
+  /**
+   * Rebinds the transaction originator. Used only by the EIP-8141 frame transaction processor,
+   * which sets ORIGIN to each frame's caller between frames.
+   *
+   * @param originator the new originator
+   */
+  public void setOriginator(final Address originator) {
+    this.originator = originator;
   }
 
   /**
@@ -286,6 +324,16 @@ public class TxValues {
    */
   public UndoSet<Address> selfDestructs() {
     return selfDestructs;
+  }
+
+  /**
+   * Returns the set of addresses that adopted code through EIP-8298 SETCODEFROM in this
+   * transaction, which the block access list records as a code hash instead of bytecode.
+   *
+   * @return the adopted-code set
+   */
+  public UndoSet<Address> adoptedCode() {
+    return adoptedCode;
   }
 
   /**

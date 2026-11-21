@@ -37,9 +37,9 @@ public class BlobSizeTransactionSelector extends AbstractStatefulTransactionSele
   }
 
   /**
-   * Evaluates a transaction considering other transactions in the same block. If the tx does not
-   * support blobs, no check is performed, and SELECTED is returned, otherwise SELECTED is returned
-   * only if there is enough remaining blob gas to fit the blobs of the tx, otherwise a specific not
+   * Evaluates a transaction considering other transactions in the same block. If the tx carries no
+   * blobs, no check is performed, and SELECTED is returned, otherwise SELECTED is returned only if
+   * there is enough remaining blob gas to fit the blobs of the tx, otherwise a specific not
    * selected result is returned, depending on the fact that the block already contains the max
    * number of blobs or not.
    *
@@ -51,7 +51,8 @@ public class BlobSizeTransactionSelector extends AbstractStatefulTransactionSele
       final TransactionEvaluationContext evaluationContext) {
 
     final var tx = evaluationContext.getTransaction();
-    if (tx.getType().supportsBlob()) {
+    // A frame transaction's type supports blobs, but one without blobs needs no blob gas.
+    if (tx.getBlobCount() > 0) {
 
       final var cumulativeBlobGasUsed = getWorkingState();
 
@@ -89,7 +90,7 @@ public class BlobSizeTransactionSelector extends AbstractStatefulTransactionSele
       final TransactionEvaluationContext evaluationContext,
       final TransactionProcessingResult processingResult) {
     final var tx = evaluationContext.getTransaction();
-    if (tx.getType().supportsBlob()) {
+    if (tx.getBlobCount() > 0) {
       setWorkingState(getWorkingState() + context.gasCalculator().blobGasCost(tx.getBlobCount()));
     }
     return TransactionSelectionResult.SELECTED;

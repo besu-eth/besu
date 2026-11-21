@@ -61,7 +61,7 @@ public interface OperationTracer {
    * Trace precompile call.
    *
    * @param frame the frame
-   * @param gasRequirement the gas requirement
+   * @param gasRequirement the gas requirement plus any gas the precompile charged while executing
    * @param output the output
    */
   default void tracePrecompileCall(

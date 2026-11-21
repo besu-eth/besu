@@ -18,12 +18,14 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup.PreBlockCodeReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
@@ -80,7 +82,16 @@ public final class BlockAccessListOverlay {
                     .map(BlockAccessList.NonceChange::newNonce));
   }
 
-  public Optional<Bytes> getCode(final Address address) {
+  /**
+   * Returns the code from the latest code change before the max index.
+   *
+   * @param address the account
+   * @param preBlockCode reads pre-block code to resolve a hash-form (EIP-8298) change, see {@link
+   *     BlockAccessListAccountLookup#resolveAdoptedCode}
+   * @return the code, or empty if the account has no such change
+   * @throws IllegalStateException if a hash-form change cannot be resolved
+   */
+  public Optional<Bytes> getCode(final Address address, final PreBlockCodeReader preBlockCode) {
     return accountLookup
         .getAccountChanges(address)
         .flatMap(
@@ -89,12 +100,16 @@ public final class BlockAccessListOverlay {
                         accountChanges.codeChanges(),
                         maxTxIndexExclusive,
                         BlockAccessList.CodeChange::txIndex)
-                    .map(BlockAccessList.CodeChange::newCode));
+                    .map(change -> codeOf(change, adoptedCodeFrom(preBlockCode))));
   }
 
   /**
    * Applies balance, nonce and code hash from the BAL when prior changes exist. The {@code
    * accountSupplier} provides the account to mutate (existing copy or newly created).
+   *
+   * <p>A Bonsai account takes the code hash alone, its code is read through {@link #applyToCode}.
+   * Any other account gets the code bytes, so a hash-form (EIP-8298) change must resolve from the
+   * BAL itself.
    */
   public <A extends MutableAccount> Optional<A> applyToAccountState(
       final Address address, final Supplier<A> accountSupplier) {
@@ -132,9 +147,13 @@ public final class BlockAccessListOverlay {
             });
   }
 
-  private static void applyCodeChange(
+  private void applyCodeChange(
       final MutableAccount account, final BlockAccessList.CodeChange change) {
-    final Bytes code = change.newCode() != null ? change.newCode() : Bytes.EMPTY;
+    if (account instanceof BonsaiAccount pathBasedAccount && change.isAdoptedCode()) {
+      pathBasedAccount.setCodeHash(change.newCodeHash().orElseThrow());
+      return;
+    }
+    final Bytes code = codeOf(change, accountLookup::resolveWrittenCode);
     if (account instanceof BonsaiAccount pathBasedAccount) {
       pathBasedAccount.setCodeHash(code.isEmpty() ? Hash.EMPTY : Hash.hash(code));
       return;
@@ -142,7 +161,20 @@ public final class BlockAccessListOverlay {
     account.setCode(code);
   }
 
-  public void applyToCode(final Address address, final Consumer<Bytes> codeApplier) {
+  /**
+   * Passes the code from the latest code change before the max index to {@code codeApplier}, if
+   * there is one.
+   *
+   * @param address the account
+   * @param preBlockCode reads pre-block code to resolve a hash-form (EIP-8298) change, see {@link
+   *     BlockAccessListAccountLookup#resolveAdoptedCode}
+   * @param codeApplier receives the code
+   * @throws IllegalStateException if a hash-form change cannot be resolved
+   */
+  public void applyToCode(
+      final Address address,
+      final PreBlockCodeReader preBlockCode,
+      final Consumer<Bytes> codeApplier) {
     accountLookup
         .getAccountChanges(address)
         .flatMap(
@@ -151,7 +183,33 @@ public final class BlockAccessListOverlay {
                     accountChanges.codeChanges(),
                     maxTxIndexExclusive,
                     BlockAccessList.CodeChange::txIndex))
-        .ifPresent(change -> codeApplier.accept(change.newCode()));
+        .ifPresent(change -> codeApplier.accept(codeOf(change, adoptedCodeFrom(preBlockCode))));
+  }
+
+  /**
+   * A hash-form (EIP-8298) code change that does not resolve throws, so a transaction that reads it
+   * fails its parallel run and is executed again sequentially.
+   */
+  private Bytes codeOf(
+      final BlockAccessList.CodeChange change, final Function<Hash, Optional<Bytes>> adoptedCode) {
+    if (change.isAdoptedCode()) {
+      final Hash codeHash = change.newCodeHash().orElseThrow();
+      return adoptedCode
+          .apply(codeHash)
+          .orElseThrow(
+              () ->
+                  new IllegalStateException(
+                      "Code "
+                          + codeHash
+                          + " adopted at index "
+                          + change.txIndex()
+                          + " is neither in the block access list nor in the pre-block state"));
+    }
+    return change.newCode() != null ? change.newCode() : Bytes.EMPTY;
+  }
+
+  private Function<Hash, Optional<Bytes>> adoptedCodeFrom(final PreBlockCodeReader preBlockCode) {
+    return codeHash -> accountLookup.resolveAdoptedCode(codeHash, preBlockCode);
   }
 
   public void applyToStorage(

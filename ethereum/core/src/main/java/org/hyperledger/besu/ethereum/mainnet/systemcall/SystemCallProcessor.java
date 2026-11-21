@@ -34,6 +34,7 @@ import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.Deque;
 import java.util.Optional;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -150,7 +151,7 @@ public class SystemCallProcessor {
     accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
     final Account maybeContract = systemCallUpdater.get(callAddress);
     if (maybeContract == null || maybeContract.getCode().isEmpty()) {
-      applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
+      applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater, Set.of());
       return Optional.empty();
     }
 
@@ -179,7 +180,8 @@ public class SystemCallProcessor {
       mainnetTransactionProcessor.getMessageProcessor(current.getType()).process(current, tracer);
     }
 
-    applyAccessLocationTracker(accessLocationTracker, context, systemCallUpdater);
+    applyAccessLocationTracker(
+        accessLocationTracker, context, systemCallUpdater, frame.getAdoptedCode());
 
     if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       systemCallUpdater.commit();
@@ -191,12 +193,16 @@ public class SystemCallProcessor {
   private static void applyAccessLocationTracker(
       final Optional<AccessLocationTracker> accessLocationTracker,
       final BlockProcessingContext context,
-      final WorldUpdater systemCallUpdater) {
+      final WorldUpdater systemCallUpdater,
+      final Set<Address> adoptedCode) {
     accessLocationTracker.ifPresent(
         tracker ->
             context
                 .getBlockAccessListBuilder()
-                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
+                .ifPresent(
+                    builder ->
+                        builder.apply(
+                            tracker.createPartialBlockAccessView(systemCallUpdater, adoptedCode))));
   }
 
   private MessageFrame createMessageFrame(

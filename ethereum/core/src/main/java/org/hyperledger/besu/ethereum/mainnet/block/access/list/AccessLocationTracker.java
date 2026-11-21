@@ -49,6 +49,12 @@ public class AccessLocationTracker implements Eip7928AccessList {
    */
   private final Map<Address, IndexStartAccount> indexStartAccounts = new HashMap<>();
 
+  /**
+   * Accounts whose code change at a shared index is recorded in the EIP-8298 hash form, so a later
+   * call that leaves the code alone keeps that form, as EELS {@code update_builder_from_tx} does.
+   */
+  private final Set<Address> adoptedCodeAtIndex = new HashSet<>();
+
   public AccessLocationTracker(final long blockAccessIndex, final boolean sharedIndex) {
     this.blockAccessIndex = blockAccessIndex;
     this.sharedIndex = sharedIndex;
@@ -58,6 +64,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
   public void clear() {
     touchedAccounts.clear();
     indexStartAccounts.clear();
+    adoptedCodeAtIndex.clear();
   }
 
   @Override
@@ -98,6 +105,19 @@ public class AccessLocationTracker implements Eip7928AccessList {
   }
 
   public PartialBlockAccessView createPartialBlockAccessView(final WorldUpdater updater) {
+    return createPartialBlockAccessView(updater, Set.of());
+  }
+
+  /**
+   * Builds the view of the changes in {@code updater} at this tracker's block access index.
+   *
+   * @param updater the updater holding the call's or transaction's writes
+   * @param adoptedCode the accounts that adopted code through EIP-8298 SETCODEFROM in this call or
+   *     transaction; their code changes are recorded as a code hash instead of bytecode
+   * @return the partial block access view
+   */
+  public PartialBlockAccessView createPartialBlockAccessView(
+      final WorldUpdater updater, final Set<Address> adoptedCode) {
     final StackedUpdater<?, ?> stackedUpdater = (StackedUpdater<?, ?>) updater;
     final PartialBlockAccessViewBuilder builder = new PartialBlockAccessViewBuilder();
     builder.withTxIndex(this.blockAccessIndex).withSharedIndex(sharedIndex);
@@ -130,7 +150,8 @@ public class AccessLocationTracker implements Eip7928AccessList {
             address,
             touchedSlots,
             deletedAddresses.contains(address),
-            updatedAddresses.contains(address));
+            updatedAddresses.contains(address),
+            adoptedCode.contains(address));
         continue;
       }
 
@@ -170,7 +191,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
         }
         if (account.codeWasUpdated()
             && !account.getCodeHash().equals(wrappedAccount.getCodeHash())) {
-          accountBuilder.withNewCode(account.getCode());
+          addCodeChange(accountBuilder, account, adoptedCode.contains(address));
         }
       } else {
         if (!newBalance.isZero()) {
@@ -180,7 +201,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
           accountBuilder.withNonceChange(newNonce);
         }
         if (account.hasCode()) {
-          accountBuilder.withNewCode(account.getCode());
+          addCodeChange(accountBuilder, account, adoptedCode.contains(address));
         }
       }
 
@@ -217,7 +238,8 @@ public class AccessLocationTracker implements Eip7928AccessList {
       final Address address,
       final Set<UInt256> touchedSlots,
       final boolean isDeleted,
-      final boolean isUpdated) {
+      final boolean isUpdated,
+      final boolean isAdopter) {
     if (isDeleted) {
       indexStartAccounts.computeIfAbsent(
           address, __ -> new IndexStartAccount(findOriginalAccount(stackedUpdater, address)));
@@ -243,11 +265,27 @@ public class AccessLocationTracker implements Eip7928AccessList {
     if (!newBalance.equals(indexStart.balance)) {
       accountBuilder.withPostBalance(newBalance);
     }
-    if (Long.compareUnsigned(newNonce, indexStart.nonce) > 0) {
+    // Any change counts, not only an increase: the EIP-8253 fork-block bump sets a listed account's
+    // nonce to one even when it was higher.
+    if (newNonce != indexStart.nonce) {
       accountBuilder.withNonceChange(newNonce);
     }
-    if (!account.getCodeHash().equals(indexStart.codeHash)) {
-      accountBuilder.withNewCode(account.getCode());
+    final Hash codeHash = account.getCodeHash();
+    if (codeHash.equals(indexStart.codeHash)) {
+      adoptedCodeAtIndex.remove(address);
+    } else {
+      // Code this call left alone keeps the form an earlier call at this index recorded.
+      final boolean changedByCall =
+          isUpdated
+              && account instanceof UpdateTrackingAccount<?> updated
+              && !codeHash.equals(callStartCodeHash(updated));
+      final boolean adopted = changedByCall ? isAdopter : adoptedCodeAtIndex.contains(address);
+      if (adopted) {
+        adoptedCodeAtIndex.add(address);
+      } else {
+        adoptedCodeAtIndex.remove(address);
+      }
+      addCodeChange(accountBuilder, account, adopted);
     }
 
     for (final UInt256 touchedSlot : touchedSlots) {
@@ -263,6 +301,20 @@ public class AccessLocationTracker implements Eip7928AccessList {
       } else {
         accountBuilder.addStorageChange(slotKeyObj, originalValue, updatedValue);
       }
+    }
+  }
+
+  private static Hash callStartCodeHash(final UpdateTrackingAccount<?> account) {
+    final Account callStart = account.getWrappedAccount();
+    return callStart != null ? callStart.getCodeHash() : Hash.EMPTY;
+  }
+
+  private static void addCodeChange(
+      final AccountChangesBuilder accountBuilder, final Account account, final boolean adopted) {
+    if (adopted) {
+      accountBuilder.withAdoptedCode(account.getCode(), account.getCodeHash());
+    } else {
+      accountBuilder.withNewCode(account.getCode());
     }
   }
 

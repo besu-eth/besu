@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.TransactionType.BLOB;
+import static org.hyperledger.besu.datatypes.TransactionType.FRAME;
 import static org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction.toTransactionList;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -26,10 +27,14 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.ChainState;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -42,6 +47,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -50,6 +56,9 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -201,19 +210,18 @@ public class TransactionBroadcasterTest {
         .sendTransactionAnnouncementsToPeer(any(EthPeer.class));
   }
 
-  @Test
-  public void onTransactionsAddedWithMixedTransactionBroadcastKind() {
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("fullAndHashOnlyBroadcastTransactions")
+  public void onTransactionsAddedWithMixedTransactionBroadcastKind(
+      final String name, final Transaction fullBroadcastTx, final Transaction hashBroadcastTx) {
     List<EthPeer> peers = List.of(ethPeer, ethPeer2, ethPeer3);
 
     when(ethPeers.peerCount()).thenReturn(3);
     when(ethPeers.streamAvailablePeers())
         .thenReturn(peers.stream().map(EthPeerImmutableAttributes::from));
 
-    // 1 full broadcast transaction type
-    // 1 hash only broadcast transaction type
-    List<Transaction> fullBroadcastTxs =
-        toTransactionList(setupTransactionPool(TransactionType.EIP1559, 0, 1));
-    List<Transaction> hashBroadcastTxs = toTransactionList(setupTransactionPool(BLOB, 0, 1));
+    List<Transaction> fullBroadcastTxs = List.of(fullBroadcastTx);
+    List<Transaction> hashBroadcastTxs = List.of(hashBroadcastTx);
 
     List<Transaction> mixedTxs = new ArrayList<>(fullBroadcastTxs);
     mixedTxs.addAll(hashBroadcastTxs);
@@ -239,6 +247,27 @@ public class TransactionBroadcasterTest {
     assertThat(fullTransactionPeers).hasSameElementsAs(List.of(ethPeer2, ethPeer3));
   }
 
+  /**
+   * One transaction sent in full and one announced by hash only. EIP-8141 propagates a frame
+   * transaction with blobs like a blob transaction, and one without blobs like any other.
+   */
+  static Stream<Arguments> fullAndHashOnlyBroadcastTransactions() {
+    final BlockDataGenerator generator = new BlockDataGenerator();
+    final KeyPair keys = SignatureAlgorithmFactory.getInstance().generateKeyPair();
+    return Stream.of(
+        Arguments.of(
+            "EIP-1559 and blob",
+            generator.transaction(TransactionType.EIP1559),
+            generator.transaction(BLOB)),
+        Arguments.of(
+            "frame without and with blobs",
+            new TransactionTestFixture().type(FRAME).createTransaction(keys),
+            new TransactionTestFixture()
+                .type(FRAME)
+                .versionedHashes(Optional.of(List.of(VersionedHash.DEFAULT_VERSIONED_HASH)))
+                .createTransaction(keys)));
+  }
+
   private void verifyNothingSent() {
     verifyNoInteractions(
         transactionTracker, transactionsMessageSender, newPooledTransactionHashesMessageSender);
@@ -252,26 +281,9 @@ public class TransactionBroadcasterTest {
     return pendingTxs;
   }
 
-  private Set<PendingTransaction> setupTransactionPool(
-      final TransactionType type, final int numLocalTransactions, final int numRemoteTransactions) {
-    Set<PendingTransaction> pendingTxs =
-        createPendingTransactionList(type, numLocalTransactions, true);
-    pendingTxs.addAll(createPendingTransactionList(type, numRemoteTransactions, false));
-
-    return pendingTxs;
-  }
-
   private Set<PendingTransaction> createPendingTransactionList(final int num, final boolean local) {
     return IntStream.range(0, num)
         .mapToObj(unused -> generator.transaction())
-        .map(tx -> local ? new PendingTransaction.Local(tx) : new PendingTransaction.Remote(tx))
-        .collect(Collectors.toSet());
-  }
-
-  private Set<PendingTransaction> createPendingTransactionList(
-      final TransactionType type, final int num, final boolean local) {
-    return IntStream.range(0, num)
-        .mapToObj(unused -> generator.transaction(type))
         .map(tx -> local ? new PendingTransaction.Local(tx) : new PendingTransaction.Remote(tx))
         .collect(Collectors.toSet());
   }

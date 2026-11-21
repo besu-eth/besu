@@ -101,9 +101,7 @@ public class TransactionBroadcaster
 
     final Map<Boolean, List<Transaction>> transactionByBroadcastMode =
         transactions.stream()
-            .collect(
-                Collectors.partitioningBy(
-                    tx -> ANNOUNCE_HASH_ONLY_TX_TYPES.contains(tx.getType())));
+            .collect(Collectors.partitioningBy(TransactionBroadcaster::isAnnouncedByHashOnly));
 
     final List<EthPeer> peers =
         ethContext
@@ -130,6 +128,16 @@ public class TransactionBroadcaster
 
     sendToOnlyHashPeers(transactionByBroadcastMode, sendOnlyHashesPeers);
     sendToFullTransactionsPeers(transactionByBroadcastMode, sendFullTransactionsPeers);
+  }
+
+  /**
+   * Whether a transaction is only announced by hash, never sent in full. EIP-8141 propagates a
+   * frame transaction with blobs like a blob transaction, so this depends on the transaction and
+   * not only on its type.
+   */
+  private static boolean isAnnouncedByHashOnly(final Transaction transaction) {
+    return ANNOUNCE_HASH_ONLY_TX_TYPES.contains(transaction.getType())
+        || (transaction.getType().supportsFrames() && transaction.getBlobCount() > 0);
   }
 
   private void sendToOnlyHashPeers(

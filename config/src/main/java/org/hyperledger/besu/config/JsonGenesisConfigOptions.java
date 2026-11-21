@@ -31,6 +31,7 @@ import java.util.OptionalLong;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableMap;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -62,6 +63,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
       "builderdepositrequestcontractaddress";
   private static final String BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS_KEY =
       "builderexitrequestcontractaddress";
+  private static final String ZERO_NONCE_STORAGE_ACCOUNTS_KEY = "zerononcestorageaccounts";
 
   private final ObjectNode configRoot;
   private final Map<String, String> configOverrides = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -465,6 +467,26 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
+  public List<Address> getZeroNonceStorageAccounts() {
+    return JsonUtil.getArrayNode(configRoot, ZERO_NONCE_STORAGE_ACCOUNTS_KEY)
+        .map(
+            accounts ->
+                accounts
+                    .valueStream()
+                    .map(JsonGenesisConfigOptions::parseZeroNonceStorageAccount)
+                    .toList())
+        .orElse(List.of());
+  }
+
+  private static Address parseZeroNonceStorageAccount(final JsonNode account) {
+    if (!account.isTextual()) {
+      throw new IllegalArgumentException(
+          "zeroNonceStorageAccounts contains a non-string entry " + account);
+    }
+    return Address.fromHexString(account.asText());
+  }
+
+  @Override
   public Map<String, Object> asMap() {
     final ImmutableMap.Builder<String, Object> builder = ImmutableMap.builder();
     getChainId().ifPresent(chainId -> builder.put("chainId", chainId));
@@ -513,6 +535,10 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
         .ifPresent(l -> builder.put("builderDepositRequestContractAddress", l));
     getBuilderExitRequestContractAddress()
         .ifPresent(l -> builder.put("builderExitRequestContractAddress", l));
+    final List<Address> zeroNonceStorageAccounts = getZeroNonceStorageAccounts();
+    if (!zeroNonceStorageAccounts.isEmpty()) {
+      builder.put("zeroNonceStorageAccounts", zeroNonceStorageAccounts);
+    }
 
     if (isClique()) {
       builder.put("clique", getCliqueConfigOptions().asMap());

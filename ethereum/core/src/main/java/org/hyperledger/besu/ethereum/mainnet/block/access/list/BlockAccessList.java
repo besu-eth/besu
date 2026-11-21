@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
@@ -128,10 +129,48 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
   }
 
-  public record CodeChange(long txIndex, Bytes newCode) {
+  /**
+   * A change to an account's code at one block access index.
+   *
+   * <p>EIP-8298 adds a hash form for an account that adopts the code of another account through
+   * SETCODEFROM. In that form {@code newCode} is empty and {@code newCodeHash} names the adopted
+   * code, whose bytes are in the pre-block state or in an earlier code change of the block.
+   *
+   * @param txIndex the block access index
+   * @param newCode the code after the change; empty in the hash form
+   * @param newCodeHash the adopted code hash, present only in the hash form
+   */
+  public record CodeChange(long txIndex, Bytes newCode, Optional<Hash> newCodeHash) {
+
+    public CodeChange(final long txIndex, final Bytes newCode, final Optional<Hash> newCodeHash) {
+      checkArgument(
+          newCodeHash.isEmpty() || newCode.isEmpty(),
+          "A code change with a code hash must have empty code");
+      this.txIndex = txIndex;
+      this.newCode = newCode;
+      this.newCodeHash = newCodeHash;
+    }
+
+    public CodeChange(final long txIndex, final Bytes newCode) {
+      this(txIndex, newCode, Optional.empty());
+    }
+
+    public static CodeChange adoptedCode(final long txIndex, final Hash newCodeHash) {
+      return new CodeChange(txIndex, Bytes.EMPTY, Optional.of(newCodeHash));
+    }
+
+    public boolean isAdoptedCode() {
+      return newCodeHash.isPresent();
+    }
+
     @Override
     public String toString() {
-      return "CodeChange{txIndex=" + txIndex + ", newCode=" + newCode + '}';
+      return "CodeChange{txIndex="
+          + txIndex
+          + ", newCode="
+          + newCode
+          + newCodeHash.map(hash -> ", newCodeHash=" + hash).orElse("")
+          + '}';
     }
   }
 
@@ -255,12 +294,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
                         change -> {
                           builder.addNonceChange(partialBlockAccessView.getTxIndex(), change);
                         });
+                final long txIndex = partialBlockAccessView.getTxIndex();
                 account
-                    .getNewCode()
-                    .ifPresent(
-                        change -> {
-                          builder.addCodeChange(partialBlockAccessView.getTxIndex(), change);
-                        });
+                    .getNewCodeHash()
+                    .map(hash -> CodeChange.adoptedCode(txIndex, hash))
+                    .or(() -> account.getNewCode().map(code -> new CodeChange(txIndex, code)))
+                    .ifPresent(builder::addCodeChange);
               });
     }
 
@@ -290,7 +329,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
           ab.addNonceChange(nc.txIndex(), nc.newNonce());
         }
         for (CodeChange cc : ac.codeChanges()) {
-          ab.addCodeChange(cc.txIndex(), cc.newCode());
+          ab.addCodeChange(cc);
         }
       }
     }
@@ -455,8 +494,15 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
         nonces.add(new NonceChange(txIndex, newNonce));
       }
 
-      void addCodeChange(final long txIndex, final Bytes code) {
-        codes.add(new CodeChange(txIndex, code));
+      /** Records only the last code written at an index, as EELS {@code add_code_change} does. */
+      void addCodeChange(final CodeChange change) {
+        for (int i = 0; i < codes.size(); i++) {
+          if (codes.get(i).txIndex() == change.txIndex()) {
+            codes.set(i, change);
+            return;
+          }
+        }
+        codes.add(change);
       }
 
       AccountChanges build() {

@@ -63,6 +63,7 @@ public class TransactionTestFixture {
   private Optional<Wei> maxPriorityFeePerGas = Optional.empty();
   private Optional<Wei> maxFeePerGas = Optional.empty();
   private Optional<Wei> maxFeePerBlobGas = Optional.empty();
+  private Optional<Wei> maxFee = Optional.empty();
 
   private Optional<List<AccessListEntry>> accessListEntries = Optional.empty();
   private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
@@ -71,6 +72,8 @@ public class TransactionTestFixture {
   private Optional<BigInteger> v = Optional.empty();
   private Optional<List<org.hyperledger.besu.datatypes.CodeDelegation>> codeDelegations =
       Optional.empty();
+  private Optional<List<Frame>> frames = Optional.empty();
+  private Optional<List<FrameSignature>> frameSignatures = Optional.empty();
 
   public Transaction createTransaction(final KeyPair keys) {
     final Transaction.Builder builder = Transaction.builder();
@@ -122,13 +125,31 @@ public class TransactionTestFixture {
         builder.accessList(accessListEntries.orElse(List.of()));
         builder.codeDelegations(codeDelegations.orElse(List.of(CODE_DELEGATION)));
         break;
+      case FRAME:
+        builder.maxPriorityFeePerGas(maxPriorityFeePerGas.orElse(Wei.of(500)));
+        builder.maxFee(maxFee.orElse(Wei.fromEth(1)));
+        builder.frames(
+            frames.orElse(
+                List.of(
+                    new Frame(
+                        Frame.MODE_VERIFY,
+                        Frame.APPROVE_SCOPE_MASK,
+                        Optional.empty(),
+                        100_000L,
+                        0L,
+                        Wei.ZERO,
+                        Bytes.EMPTY))));
+        builder.frameSignatures(frameSignatures.orElse(List.of()));
+        versionedHashes.ifPresent(builder::versionedHashes);
+        break;
     }
 
     to.ifPresent(builder::to);
     chainId.ifPresent(builder::chainId);
     v.ifPresent(builder::v);
 
-    return builder.signAndBuild(keys);
+    // EIP-8141 frame transactions carry no outer signature.
+    return transactionType.supportsFrames() ? builder.build() : builder.signAndBuild(keys);
   }
 
   public TransactionTestFixture type(final TransactionType transactionType) {
@@ -191,6 +212,11 @@ public class TransactionTestFixture {
     return this;
   }
 
+  public TransactionTestFixture maxFee(final Optional<Wei> maxFee) {
+    this.maxFee = maxFee;
+    return this;
+  }
+
   public TransactionTestFixture accessList(final List<AccessListEntry> accessListEntries) {
     this.accessListEntries = Optional.ofNullable(accessListEntries);
     return this;
@@ -215,6 +241,16 @@ public class TransactionTestFixture {
   public TransactionTestFixture codeDelegations(
       final List<org.hyperledger.besu.datatypes.CodeDelegation> codeDelegations) {
     this.codeDelegations = Optional.ofNullable(codeDelegations);
+    return this;
+  }
+
+  public TransactionTestFixture frames(final List<Frame> frames) {
+    this.frames = Optional.ofNullable(frames);
+    return this;
+  }
+
+  public TransactionTestFixture frameSignatures(final List<FrameSignature> frameSignatures) {
+    this.frameSignatures = Optional.ofNullable(frameSignatures);
     return this;
   }
 

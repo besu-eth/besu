@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -82,6 +83,16 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   }
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractBlockProcessor.class);
+
+  /**
+   * Block processing validation of an EIP-8141 frame transaction's static rules. Allowing
+   * underpriced gas skips its fee budget, the only rule it relaxes for a frame transaction.
+   */
+  private static final TransactionValidationParams FRAME_STATIC_VALIDATION_PARAMS =
+      ImmutableTransactionValidationParams.builder()
+          .from(TransactionValidationParams.processingBlock())
+          .allowUnderpricedGas(true)
+          .build();
 
   protected final MainnetTransactionProcessor transactionProcessor;
 
@@ -205,6 +216,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
               b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker());
+      Optional<BlockHeader> maybeParentHeader =
+          blockchain.getBlockHeader(blockHeader.getParentHash());
       final BlockProcessingContext blockProcessingContext =
           new BlockProcessingContext(
               blockHeader,
@@ -212,13 +225,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               protocolSpec,
               blockHashLookup,
               !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
-              blockAccessListBuilder);
+              blockAccessListBuilder,
+              maybeParentHeader.map(BlockHeader::getTimestamp));
       protocolSpec
           .getPreExecutionProcessor()
           .process(blockProcessingContext, preExecutionAccessLocationTracker);
-
-      Optional<BlockHeader> maybeParentHeader =
-          blockchain.getBlockHeader(blockHeader.getParentHash());
 
       Wei blobGasPrice =
           maybeParentHeader
@@ -254,6 +265,38 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         if (!(transactionUpdater instanceof StackedUpdater<?, ?>)) {
           transactionUpdater = blockUpdater;
         }
+        // EIP-8141: a frame transaction's gas is derived from its frames and signature entries,
+        // so it only means anything once those are statically valid -- an undefined signature
+        // scheme has no verification cost and saturates the intrinsic gas. Check static validity
+        // first, or the budget check below rejects such a transaction as a gas failure and the
+        // frame constraint that actually made it invalid is never reported. The fee budget is
+        // left to the frame transaction processor, because the reference implementation checks
+        // it after the block capacity.
+        if (transaction.getType().supportsFrames()) {
+          final ValidationResult<TransactionInvalidReason> frameValidity =
+              protocolSpec
+                  .getTransactionValidatorFactory()
+                  .get()
+                  .validate(
+                      transaction,
+                      blockHeader.getBaseFee(),
+                      Optional.ofNullable(blobGasPrice),
+                      FRAME_STATIC_VALIDATION_PARAMS);
+          if (!frameValidity.isValid()) {
+            final String errorMessage =
+                MessageFormat.format(
+                    "Block processing error: transaction invalid {0}. Block {1} Transaction {2}",
+                    frameValidity.getErrorMessage(),
+                    blockHeader.getHash().getBytes().toHexString(),
+                    transaction.getHash().getBytes().toHexString());
+            LOG.info(errorMessage);
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
+            }
+            return new BlockProcessingResult(Optional.empty(), errorMessage);
+          }
+        }
+
         // EIP-8037: per-dimension 2D-aware budget check using
         // worst-case execution and state consumption derived from transaction intrinsics.
         if (!hasAvailableBlockBudget(
@@ -644,7 +687,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BlockGasAccountingStrategy strategy = protocolSpec.getBlockGasAccountingStrategy();
     final var gasCalculator = protocolSpec.getGasCalculator();
     if (!strategy.hasBlockCapacity(
-        transaction.getGasLimit(),
+        transaction,
         gasCalculator.stateGasCostCalculator().transactionExecutionGasLimit(),
         cumulativeExecutionGasUsed,
         cumulativeStateGasUsed,

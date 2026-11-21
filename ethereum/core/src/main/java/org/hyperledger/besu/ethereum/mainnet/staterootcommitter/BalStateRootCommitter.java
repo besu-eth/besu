@@ -319,16 +319,20 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         newCodeHash = priorAccount != null ? priorAccount.getCodeHash() : Hash.EMPTY;
       } else {
         final BlockAccessList.CodeChange codeChange = changes.codeChanges().getLast();
-        newCodeHash = Hash.hash(codeChange.newCode());
+        newCodeHash = codeChange.newCodeHash().orElseGet(() -> Hash.hash(codeChange.newCode()));
         if (!sink.isFrozen()) {
-          if (codeChange.newCode().isEmpty()) {
+          final Bytes newCode =
+              codeChange.isAdoptedCode()
+                  ? resolveAdoptedCode(address, newCodeHash)
+                  : codeChange.newCode();
+          if (newCode.isEmpty()) {
             // Code was cleared: load the parent account to find the prior code hash.
             if (priorAccount != null && !Hash.EMPTY.equals(priorAccount.getCodeHash())) {
               final Hash priorCodeHash = priorAccount.getCodeHash();
               sink.removeCode(accountHash, priorCodeHash);
             }
           } else {
-            sink.putCode(accountHash, newCodeHash, codeChange.newCode());
+            sink.putCode(accountHash, newCodeHash, newCode);
           }
         }
       }
@@ -355,6 +359,26 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         sink.putAccountInfoState(accountHash, encoded);
         return Optional.of(encoded);
       }
+    }
+
+    /**
+     * The bytes of a hash-form (EIP-8298) code change, which both code storage modes need: keyed by
+     * account hash the adopter gets its own copy, and keyed by code hash the bytes may come from a
+     * code change this BAL supersedes, which is not stored otherwise. The executed block is checked
+     * against this BAL before {@link BalStateRootCommitter#compute} reads the result, and a BAL
+     * that matches it always resolves, so the exception only keeps an account from being stored
+     * without its code.
+     */
+    private Bytes resolveAdoptedCode(final Address address, final Hash codeHash) {
+      return accountLookup
+          .resolveAdoptedCode(codeHash, BlockAccessListAccountLookup.preBlockCodeOf(worldState))
+          .orElseThrow(
+              () ->
+                  new IllegalStateException(
+                      String.format(
+                          "Code %s adopted by %s is neither in the block access list nor in the"
+                              + " parent state",
+                          codeHash, address)));
     }
 
     /**

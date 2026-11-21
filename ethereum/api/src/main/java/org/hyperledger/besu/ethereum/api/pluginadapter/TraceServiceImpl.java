@@ -259,7 +259,10 @@ public class TraceServiceImpl implements TraceService {
             protocolSpec,
             blockHashLookup,
             tracer,
-            Optional.empty());
+            Optional.empty(),
+            blockchain
+                .getBlockHeader(block.getHeader().getParentHash())
+                .map(BlockHeader::getTimestamp));
     protocolSpec.getPreExecutionProcessor().process(blockProcessingContext, Optional.empty());
   }
 }

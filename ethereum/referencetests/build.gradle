@@ -241,6 +241,13 @@ def extractDevnetFixtures = registerFixtureExtraction(
   { configurations.devnetTarConfig.files.find(devnetFixtureTarball) },
   "cleanReferenceTestCache")
 
+def bogotaDevnetFixturesDir = fixturesDirFor("execution-spec-bogota-devnet-tests", "bogotaDevnetTarConfig", 'execution-specs')
+def extractBogotaDevnetFixtures = registerFixtureExtraction(
+  "extractBogotaDevnetFixtures",
+  bogotaDevnetFixturesDir,
+  { configurations.bogotaDevnetTarConfig.files.find(devnetFixtureTarball) },
+  "cleanReferenceTestCache")
+
 // Removes stale execution-specs fixture tarballs from the Gradle dependency cache,
 // keeping only the versions currently declared in this build.
 tasks.register("cleanReferenceTestCache") {
@@ -253,10 +260,14 @@ tasks.register("cleanReferenceTestCache") {
       configurations.devnetTarConfig.files.find(devnetFixtureTarball)
       // Cache layout: <module>/<version>/<hash>/<file>.tar.gz
     ].findAll { it != null }.collect { it.parentFile.parentFile }
+    // The Bogota devnet tarball is kept by its declared version instead: resolving its
+    // configuration here would download it on every stable or devnet reference-test run.
+    def keptVersions = configurations.bogotaDevnetTarConfig.allDependencies*.version
 
     keptVersionDirs.collect { it.parentFile }.unique().each { moduleDir ->
       moduleDir.listFiles()?.each { sibling ->
-        if (sibling.isDirectory() && !keptVersionDirs.any { it.absolutePath == sibling.absolutePath }) {
+        if (sibling.isDirectory() && !keptVersionDirs.any { it.absolutePath == sibling.absolutePath }
+        && !keptVersions.contains(sibling.name)) {
           logger.lifecycle("Deleting stale fixture cache: ${sibling}")
           delete sibling
         }
@@ -354,6 +365,41 @@ def executionSpecDevnetTests = tasks.register("executionSpecDevnetTests") {
   }
 }
 
+def executionSpecBogotaDevnetTests = tasks.register("executionSpecBogotaDevnetTests") {
+  dependsOn extractBogotaDevnetFixtures
+  final referenceTestsDir = bogotaDevnetFixturesDir
+  final generatedTestsDir = layout.buildDirectory.dir("generated/sources/reference-test/$name/java")
+
+  inputs.dir referenceTestsDir
+  inputs.files fileTree("src/reference-test/templates")
+  outputs.dir generatedTestsDir
+  doFirst {
+    delete generatedTestsDir
+  }
+  doLast {
+    final fixturePaths = fixturePathsInDir(referenceTestsDir.get().asFile)
+    generateTestFilesGroupedByDirectory(
+      fixturePaths,
+      file("src/reference-test/templates/BlockchainReferenceTest.java.template"),
+      "fixtures",
+      "blockchain_tests",
+      generatedTestsDir.get().dir("org/hyperledger/besu/ethereum/vm/executionspecbogotadevnet").asFile.path,
+      "ExecutionSpecBogotaDevnetBlockchainTest",
+      "org.hyperledger.besu.ethereum.vm.executionspecbogotadevnet",
+      )
+
+    generateTestFilesGroupedByDirectory(
+      fixturePaths,
+      file("src/reference-test/templates/GeneralStateReferenceTest.java.template"),
+      "fixtures",
+      "state_tests",
+      generatedTestsDir.get().dir("org/hyperledger/besu/ethereum/vm/executionspecbogotadevnet").asFile.path,
+      "ExecutionSpecBogotaDevnetStateTest",
+      "org.hyperledger.besu.ethereum.vm.executionspecbogotadevnet",
+      )
+  }
+}
+
 def generalstateReferenceTests = tasks.register("generalstateReferenceTests")  {
   final referenceTestsPath = "src/reference-test/external-resources/GeneralStateTests"
   final generatedTestsPath = "$buildDir/generated/sources/reference-test/$name/java"
@@ -434,6 +480,13 @@ sourceSets {
       srcDirs executionSpecDevnetTests
     }
   }
+  referenceTestBogotaDevnet {
+    java {
+      compileClasspath += main.output + referenceTest.output
+      runtimeClasspath += main.output + referenceTest.output
+      srcDirs executionSpecBogotaDevnetTests
+    }
+  }
   referenceTestZkevm {
     java {
       compileClasspath += main.output + referenceTest.output
@@ -448,6 +501,7 @@ sourceSets {
 // several GB of JSON under build/resources.
 def stableFixtures = files(stableFixturesDir) { builtBy extractStableFixtures }
 def devnetFixtures = files(devnetFixturesDir) { builtBy extractDevnetFixtures }
+def bogotaDevnetFixtures = files(bogotaDevnetFixturesDir) { builtBy extractBogotaDevnetFixtures }
 def zkevmFixtures = files(zkevmFixturesDir) { builtBy extractZkevmFixtures }
 
 configurations {
@@ -455,6 +509,9 @@ configurations {
   referenceTestDevnetAnnotationProcessor.extendsFrom testAnnotationProcessor
   referenceTestDevnetImplementation.extendsFrom referenceTestImplementation
   referenceTestDevnetRuntimeOnly.extendsFrom referenceTestRuntimeOnly
+  referenceTestBogotaDevnetAnnotationProcessor.extendsFrom testAnnotationProcessor
+  referenceTestBogotaDevnetImplementation.extendsFrom referenceTestImplementation
+  referenceTestBogotaDevnetRuntimeOnly.extendsFrom referenceTestRuntimeOnly
   referenceTestZkevmAnnotationProcessor.extendsFrom testAnnotationProcessor
   referenceTestZkevmImplementation.extendsFrom referenceTestImplementation
   referenceTestZkevmRuntimeOnly.extendsFrom referenceTestRuntimeOnly
@@ -465,6 +522,10 @@ configurations {
     canBeConsumed = false
   }
   devnetTarConfig {
+    canBeResolved = true
+    canBeConsumed = false
+  }
+  bogotaDevnetTarConfig {
     canBeResolved = true
     canBeConsumed = false
   }
@@ -521,6 +582,10 @@ dependencies {
     group: 'ethereum', name: 'execution-specs',
     version: 'tests-glamsterdam-devnet@v8.1.4', classifier: 'fixtures_glamsterdam-devnet', ext: 'tar.gz'
     )
+  bogotaDevnetTarConfig(
+    group: 'ethereum', name: 'execution-specs',
+    version: 'tests-bogota-devnet@v2.0.0', classifier: 'fixtures_bogota-devnet', ext: 'tar.gz'
+    )
   zkevmTarConfig(
     group: 'ethereum', name: 'execution-specs-zkevm',
     version: 'tests-zkevm@v21.0.6', classifier: 'fixtures_zkevm', ext: 'tar.gz'
@@ -570,6 +635,13 @@ tasks.register('referenceTestsDevnet', Test) {
   description = 'Runs execution-spec-tests pre-release (devnet) reference tests.'
   testClassesDirs = sourceSets.referenceTestDevnet.output.classesDirs
   classpath = sourceSets.referenceTestDevnet.runtimeClasspath + devnetFixtures
+}
+
+tasks.register('referenceTestsBogotaDevnet', Test) {
+  useJUnitPlatform()
+  description = 'Runs the Bogota devnet execution-spec-tests reference tests.'
+  testClassesDirs = sourceSets.referenceTestBogotaDevnet.output.classesDirs
+  classpath = sourceSets.referenceTestBogotaDevnet.runtimeClasspath + bogotaDevnetFixtures
 }
 
 tasks.register('referenceTestsCustom', Test) {

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.referencetests;
 import static org.hyperledger.besu.evm.internal.Words.decodeUnsignedLong;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -31,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -166,19 +168,23 @@ public class AccountChangesJson {
   public static class CodeChangeJson {
     private final String blockAccessIndex;
     private final String newCode;
+    private final String newCodeHash;
 
     @JsonCreator
     public CodeChangeJson(
         @JsonProperty("blockAccessIndex") final String blockAccessIndex,
-        @JsonProperty("newCode") final String newCode) {
+        @JsonProperty("newCode") final String newCode,
+        @JsonProperty("newCodeHash") final String newCodeHash) {
       this.blockAccessIndex = blockAccessIndex;
       this.newCode = newCode;
+      this.newCodeHash = newCodeHash;
     }
 
     public CodeChange toCodeChange() {
       return new CodeChange(
           decodeIndex(blockAccessIndex),
-          newCode != null ? Bytes.fromHexString(newCode) : Bytes.EMPTY);
+          newCode != null ? Bytes.fromHexString(newCode) : Bytes.EMPTY,
+          Optional.ofNullable(newCodeHash).map(Hash::fromHexString));
     }
   }
 

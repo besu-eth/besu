@@ -40,14 +40,19 @@ import org.hyperledger.besu.evm.operation.BalanceOperation;
 import org.hyperledger.besu.evm.operation.CallOperation;
 import org.hyperledger.besu.evm.operation.Create2Operation;
 import org.hyperledger.besu.evm.operation.CreateOperation;
+import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SLoadOperation;
 import org.hyperledger.besu.evm.operation.SelfDestructOperation;
+import org.hyperledger.besu.evm.operation.SendAllOperation;
+import org.hyperledger.besu.evm.operation.SetCodeFromOperation;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -55,6 +60,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -124,14 +132,24 @@ class PrestateTracerTest {
     return frame;
   }
 
-  private MessageFrame selfDestructFrame(final Address self, final Address beneficiary) {
+  private MessageFrame selfDestructFrame(
+      final Address self, final Address beneficiary, final Set<Address> selfDestructs) {
+    return sweepFrame(new SelfDestructOperation(null), self, beneficiary, selfDestructs);
+  }
+
+  /** {@code selfDestructs} is the set the operation leaves tagged once it has executed. */
+  private MessageFrame sweepFrame(
+      final Operation operation,
+      final Address self,
+      final Address beneficiary,
+      final Set<Address> selfDestructs) {
     final MessageFrame frame = mock(MessageFrame.class);
-    final SelfDestructOperation operation = new SelfDestructOperation(null);
     when(frame.getCurrentOperation()).thenReturn(operation);
     when(frame.getWorldUpdater()).thenReturn(world);
     when(frame.getRecipientAddress()).thenReturn(self);
     when(frame.stackSize()).thenReturn(1);
     doReturn(beneficiary.getBytes()).when(frame).getStackItem(0);
+    doReturn(selfDestructs).when(frame).getSelfDestructs();
     return frame;
   }
 
@@ -234,7 +252,7 @@ class PrestateTracerTest {
     when(world.get(CONTRACT_A)).thenReturn(contractAInitial);
     startTransaction(tracer, CONTRACT_A);
 
-    final MessageFrame selfDestruct = selfDestructFrame(CONTRACT_A, SENDER);
+    final MessageFrame selfDestruct = selfDestructFrame(CONTRACT_A, SENDER, Set.of());
     when(selfDestruct.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     tracer.tracePreExecution(selfDestruct);
     tracer.tracePostExecution(selfDestruct, null);
@@ -260,7 +278,8 @@ class PrestateTracerTest {
     tracer.tracePreExecution(create);
     tracer.tracePostExecution(create, null);
 
-    final MessageFrame selfDestructB = selfDestructFrame(createdAddress, SENDER);
+    final MessageFrame selfDestructB =
+        selfDestructFrame(createdAddress, SENDER, Set.of(createdAddress));
     when(selfDestructB.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     tracer.tracePreExecution(selfDestructB);
     tracer.tracePostExecution(selfDestructB, null);
@@ -279,7 +298,7 @@ class PrestateTracerTest {
     when(world.get(CONTRACT_A)).thenReturn(contractAPreCancun);
     startTransaction(tracer, CONTRACT_A);
 
-    final MessageFrame selfDestructA = selfDestructFrame(CONTRACT_A, SENDER);
+    final MessageFrame selfDestructA = selfDestructFrame(CONTRACT_A, SENDER, Set.of(CONTRACT_A));
     when(selfDestructA.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
     tracer.tracePreExecution(selfDestructA);
     tracer.tracePostExecution(selfDestructA, null);
@@ -291,6 +310,56 @@ class PrestateTracerTest {
     assertThat(diff.post()).doesNotContainKey(CONTRACT_A.toHexString());
     assertThat(diff.pre()).containsKey(CONTRACT_A.toHexString());
     when(evm.getEvmVersion()).thenReturn(EvmSpecVersion.CANCUN);
+  }
+
+  static Stream<Arguments> createdAndSweptAccount() {
+    return Stream.of(
+        // EIP-6780: SELFDESTRUCT tags an account created in the same transaction
+        Arguments.of(
+            EvmSpecVersion.AMSTERDAM,
+            new SelfDestructOperation(new CancunGasCalculator(), true),
+            true),
+        // EIP-4758: SENDALL never tags the account
+        Arguments.of(
+            EvmSpecVersion.BOGOTA, new SendAllOperation(new CancunGasCalculator()), false));
+  }
+
+  @ParameterizedTest(name = "{0}")
+  @MethodSource("createdAndSweptAccount")
+  void createdAndSweptAccountLeavesPostOnlyWhenTagged(
+      final EvmSpecVersion fork, final Operation sweep, final boolean tagged) {
+    when(evm.getEvmVersion()).thenReturn(fork);
+    final PrestateTracer tracer = newTracer(Map.of("diffMode", true));
+    final Account creator = mockAccount(CONTRACT_A, Wei.ZERO, 1, Bytes.EMPTY);
+    when(world.get(CONTRACT_A)).thenReturn(creator);
+    startTransaction(tracer, CONTRACT_A);
+
+    final MessageFrame create = createFrame(CONTRACT_A);
+    when(create.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
+    final Address createdAddress = Address.contractAddress(CONTRACT_A, creator.getNonce());
+    tracer.tracePreExecution(create);
+    tracer.tracePostExecution(create, null);
+
+    final MessageFrame frame =
+        sweepFrame(sweep, createdAddress, SENDER, tagged ? Set.of(createdAddress) : Set.of());
+    when(frame.getState()).thenReturn(MessageFrame.State.CODE_EXECUTING);
+    tracer.tracePreExecution(frame);
+    tracer.tracePostExecution(frame, null);
+    final Bytes code = Bytes.of(0x60, 0x00);
+    final Account sweptAccount = mockAccount(createdAddress, Wei.ZERO, 1, code);
+    when(world.get(createdAddress)).thenReturn(sweptAccount);
+    endTransaction(tracer);
+
+    final PrestateTracerResult.Diff diff = (PrestateTracerResult.Diff) tracer.buildResult();
+    if (tagged) {
+      assertThat(diff.post()).doesNotContainKey(createdAddress.toHexString());
+      assertThat(diff.pre()).doesNotContainKey(createdAddress.toHexString());
+      return;
+    }
+    assertThat(diff.post()).containsKey(createdAddress.toHexString());
+    final PrestateTracerResult.Account post = diff.post().get(createdAddress.toHexString());
+    assertThat(post.nonce()).isEqualTo(1L);
+    assertThat(post.code()).isEqualTo(code.toHexString());
   }
 
   @Test
@@ -336,16 +405,22 @@ class PrestateTracerTest {
     assertThat(account.storage()).isNull();
   }
 
-  @Test
-  void balanceOpcodeLooksUpTarget() {
+  static Stream<Operation> accountReadingOperation() {
+    final GasCalculator gasCalculator = mock(GasCalculator.class);
+    // EIP-8298: SETCODEFROM reads the code of the account on top of the stack
+    return Stream.of(new BalanceOperation(gasCalculator), new SetCodeFromOperation(gasCalculator));
+  }
+
+  @ParameterizedTest
+  @MethodSource("accountReadingOperation")
+  void accountReadingOpcodeLooksUpTarget(final Operation operation) {
     final PrestateTracer tracer = newTracer(Map.of());
     startTransaction(tracer, RECIPIENT);
-    final Account contractA = mockAccount(CONTRACT_A, Wei.of(9), 0, Bytes.EMPTY);
+    final Account contractA = mockAccount(CONTRACT_A, Wei.of(9), 0, Bytes.of(0x00));
     when(world.get(CONTRACT_A)).thenReturn(contractA);
 
     final MessageFrame frame = mock(MessageFrame.class);
-    final GasCalculator gasCalculator = mock(GasCalculator.class);
-    when(frame.getCurrentOperation()).thenReturn(new BalanceOperation(gasCalculator));
+    when(frame.getCurrentOperation()).thenReturn(operation);
     when(frame.getWorldUpdater()).thenReturn(world);
     when(frame.getRecipientAddress()).thenReturn(RECIPIENT);
     when(frame.stackSize()).thenReturn(1);
@@ -358,6 +433,7 @@ class PrestateTracerTest {
     final PrestateTracerResult.Prestate result =
         (PrestateTracerResult.Prestate) tracer.buildResult();
     assertThat(result.accounts().get(CONTRACT_A.toHexString()).balance()).isEqualTo("0x9");
+    assertThat(result.accounts().get(CONTRACT_A.toHexString()).code()).isEqualTo("0x00");
   }
 
   @Test

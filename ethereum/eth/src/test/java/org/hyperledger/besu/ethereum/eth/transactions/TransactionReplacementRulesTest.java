@@ -85,6 +85,13 @@ public class TransactionReplacementRulesTest extends AbstractTransactionReplacem
           // blob tx must be replaced by blob tx only
           {blobTx(3L, 6L, 1L), eip1559Tx(3L, 6L), Optional.of(Wei.of(3L)), 0, 0, false},
           {eip1559Tx(3L, 6L), blobTx(3L, 6L, 1L), Optional.of(Wei.of(3L)), 0, 0, false},
+          // frame tx
+          {frameTx(10L, 1000L), frameTx(11L, 1100L), Optional.of(Wei.of(3L)), 10, 100, true},
+          {frameTx(10L, 1000L), frameTx(11L, 1099L), Optional.of(Wei.of(3L)), 10, 100, false},
+          // frame tx can only replace and be replaced by frame tx
+          {frontierTx(5L), frameTx(100L, 1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {frameTx(1L, 1000L), frontierTx(1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
+          {frameTx(1L, 1000L), eip1559Tx(100L, 1_000_000L), Optional.of(Wei.of(3L)), 0, 0, false},
         });
   }
 

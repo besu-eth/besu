@@ -453,6 +453,27 @@ class StateTestSubCommandTest {
   }
 
   @Test
+  void blobGasIsPricedWithTheFixtureBlobSchedule(@TempDir final Path dir) throws IOException {
+    // The fixture's blob schedule gives Bogota BPO2's update fraction, 11684671. Without it Bogota
+    // keeps Prague's 5007716, and the dearer blob fee leaves the frame transaction's fee budget
+    // short, so the transaction is rejected and the variant fails.
+    final String withSchedule = resourcePath("blob-schedule-state-test.json");
+    assertThat(run("--summary-only", withSchedule).out()).contains("1 passed, 0 failed");
+
+    final Map<String, Map<String, Object>> fixture =
+        JsonUtils.createObjectMapper().readValue(new File(withSchedule), new TypeReference<>() {});
+    final Map<String, Object> withoutSchedule = new LinkedHashMap<>();
+    fixture.forEach(
+        (name, testCase) -> {
+          final Map<String, Object> stripped = mutableMap(testCase);
+          stripped.remove("config");
+          withoutSchedule.put(name, stripped);
+        });
+    assertThat(run("--summary-only", writeFixture(dir, withoutSchedule).toString()).out())
+        .contains("0 passed, 1 failed");
+  }
+
+  @Test
   void variantsOverTheBlockGasLimitAreListedAsSkipped(@TempDir final Path dir) throws IOException {
     final Map<String, Object> oversized = accessListCase();
     final Map<String, Object> transaction = mutableMap(oversized.get("transaction"));

@@ -57,7 +57,6 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
-import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
 import org.hyperledger.besu.testutil.JsonTestParameters;
 
@@ -84,7 +83,10 @@ public class BlockchainReferenceTestTools {
                         "test.ethereum.blockchain.eips",
                         "FrontierToHomesteadAt5,HomesteadToEIP150At5,HomesteadToDaoAt5,EIP158ToByzantiumAt5,CancunToPragueAtTime15k,BPO2ToAmsterdamAtTime15k,"
                                 + "Frontier,Homestead,EIP150,EIP158,Byzantium,Constantinople,ConstantinopleFix,Istanbul,Berlin,"
-                                + "London,Merge,Paris,Shanghai,Cancun,Prague,Osaka,Amsterdam,Bogota,Polis,Bangkok");
+                                + "London,Merge,Paris,Shanghai,Cancun,Prague,Osaka,Amsterdam,Bogota,Polis,Bangkok,"
+                                + "BPO1,BPO2,AmsterdamToBogotaAtTime15k,AmsterdamBPOIncrease,AmsterdamBPODecrease,"
+                                + "AmsterdamToBPOIncreaseAtTime15k,AmsterdamToBPODecreaseAtTime15k,"
+                                + "BogotaBPOIncrease,BogotaBPODecrease");
         NETWORKS_TO_RUN = Arrays.asList(networks.split(","));
         PROTOCOL_SCHEDULES = ReferenceTestProtocolSchedules.create();
     }
@@ -147,13 +149,12 @@ public class BlockchainReferenceTestTools {
                         .orElseThrow();
 
         final ReferenceTestProtocolSchedules protocolSchedules =
-            spec.getBlobScheduleOptions()
-                .map(
-                    bso ->
-                        ReferenceTestProtocolSchedules.create(
-                            new StubGenesisConfigOptions().blobScheduleOptions(bso),
-                            ReferenceTestProtocolSchedules.evmConfiguration()))
-                .orElse(PROTOCOL_SCHEDULES);
+            spec.getBlobScheduleOptions().isEmpty() && spec.getZeroNonceStorageAccounts().isEmpty()
+                ? PROTOCOL_SCHEDULES
+                : ReferenceTestProtocolSchedules.create(
+                    ReferenceTestProtocolSchedules.evmConfiguration(),
+                    spec.getBlobScheduleOptions().orElse(null),
+                    spec.getZeroNonceStorageAccounts());
         final ProtocolSchedule schedule = protocolSchedules.getByName(spec.getNetwork());
 
         try (BlockCreationFixture blockCreation =

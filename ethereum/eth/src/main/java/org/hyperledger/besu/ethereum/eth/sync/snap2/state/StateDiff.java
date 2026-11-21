@@ -14,13 +14,17 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snap2.state;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges.AccountFinalChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges.StorageFinalChange;
 
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -36,6 +40,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 public final class StateDiff {
 
   private final TreeMap<Bytes32, AccountChange> accounts = new TreeMap<>();
+  // every code the blocks wrote, not only the last of each account, as an account that adopts one
+  // through SETCODEFROM (EIP-8298) names it by its hash only
+  private final Map<Hash, Bytes> codes = new HashMap<>();
 
   /** Folds the next block, which must follow the blocks already folded. */
   public void add(final BlockAccessList blockAccessList) {
@@ -48,10 +55,17 @@ public final class StateDiff {
       final AccountChange account = accounts.computeIfAbsent(accountHash, AccountChange::new);
       changes.nonce().ifPresent(nonce -> account.nonce = nonce);
       changes.balance().ifPresent(balance -> account.balance = balance);
-      // a copy, as the decoded code slices the whole block access list
-      changes.code().ifPresent(code -> account.code = code.copy());
+      changes.codeChange().ifPresent(change -> account.codeHash = codeHash(change));
       for (final StorageFinalChange slot : changes.storageChanges()) {
         account.storage.put(Bytes32.wrap(slot.slot().getSlotHash().getBytes()), slot.value());
+      }
+    }
+    for (final BlockAccessList.AccountChanges accountChanges : blockAccessList.accountChanges()) {
+      for (final CodeChange change : accountChanges.codeChanges()) {
+        if (!change.newCode().isEmpty()) {
+          // a copy, as the decoded code slices the whole block access list
+          codes.computeIfAbsent(Hash.hash(change.newCode()), hash -> change.newCode().copy());
+        }
       }
     }
   }
@@ -61,12 +75,23 @@ public final class StateDiff {
     return Collections.unmodifiableNavigableMap(accounts);
   }
 
+  /** Returns the bytes of a code the folded blocks wrote, empty for any other code. */
+  public Optional<Bytes> code(final Hash codeHash) {
+    return Optional.ofNullable(codes.get(codeHash));
+  }
+
+  private static Hash codeHash(final CodeChange change) {
+    return change
+        .newCodeHash()
+        .orElseGet(() -> change.newCode().isEmpty() ? Hash.EMPTY : Hash.hash(change.newCode()));
+  }
+
   /** Final changes of one account; a null field means unchanged. */
   public static final class AccountChange {
     private final Bytes32 accountHash;
     private Long nonce;
     private Wei balance;
-    private Bytes code;
+    private Hash codeHash;
     private final TreeMap<Bytes32, UInt256> storage = new TreeMap<>();
 
     AccountChange(final Bytes32 accountHash) {
@@ -85,8 +110,9 @@ public final class StateDiff {
       return Optional.ofNullable(balance);
     }
 
-    public Optional<Bytes> code() {
-      return Optional.ofNullable(code);
+    /** Returns the hash of the new code, whose bytes {@link StateDiff#code} may hold. */
+    public Optional<Hash> codeHash() {
+      return Optional.ofNullable(codeHash);
     }
 
     /** Returns the final value of each written slot, keyed by slot hash. */
