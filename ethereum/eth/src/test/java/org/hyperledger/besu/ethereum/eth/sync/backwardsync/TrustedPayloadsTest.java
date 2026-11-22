@@ -130,6 +130,23 @@ class TrustedPayloadsTest {
   }
 
   @Test
+  void removesABlockAddedBelowAnEarlierRemoval() {
+    final TrustedPayloads payloads = new TrustedPayloads(Long.MAX_VALUE);
+    final Block ten = block(10);
+    final Block three = block(3);
+    payloads.add(ten, Optional.empty());
+
+    payloads.removeUpTo(5);
+    assertThat(payloads.block(ten.getHash())).contains(ten);
+
+    payloads.add(three, Optional.empty());
+    payloads.removeUpTo(4);
+
+    assertThat(payloads.block(three.getHash())).isEmpty();
+    assertThat(payloads.block(ten.getHash())).contains(ten);
+  }
+
+  @Test
   void clearDropsEverything() {
     final TrustedPayloads payloads = new TrustedPayloads(Long.MAX_VALUE);
     final Block block = block(1);

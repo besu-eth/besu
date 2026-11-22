@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Optional;
 
@@ -36,6 +37,8 @@ class TrustedPayloads {
   private final long maxBytes;
   private final Map<Hash, Entry> entries = new HashMap<>();
   private long bytes;
+  // a lower bound of the block numbers held, Long.MAX_VALUE when empty
+  private long lowestNumber = Long.MAX_VALUE;
 
   TrustedPayloads(final long maxBytes) {
     this.maxBytes = maxBytes;
@@ -52,6 +55,7 @@ class TrustedPayloads {
     final Entry entry = new Entry(block, blockAccessList, size(block, blockAccessList));
     entries.put(block.getHash(), entry);
     bytes += entry.size();
+    lowestNumber = Math.min(lowestNumber, block.getHeader().getNumber());
     while (bytes > maxBytes && !entries.isEmpty()) {
       remove(
           entries.values().stream()
@@ -69,13 +73,24 @@ class TrustedPayloads {
   }
 
   synchronized void removeUpTo(final long number) {
-    entries.values().removeIf(e -> e.block().getHeader().getNumber() <= number);
-    bytes = entries.values().stream().mapToLong(Entry::size).sum();
+    if (number < lowestNumber) {
+      return;
+    }
+    final Iterator<Entry> iterator = entries.values().iterator();
+    while (iterator.hasNext()) {
+      final Entry entry = iterator.next();
+      if (entry.block().getHeader().getNumber() <= number) {
+        iterator.remove();
+        bytes -= entry.size();
+      }
+    }
+    lowestNumber = entries.isEmpty() ? Long.MAX_VALUE : number + 1;
   }
 
   synchronized void clear() {
     entries.clear();
     bytes = 0;
+    lowestNumber = Long.MAX_VALUE;
   }
 
   private void remove(final Entry entry) {
