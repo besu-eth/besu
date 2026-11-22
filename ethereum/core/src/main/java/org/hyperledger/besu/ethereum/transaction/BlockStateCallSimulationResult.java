@@ -121,7 +121,8 @@ public class BlockStateCallSimulationResult {
    * @param result the transaction simulation result
    * @param worldState the world state after the transaction
    * @param operationTracer the tracer used for the transaction; if it is an {@link
-   *     EthTransferLogOperationTracer}, its logs are used in place of the receipt logs
+   *     EthTransferLogOperationTracer}, its synthetic transfer logs are prepended to the receipt
+   *     contract logs (pre-Amsterdam {@code eth_simulateV1} {@code traceTransfers} path)
    */
   public void add(
       final TransactionSimulatorResult result,
@@ -145,10 +146,15 @@ public class BlockStateCallSimulationResult {
         transactionReceiptFactory.create(
             result.transaction().getType(), result.result(), worldState, cumulativeGasUsed);
 
-    List<Log> logs =
-        (operationTracer instanceof EthTransferLogOperationTracer tracer)
-            ? tracer.getLogs()
-            : transactionReceipt.getLogsList();
+    final List<Log> logs;
+    if (operationTracer instanceof EthTransferLogOperationTracer tracer) {
+      // Pre-Amsterdam traceTransfers: keep synthetic ETH-transfer logs and the contract logs from
+      // the receipt. Replacing the receipt list dropped contract logs (#12015).
+      logs = new ArrayList<>(tracer.getLogs());
+      logs.addAll(transactionReceipt.getLogsList());
+    } else {
+      logs = transactionReceipt.getLogsList();
+    }
 
     transactionSimulatorResults.add(
         new TransactionSimulatorResultWithMetadata(
