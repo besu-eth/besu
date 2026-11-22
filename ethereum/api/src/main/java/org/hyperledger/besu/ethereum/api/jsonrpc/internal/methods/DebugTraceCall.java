@@ -63,20 +63,12 @@ public class DebugTraceCall extends AbstractTraceCall {
 
   @Override
   protected TraceOptions getTraceOptions(final JsonRpcRequestContext requestContext) {
+    final Optional<TransactionTraceParams> maybeTraceParams;
+    final TraceOptions traceOptions;
     try {
-      final Optional<TransactionTraceParams> maybeTraceParams =
-          requestContext.getOptionalParameter(2, TransactionTraceParams.class);
-      if (maybeTraceParams.map(params -> params.blockOverrides() != null).orElse(false)) {
-        throw new RejectedParametersException(
-            "Block overrides are not supported in the trace config; use eth_simulateV1",
-            RpcErrorType.INVALID_PARAMS);
-      }
-      return maybeTraceParams
-          .map(TransactionTraceParams::traceOptions)
-          .orElse(TraceOptions.DEFAULT);
-    } catch (RejectedParametersException e) {
-      // a subclass of IllegalArgumentException; keep its message for the caller
-      throw e;
+      maybeTraceParams = requestContext.getOptionalParameter(2, TransactionTraceParams.class);
+      traceOptions =
+          maybeTraceParams.map(TransactionTraceParams::traceOptions).orElse(TraceOptions.DEFAULT);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid transaction trace parameter (index 2)",
@@ -87,6 +79,12 @@ public class DebugTraceCall extends AbstractTraceCall {
       throw new InvalidJsonRpcParameters(
           e.getMessage(), RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS, e);
     }
+    if (maybeTraceParams.map(params -> params.blockOverrides() != null).orElse(false)) {
+      throw new RejectedParametersException(
+          "Block overrides are not supported in the trace config; use eth_simulateV1",
+          RpcErrorType.INVALID_PARAMS);
+    }
+    return traceOptions;
   }
 
   @Override
