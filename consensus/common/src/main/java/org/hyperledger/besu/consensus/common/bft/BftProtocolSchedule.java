@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.common.bft;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import org.hyperledger.besu.consensus.common.ForkSpec;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
@@ -66,7 +67,7 @@ public class BftProtocolSchedule extends DefaultProtocolSchedule {
         break;
       }
     }
-    return theSpec;
+    return requireNonNull(theSpec, "No protocol spec matches the block number or timestamp");
   }
 
   /**
@@ -98,7 +99,7 @@ public class BftProtocolSchedule extends DefaultProtocolSchedule {
         break;
       }
     }
-    return specType;
+    return requireNonNull(specType, "No protocol spec matches the block number or timestamp");
   }
 
   /**
