@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.cli.options;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
+
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
@@ -22,12 +25,87 @@ import java.net.URI;
 import java.util.List;
 
 import com.google.common.collect.Range;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class SynchronizerOptionsTest
     extends AbstractCLIOptionsTest<SynchronizerConfiguration.Builder, SynchronizerOptions> {
+
+  @Test
+  void acceptsEreImportAndSharedConcurrencyAlias() {
+    final var command =
+        parseCommand(
+            "--sync-mode=FULL",
+            "--erae-import-prepipeline-enabled",
+            "--erae-data-uri=file:///tmp/history/",
+            "--erae-import-prepipeline-concurrency=3");
+    final var config = command.getSynchronizerOptions().toDomainObject().build();
+    assertThat(config.ereImportPrepipelineEnabled()).isTrue();
+    assertThat(config.ereDataUri()).contains(URI.create("file:///tmp/history/"));
+    assertThat(config.era1ImportPrepipelineConcurrency()).isEqualTo(3);
+  }
+
+  @Test
+  void roundTripsEreConfigurationWithoutInventingADefaultProvider() {
+    final var config =
+        SynchronizerConfiguration.builder()
+            .ereImportPrepipelineEnabled(true)
+            .ereDataUri(URI.create("https://history.example/current/"))
+            .era1ImportPrepipelineConcurrency(2)
+            .build();
+    final var options = SynchronizerOptions.fromConfig(config);
+    assertThat(options.toDomainObject().build()).usingRecursiveComparison().isEqualTo(config);
+    final var parsed = parseCommand(options.getCLIOptions().toArray(String[]::new));
+    assertThat(parsed.getSynchronizerOptions().toDomainObject().build())
+        .usingRecursiveComparison()
+        .isEqualTo(config);
+    assertThat(SynchronizerConfiguration.builder().build().ereDataUri()).isEmpty();
+  }
+
+  @Test
+  void requiresExplicitEreDataUri() {
+    assertThatIllegalArgumentException()
+        .isThrownBy(
+            () -> SynchronizerConfiguration.builder().ereImportPrepipelineEnabled(true).build())
+        .withMessageContaining("--erae-data-uri");
+  }
+
+  @Test
+  void rejectsConflictingImportModes() {
+    assertThatIllegalArgumentException()
+        .isThrownBy(
+            () ->
+                SynchronizerConfiguration.builder()
+                    .era1ImportPrepipelineEnabled(true)
+                    .ereImportPrepipelineEnabled(true)
+                    .ereDataUri(URI.create("file:///tmp/history/"))
+                    .build())
+        .withMessageContaining("cannot both");
+  }
+
+  @Test
+  void rejectsNonFullEreImportAndNonpositiveConcurrency() {
+    assertThatIllegalArgumentException()
+        .isThrownBy(
+            () ->
+                SynchronizerConfiguration.builder()
+                    .ereImportPrepipelineEnabled(true)
+                    .ereDataUri(URI.create("file:///tmp/history/"))
+                    .syncMode(org.hyperledger.besu.ethereum.eth.sync.SyncMode.SNAP)
+                    .build())
+        .withMessageContaining("FULL sync");
+    assertThatIllegalArgumentException()
+        .isThrownBy(
+            () ->
+                SynchronizerConfiguration.builder()
+                    .ereImportPrepipelineEnabled(true)
+                    .ereDataUri(URI.create("file:///tmp/history/"))
+                    .era1ImportPrepipelineConcurrency(0)
+                    .build())
+        .withMessageContaining("positive");
+  }
 
   @Override
   protected SynchronizerConfiguration.Builder createDefaultDomainObject() {

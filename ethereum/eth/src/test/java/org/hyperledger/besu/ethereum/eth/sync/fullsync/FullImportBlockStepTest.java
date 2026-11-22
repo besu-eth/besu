@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.fullsync;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode.FULL;
 import static org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode.SKIP_DETACHED;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
@@ -77,5 +78,27 @@ public class FullImportBlockStepTest {
         .thenReturn(new BlockImportResult(false));
     assertThatThrownBy(() -> importBlocksStep.accept(block))
         .isInstanceOf(InvalidBlockException.class);
+  }
+
+  @Test
+  void shouldFullyValidateArchiveBlocksWhenRequested() {
+    final Block block = gen.block();
+    when(blockImporter.importBlock(protocolContext, block, FULL))
+        .thenReturn(new BlockImportResult(true));
+    new FullImportBlockStep(
+            protocolSchedule, protocolContext, null, SyncTerminationCondition.never(), FULL)
+        .accept(block);
+    verify(blockImporter).importBlock(protocolContext, block, FULL);
+  }
+
+  @Test
+  void shouldPropagateFullValidationFailure() {
+    final Block block = gen.block();
+    when(blockImporter.importBlock(protocolContext, block, FULL))
+        .thenReturn(new BlockImportResult(false));
+    final var step =
+        new FullImportBlockStep(
+            protocolSchedule, protocolContext, null, SyncTerminationCondition.never(), FULL);
+    assertThatThrownBy(() -> step.accept(block)).isInstanceOf(InvalidBlockException.class);
   }
 }

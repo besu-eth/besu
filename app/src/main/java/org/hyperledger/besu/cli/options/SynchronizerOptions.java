@@ -21,11 +21,13 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfigur
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import com.google.common.collect.Range;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
@@ -117,6 +119,11 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String ERA1_DATA_URI_FLAG = "--era1-data-uri";
   private static final String ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG =
       "--era1-import-prepipeline-concurrency";
+  private static final String ERE_IMPORT_PREPIPELINE_ENABLED_FLAG =
+      "--erae-import-prepipeline-enabled";
+  private static final String ERE_DATA_URI_FLAG = "--erae-data-uri";
+  private static final String ERE_IMPORT_PREPIPELINE_CONCURRENCY_FLAG =
+      "--erae-import-prepipeline-concurrency";
 
   /**
    * Parse block propagation range.
@@ -467,12 +474,30 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private URI era1DataUri = SynchronizerConfiguration.DEFAULT_ERA1_DATA_URI;
 
   @CommandLine.Option(
-      names = ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG,
+      names = {ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG, ERE_IMPORT_PREPIPELINE_CONCURRENCY_FLAG},
       paramLabel = "<INTEGER>",
       description =
-          "How many parallel pipelines to use in the ERA1 import prepipeline (default: ${DEFAULT-VALUE})")
+          "How many archives to read concurrently in the ERA1 or Ere import prepipeline (default: ${DEFAULT-VALUE})")
   private Integer era1ImportPrepipelineConcurrency =
       SynchronizerConfiguration.DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY;
+
+  @CommandLine.Option(
+      names = ERE_IMPORT_PREPIPELINE_ENABLED_FLAG,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "Enable current-format .ere history import before FULL sync. Requires --erae-data-uri "
+              + "and cannot be combined with ERA1 import. Earlier .erae files are not supported. (default: ${DEFAULT-VALUE})")
+  private Boolean ereImportPrepipelineEnabled = false;
+
+  @CommandLine.Option(
+      names = ERE_DATA_URI_FLAG,
+      paramLabel = "<URI>",
+      description =
+          "Directory or HTTP(S) directory listing containing current-format .ere files. "
+              + "Required when Ere import is enabled; there is no default history provider.")
+  private @Nullable URI ereDataUri;
 
   private SynchronizerOptions() {}
 
@@ -556,6 +581,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
+    options.ereImportPrepipelineEnabled = config.ereImportPrepipelineEnabled();
+    options.ereDataUri = config.ereDataUri().orElse(null);
     options.receiptsDownloadStepTimeoutMillis = config.getForwardDownloadStepTimeoutMillis();
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
@@ -606,6 +633,10 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.era1ImportPrepipelineEnabled(era1ImportPrepipelineEnabled);
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
+    builder.ereImportPrepipelineEnabled(ereImportPrepipelineEnabled);
+    if (ereDataUri != null) {
+      builder.ereDataUri(ereDataUri);
+    }
     builder.snapSyncHeadersToCheckpointOnly(snapSyncHeadersToCheckpointOnly);
     return builder;
   }
@@ -686,6 +717,13 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(era1ImportPrepipelineConcurrency),
             SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG,
             OptionParser.format(snapSyncHeadersToCheckpointOnly));
+    value = new ArrayList<>(value);
+    value.add(ERE_IMPORT_PREPIPELINE_ENABLED_FLAG);
+    value.add(OptionParser.format(ereImportPrepipelineEnabled));
+    if (ereDataUri != null) {
+      value.add(ERE_DATA_URI_FLAG);
+      value.add(OptionParser.format(ereDataUri));
+    }
     return value;
   }
 }

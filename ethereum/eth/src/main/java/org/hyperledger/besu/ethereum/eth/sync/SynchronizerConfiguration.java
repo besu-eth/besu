@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.services.tasks.CachingTaskCollection;
 
 import java.net.URI;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.collect.Range;
@@ -101,6 +102,8 @@ public class SynchronizerConfiguration {
   private final boolean era1ImportPrepipelineEnabled;
   private final URI era1DataUri;
   private final int era1ImportPrepipelineConcurrency;
+  private final boolean ereImportPrepipelineEnabled;
+  private final Optional<URI> ereDataUri;
 
   private SynchronizerConfiguration(
       final int syncPivotDistance,
@@ -132,7 +135,9 @@ public class SynchronizerConfiguration {
       final boolean snapSyncHeadersToCheckpointOnly,
       final boolean era1ImportPrepipelineEnabled,
       final URI era1DataUri,
-      final int era1ImportPrepipelineConcurrency) {
+      final int era1ImportPrepipelineConcurrency,
+      final boolean ereImportPrepipelineEnabled,
+      final Optional<URI> ereDataUri) {
     this.syncPivotDistance = syncPivotDistance;
     this.fastSyncFullValidationRate = fastSyncFullValidationRate;
     this.syncMinimumPeerCount = syncMinimumPeerCount;
@@ -163,6 +168,8 @@ public class SynchronizerConfiguration {
     this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
     this.era1DataUri = era1DataUri;
     this.era1ImportPrepipelineConcurrency = era1ImportPrepipelineConcurrency;
+    this.ereImportPrepipelineEnabled = ereImportPrepipelineEnabled;
+    this.ereDataUri = ereDataUri;
   }
 
   public static Builder builder() {
@@ -320,6 +327,14 @@ public class SynchronizerConfiguration {
     return era1ImportPrepipelineConcurrency;
   }
 
+  public boolean ereImportPrepipelineEnabled() {
+    return ereImportPrepipelineEnabled;
+  }
+
+  public Optional<URI> ereDataUri() {
+    return ereDataUri;
+  }
+
   public static class Builder {
     private SyncMode syncMode = SyncMode.FULL;
     private int syncMinimumPeerCount = DEFAULT_SYNC_MINIMUM_PEERS;
@@ -352,6 +367,8 @@ public class SynchronizerConfiguration {
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
     private URI era1DataUri = DEFAULT_ERA1_DATA_URI;
     private int era1ImportPrepipelineConcurrency = DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY;
+    private boolean ereImportPrepipelineEnabled = false;
+    private Optional<URI> ereDataUri = Optional.empty();
     private long receiptsDownloadStepTimeoutMillis = DEFAULT_RECEIPTS_DOWNLOAD_STEP_TIMEOUT_MILLIS;
     private long backwardHeadersDownloadStepTimeoutMillis =
         DEFAULT_BACKWARD_HEADERS_DOWNLOAD_STEP_TIMEOUT_MILLIS;
@@ -520,7 +537,30 @@ public class SynchronizerConfiguration {
       return this;
     }
 
+    public Builder ereImportPrepipelineEnabled(final boolean enabled) {
+      this.ereImportPrepipelineEnabled = enabled;
+      return this;
+    }
+
+    public Builder ereDataUri(final URI uri) {
+      this.ereDataUri = Optional.of(uri);
+      return this;
+    }
+
     public SynchronizerConfiguration build() {
+      checkArgument(
+          !ereImportPrepipelineEnabled || !era1ImportPrepipelineEnabled,
+          "Ere and ERA1 import prepipelines cannot both be enabled");
+      checkArgument(
+          !ereImportPrepipelineEnabled || ereDataUri.isPresent(),
+          "--erae-data-uri is required when Ere import is enabled");
+      checkArgument(
+          !ereImportPrepipelineEnabled || syncMode == SyncMode.FULL,
+          "Ere import requires FULL sync");
+      checkArgument(
+          !(ereImportPrepipelineEnabled || era1ImportPrepipelineEnabled)
+              || era1ImportPrepipelineConcurrency > 0,
+          "File import prepipeline concurrency must be positive");
       return new SynchronizerConfiguration(
           syncPivotDistance,
           fastSyncFullValidationRate,
@@ -551,7 +591,9 @@ public class SynchronizerConfiguration {
           snapSyncHeadersToCheckpointOnly,
           era1ImportPrepipelineEnabled,
           era1DataUri,
-          era1ImportPrepipelineConcurrency);
+          era1ImportPrepipelineConcurrency,
+          ereImportPrepipelineEnabled,
+          ereDataUri);
     }
   }
 }

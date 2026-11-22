@@ -71,6 +71,7 @@ dependencies {
   implementation "org.immutables:value-annotations"
 
   testImplementation project(':config')
+  testImplementation project(':consensus:merge')
   testImplementation project(path: ':config', configuration: 'testSupportArtifacts')
   testImplementation project(':crypto:services')
   testImplementation project(path: ':crypto:services', configuration: 'testSupportArtifacts')
