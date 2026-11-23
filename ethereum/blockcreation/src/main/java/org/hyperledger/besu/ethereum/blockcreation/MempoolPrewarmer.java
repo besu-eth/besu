@@ -713,6 +713,12 @@ public class MempoolPrewarmer implements AutoCloseable {
     }
 
     @Override
+    public boolean allowsJournal() {
+      // stopping an execution does not access the world state
+      return true;
+    }
+
+    @Override
     public void traceContextEnter(final MessageFrame frame) {
       stopIfOver();
     }
