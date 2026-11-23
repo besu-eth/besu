@@ -60,10 +60,8 @@ def apiBaselineJar = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}") { transitive = false })
 def apiBaselineClasspath = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}"))
-// datatypes is exposed through the Plugin API (an api dependency), so its released jar is compared too
-def apiBaselineDatatypesJar = configurations.detachedConfiguration(
-  dependencies.create("org.hyperledger.besu:besu-datatypes:${apiBaselineVersion}") { transitive = false })
-// The modules split out of the Plugin API, as project path -> released artifactId. Both sides of
+// The modules compared with the Plugin API, as project path -> released artifactId: the modules
+// split out of it, and datatypes, which it exposes as an api dependency. Both sides of
 // checkAPICompatibility are derived from this map, so a module cannot be compared on one side only:
 // japicmp only compares archives, so a class missing from oldArchives counts as new and its changes
 // pass as additions. A module not yet in a released baseline maps to null, so it is compared on the
@@ -83,7 +81,8 @@ def apiModules = [
   ':ethereum:core:plugin-api-worldstate-backend': 'besu-plugin-api-worldstate-backend',
   ':ethereum:core:plugin-api-execution': 'besu-plugin-api-execution',
   ':ethereum:blockcreation:plugin-api': 'besu-plugin-api-blockproduction',
-  ':ethereum:core:plugin-api-validation': 'besu-plugin-api-validation'
+  ':ethereum:core:plugin-api-validation': 'besu-plugin-api-validation',
+  ':datatypes': 'besu-datatypes'
 ]
 def apiBaselineModuleJars = configurations.detachedConfiguration(
   *apiModules.values().findAll { it != null }.collect {
@@ -93,7 +92,6 @@ def apiBaselineModuleJars = configurations.detachedConfiguration(
 ext.verificationMetadataConfigurations = [
   apiBaselineJar,
   apiBaselineClasspath,
-  apiBaselineDatatypesJar,
   apiBaselineModuleJars
 ]
 
@@ -101,13 +99,12 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   description = "Checks that the Plugin API, including the datatypes it exposes, remains binary and source compatible with the last released version, allowing only additions"
   group = 'verification'
 
-  oldArchives.from(apiBaselineJar, apiBaselineModuleJars, apiBaselineDatatypesJar)
+  oldArchives.from(apiBaselineJar, apiBaselineModuleJars)
   oldClasspath.from(apiBaselineClasspath)
-  // A module split out of the Plugin API is added to apiModules, not here
+  // A module compared with the Plugin API is added to apiModules, not here
   newArchives.from(
     tasks.named('jar'),
-    *apiModules.keySet().collect { project(it).tasks.named('jar') },
-    project(':datatypes').tasks.named('jar'))
+    *apiModules.keySet().collect { project(it).tasks.named('jar') })
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [
