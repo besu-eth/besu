@@ -41,6 +41,8 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
     implements WorldUpdater {
 
   private final W world;
+  // where the frames on top of this updater report balance observations, null where they end here
+  private final WorldUpdater balanceObserver;
   private final EvmConfiguration evmConfiguration;
 
   /** The Updated accounts. */
@@ -58,6 +60,8 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
   protected AbstractWorldUpdater(final W world, final EvmConfiguration evmConfiguration) {
     this.world = world;
     this.evmConfiguration = evmConfiguration;
+    this.balanceObserver =
+        world instanceof WorldUpdater worldUpdater ? worldUpdater.balanceObserver() : null;
   }
 
   /**
@@ -156,16 +160,21 @@ public abstract class AbstractWorldUpdater<W extends WorldView, A extends Accoun
   }
 
   @Override
+  public WorldUpdater balanceObserver() {
+    return balanceObserver != null ? balanceObserver : this;
+  }
+
+  @Override
   public void observeBalance(final Address address) {
-    if (world instanceof WorldUpdater worldUpdater) {
-      worldUpdater.observeBalance(address);
+    if (balanceObserver != null) {
+      balanceObserver.observeBalance(address);
     }
   }
 
   @Override
   public void observeSufficientBalance(final Address address, final Wei margin) {
-    if (world instanceof WorldUpdater worldUpdater) {
-      worldUpdater.observeSufficientBalance(address, margin);
+    if (balanceObserver != null) {
+      balanceObserver.observeSufficientBalance(address, margin);
     }
   }
 

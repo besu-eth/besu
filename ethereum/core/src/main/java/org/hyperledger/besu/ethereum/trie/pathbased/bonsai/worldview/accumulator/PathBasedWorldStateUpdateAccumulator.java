@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.AbstractWorldUpdater;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogAccumulator;
 
@@ -136,6 +137,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     return balanceMargins == null
         ? Optional.empty()
         : Optional.ofNullable(balanceMargins.get(address));
+  }
+
+  @Override
+  public WorldUpdater balanceObserver() {
+    // the accumulator records the observations itself
+    return this;
   }
 
   @Override

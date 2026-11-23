@@ -158,6 +158,17 @@ public interface WorldUpdater extends MutableWorldView {
   }
 
   /**
+   * The updater that the balance observations reported to this updater reach, so that an updater
+   * created on top of it can report to that one directly rather than through every updater in
+   * between. An updater that records the observations itself returns itself.
+   *
+   * @return the updater that receives the balance observations reported to this updater
+   */
+  default WorldUpdater balanceObserver() {
+    return this;
+  }
+
+  /**
    * Records that the executing transaction depends on the balance of an account: it read the
    * balance, or tried to spend more than the balance holds. Spending that the balance covers is
    * reported through {@link #observeSpending} instead, as its outcome only depends on the balance

@@ -37,6 +37,7 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
 
   final EvmConfiguration evmConfiguration;
   final WorldUpdater parentWorld;
+  final WorldUpdater balanceObserver;
   final AbstractWorldUpdater<W, ? extends MutableAccount> rootWorld;
   final UndoMap<Address, JournaledAccount> accounts;
   final UndoSet<Address> deleted;
@@ -51,6 +52,7 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   @SuppressWarnings("unchecked")
   public JournaledUpdater(final WorldUpdater world, final EvmConfiguration evmConfiguration) {
     parentWorld = world;
+    balanceObserver = world.balanceObserver();
     this.evmConfiguration = evmConfiguration;
     if (world instanceof JournaledUpdater<?>) {
       JournaledUpdater<W> journaledUpdater = (JournaledUpdater<W>) world;
@@ -135,13 +137,18 @@ public class JournaledUpdater<W extends WorldView> implements WorldUpdater {
   }
 
   @Override
+  public WorldUpdater balanceObserver() {
+    return balanceObserver;
+  }
+
+  @Override
   public void observeBalance(final Address address) {
-    parentWorld.observeBalance(address);
+    balanceObserver.observeBalance(address);
   }
 
   @Override
   public void observeSufficientBalance(final Address address, final Wei margin) {
-    parentWorld.observeSufficientBalance(address, margin);
+    balanceObserver.observeSufficientBalance(address, margin);
   }
 
   @Override
