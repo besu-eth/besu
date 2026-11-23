@@ -605,8 +605,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         ((PathBasedWorldStateUpdateAccumulator) roundWorldStateUpdater)
             .importStateChangesFromSource(previousInChain);
         contextBuilder.chainPredecessorAccumulator(previousInChain);
+      } else {
+        // a chained result carries no balance change over, so only a run alone needs them
+        roundWorldStateUpdater.recordBalanceObservations();
       }
-      roundWorldStateUpdater.recordBalanceObservations();
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
           blockAccessListBuilder.map(

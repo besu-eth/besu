@@ -958,6 +958,27 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
+    @DisplayName("Only runs alone record the balances they depend on")
+    void onlyRunsAloneRecordBalanceObservations() {
+      // each run on a world state of its own, so that each keeps its accumulator
+      when(env.worldStateArchive().getWorldState(any()))
+          .thenAnswer(__ -> Optional.of(createEmptyWorldState()));
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(tx1, tx2), sameThreadExecutor);
+
+      assertThat(processor.futures[0].resultNow().transactionAccumulator().getObservedBalances())
+          .as("a run alone can carry balance changes over")
+          .isNotNull();
+      assertThat(processor.futures[1].resultNow().chainPredecessorAccumulator()).isNotNull();
+      assertThat(processor.futures[1].resultNow().transactionAccumulator().getObservedBalances())
+          .as("a chained result carries nothing over")
+          .isNull();
+    }
+
+    @Test
     @DisplayName("A chain member whose run failed with an error is executed sequentially")
     void failedChainMemberIsExecutedSequentially() {
       final Transaction tx1 = mockTransactionFrom(sender);
