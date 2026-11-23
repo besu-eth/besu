@@ -19,17 +19,20 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBlockAccessListsFromPeerTask;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,12 +41,15 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Downloads, next to the bodies of a batch, the block access lists of the blocks that have one,
- * which their execution uses, and decodes the bodies. Best effort, a block without one is executed
- * all the same.
+ * which their execution uses, and decodes the bodies. Best effort: the batch waits for them at most
+ * {@link #OPTIONAL_DOWNLOAD_TIMEOUT}, a block without one being executed all the same.
  */
 class DownloadBlockDataStep implements Function<List<SyncBlock>, CompletableFuture<BlockBatch>> {
 
   private static final Logger LOG = LoggerFactory.getLogger(DownloadBlockDataStep.class);
+
+  /** How long a batch waits for what it can be imported without. */
+  static final Duration OPTIONAL_DOWNLOAD_TIMEOUT = Duration.ofSeconds(10);
 
   private final EthContext ethContext;
 
@@ -53,24 +59,40 @@ class DownloadBlockDataStep implements Function<List<SyncBlock>, CompletableFutu
 
   @Override
   public CompletableFuture<BlockBatch> apply(final List<SyncBlock> syncBlocks) {
-    final CompletableFuture<Map<Hash, BlockAccessList>> bals =
-        ethContext
-            .getScheduler()
-            .scheduleServiceTask(
-                () -> CompletableFuture.completedFuture(downloadBals(headers(syncBlocks))));
+    final CompletableFuture<Map<Hash, BlockAccessList>> bals = downloadBals(headers(syncBlocks));
     return bals.exceptionally(error -> failed("block access lists", error))
         .thenApply(balsByHash -> new BlockBatch(decodeBlocks(syncBlocks), balsByHash));
   }
 
-  private Map<Hash, BlockAccessList> downloadBals(final List<BlockHeader> headers) {
+  private CompletableFuture<Map<Hash, BlockAccessList>> downloadBals(
+      final List<BlockHeader> headers) {
+    final CompletableFuture<Map<Hash, BlockAccessList>> bals = new CompletableFuture<>();
+    final EthScheduler scheduler = ethContext.getScheduler();
+    scheduler.scheduleServiceTask(
+        () -> {
+          try {
+            bals.complete(requestBals(headers, bals::isDone));
+          } catch (final RuntimeException e) {
+            bals.completeExceptionally(e);
+          }
+        });
+    scheduler.failAfterTimeout(bals, OPTIONAL_DOWNLOAD_TIMEOUT);
+    return bals;
+  }
+
+  /**
+   * Asks for the BALs of {@code headers}, then again for the rest of a short answer, until a
+   * request brings nothing or the batch stops waiting.
+   */
+  private Map<Hash, BlockAccessList> requestBals(
+      final List<BlockHeader> headers, final BooleanSupplier abandoned) {
     final List<BlockHeader> remaining =
         headers.stream()
             .filter(header -> header.getBalHash().isPresent())
             .collect(Collectors.toCollection(ArrayList::new));
     final Map<Hash, BlockAccessList> bals = HashMap.newHashMap(remaining.size());
-    // a response may stop early, the rest is asked again until a request brings nothing
     boolean progress = true;
-    while (!remaining.isEmpty() && progress) {
+    while (!remaining.isEmpty() && progress && !abandoned.getAsBoolean()) {
       final PeerTaskExecutorResult<List<Optional<BlockAccessList>>> result =
           ethContext
               .getPeerTaskExecutor()
