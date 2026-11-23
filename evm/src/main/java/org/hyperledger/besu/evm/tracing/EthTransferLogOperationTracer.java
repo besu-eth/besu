@@ -34,16 +34,17 @@ import com.google.common.collect.ImmutableList;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * Tracer that emits logs for all transfers that occur during the execution of a transaction.
+ * Tracer used by pre-Amsterdam {@code eth_simulateV1} when {@code traceTransfers} is enabled.
  *
- * <p>Logs are emitted for all transfers that occur during the execution of a transaction. This
- * includes both value transfers and self-destructs.
+ * <p>Records synthetic ETH-transfer logs (value transfers and self-destructs) and contract {@code
+ * LOG0}–{@code LOG4} emissions in execution order. Failed frames drop the logs they added, matching
+ * geth's simulate log tracer.
  */
 public class EthTransferLogOperationTracer implements OperationTracer {
-  /** The list of logs emitted by this tracer */
-  private final List<Log> traceTransfers = new ArrayList<>();
+  /** Execution-ordered logs: synthetic transfers and contract LOG emissions */
+  private final List<Log> logs = new ArrayList<>();
 
-  /** Snapshot stack tracking traceTransfers size at each frame entry */
+  /** Snapshot stack tracking {@link #logs} size at each frame entry */
   private final Deque<Integer> logSnapshots = new ArrayDeque<>();
 
   /** The constant address for transfer logs */
@@ -54,12 +55,15 @@ public class EthTransferLogOperationTracer implements OperationTracer {
   public static final Bytes32 SIMULATION_TRANSFER_TOPIC =
       Bytes32.fromHexString("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
+  private static final int LOG0 = 0xA0;
+  private static final int LOG4 = 0xA4;
+
   /** Default constructor. */
   public EthTransferLogOperationTracer() {}
 
   @Override
   public void traceContextEnter(final MessageFrame frame) {
-    logSnapshots.push(traceTransfers.size());
+    logSnapshots.push(logs.size());
     if (frame.getValue().compareTo(Wei.ZERO) > 0
         && !frame.getRecipientAddress().equals(frame.getSenderAddress())) {
       emitTransferLogs(frame.getSenderAddress(), frame.getRecipientAddress(), frame.getValue());
@@ -77,7 +81,16 @@ public class EthTransferLogOperationTracer implements OperationTracer {
   @Override
   public void tracePostExecution(
       final MessageFrame frame, final Operation.OperationResult operationResult) {
-    // do nothing for now
+    if (operationResult.getHaltReason() != null) {
+      return;
+    }
+    final int opcode = frame.getCurrentOperation().getOpcode();
+    if (opcode >= LOG0 && opcode <= LOG4) {
+      final List<Log> frameLogs = frame.getLogs();
+      if (!frameLogs.isEmpty()) {
+        logs.add(frameLogs.getLast());
+      }
+    }
   }
 
   @Override
@@ -85,8 +98,8 @@ public class EthTransferLogOperationTracer implements OperationTracer {
     final int snapshot = logSnapshots.pop();
     if (frame.getState() == MessageFrame.State.COMPLETED_FAILED) {
       // Remove only logs added during this frame (and its children)
-      while (traceTransfers.size() > snapshot) {
-        traceTransfers.removeLast();
+      while (logs.size() > snapshot) {
+        logs.removeLast();
       }
     }
   }
@@ -104,15 +117,16 @@ public class EthTransferLogOperationTracer implements OperationTracer {
     builder.add(LogTopic.create(SIMULATION_TRANSFER_TOPIC));
     builder.add(LogTopic.create(leftPad(sender.getBytes())));
     builder.add(LogTopic.create(leftPad(recipient.getBytes())));
-    traceTransfers.add(new Log(SIMULATION_TRANSFER_ADDRESS, value, builder.build()));
+    logs.add(new Log(SIMULATION_TRANSFER_ADDRESS, value, builder.build()));
   }
 
   /**
-   * Returns the logs emitted by this tracer.
+   * Returns the logs recorded by this tracer in execution order (synthetic transfers and contract
+   * logs).
    *
-   * @return the logs emitted by this tracer
+   * @return the recorded logs
    */
   public List<Log> getLogs() {
-    return traceTransfers;
+    return logs;
   }
 }

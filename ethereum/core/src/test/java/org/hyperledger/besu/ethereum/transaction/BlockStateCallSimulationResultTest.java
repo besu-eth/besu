@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
@@ -123,14 +124,13 @@ public class BlockStateCallSimulationResultTest {
   }
 
   @Test
-  public void preAmsterdamTraceTransfersKeepsContractLogsWithTransferLogs() {
-    final Log contractLog = new Log(CONTRACT, Bytes.fromHexString("0xaa"), List.of());
+  public void transferTracerLogsArePreferredOverReceiptLogs() {
+    final Log receiptOnlyLog = new Log(CONTRACT, Bytes.fromHexString("0xbb"), List.of());
     final BlockStateCallSimulationResult result =
-        resultWith(BlockGasAccountingStrategy.FRONTIER, 30_000_000L, List.of(contractLog));
+        resultWith(BlockGasAccountingStrategy.FRONTIER, 30_000_000L, List.of(receiptOnlyLog));
 
     final EthTransferLogOperationTracer tracer = new EthTransferLogOperationTracer();
-    final org.hyperledger.besu.evm.frame.MessageFrame frame =
-        mock(org.hyperledger.besu.evm.frame.MessageFrame.class);
+    final MessageFrame frame = mock(MessageFrame.class);
     when(frame.getValue()).thenReturn(Wei.of(5));
     when(frame.getSenderAddress()).thenReturn(SENDER);
     when(frame.getRecipientAddress()).thenReturn(CONTRACT);
@@ -139,10 +139,9 @@ public class BlockStateCallSimulationResultTest {
     result.add(call(21_000L, 21_000L, 0L), mock(MutableWorldState.class), tracer);
 
     final List<Log> logs = result.getTransactionSimulatorResults().getFirst().logs();
-    assertThat(logs).hasSize(2);
+    assertThat(logs).hasSize(1);
     assertThat(logs.getFirst().getLogger())
         .isEqualTo(EthTransferLogOperationTracer.SIMULATION_TRANSFER_ADDRESS);
-    assertThat(logs.get(1)).isEqualTo(contractLog);
   }
 
   @Test
