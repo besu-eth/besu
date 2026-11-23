@@ -1,5 +1,5 @@
 {
-  "comment": "A failed root bn128Add precompile reports its exceptional halt",
+  "comment": "A failed root bn128Add precompile reports its exceptional halt. The output and revertReason are the \"error\" bytes that the alt_bn128 precompiles record when they halt; a nested precompile call that halts leaves out revertReason.",
   "request": {
     "jsonrpc": "2.0",
     "method": "trace_call",
