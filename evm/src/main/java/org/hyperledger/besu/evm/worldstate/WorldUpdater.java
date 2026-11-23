@@ -158,8 +158,10 @@ public interface WorldUpdater extends MutableWorldView {
   }
 
   /**
-   * Records that the executing transaction depends on the balance of an account, by reading it or
-   * by spending from it, rather than only adding to it.
+   * Records that the executing transaction depends on the balance of an account: it read the
+   * balance, or tried to spend more than the balance holds. Spending that the balance covers is
+   * reported through {@link #observeSpending} instead, as its outcome only depends on the balance
+   * sufficing.
    *
    * @param address the account whose balance the transaction depends on
    */

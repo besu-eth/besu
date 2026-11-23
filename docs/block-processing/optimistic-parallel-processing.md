@@ -79,7 +79,7 @@ The timeline in [Same-sender chains](#same-sender-chains) is schematic. It keeps
 When block processing reaches a transaction, `getProcessingResult` does three things:
 
 1. If the transaction's run has not finished, block processing executes the transaction itself and the run is thrown away.
-2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account finds its balance changed, since every transaction pays it a fee. A change to a balance alone is often no collision, as [Balance changes](#balance-changes) explains.
+2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account usually finds its balance changed, since every transaction with a priority fee pays the fee to it. A change to a balance alone is often no collision, as [Balance changes](#balance-changes) explains.
 3. Without a collision, block processing **takes** the result: it imports the run's changes into the block's accumulator and credits the transaction's fee to the coinbase account, which the run kept aside.
 
 A reverted or halted result is taken like a successful one when nothing it read has changed. An invalid result is never taken.
@@ -101,7 +101,7 @@ Many transactions touch an account whose balance an earlier transaction of the b
 
 When block processing takes such a result, it sets each of these balances to the block's balance plus the run's change, in the state and, when a block access list is being built, in its post balance.
 
-**The coinbase account.** Every transaction pays the coinbase account its fee, so a run that touched the coinbase account, such as a direct payment to the block's builder, would always find a changed balance. The same rules apply to it as to any other account. Such a run already holds its own fee, so block processing does not credit the fee again.
+**The coinbase account.** Every transaction with a priority fee pays the fee to the coinbase account, so a run that touched the coinbase account, such as a direct payment to the block's builder, usually finds a changed balance. The same rules apply to it as to any other account. Such a run already holds its own fee, so block processing does not credit the fee again. A zero fee still touches the coinbase account, and state clearing then deletes it if it is empty. A run that deleted the coinbase account always collides, because its result leaves out a coinbase account the transaction touched only for its fee, and the deletion with it.
 
 A chained result, described next, carries no balance change over.
 

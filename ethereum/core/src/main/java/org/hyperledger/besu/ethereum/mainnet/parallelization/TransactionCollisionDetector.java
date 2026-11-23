@@ -87,9 +87,9 @@ public class TransactionCollisionDetector {
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
         parallelizedTransactionContext.chainPredecessorAccumulator();
-    // every earlier transaction paid the beneficiary, so a transaction that touched it can only
-    // keep its result by having paid it too, without depending on its balance, and a chained one
-    // carries no balance over
+    // earlier transactions paid the beneficiary their priority fees, so a transaction that touched
+    // it can only keep its result by having paid it too, without depending on its balance, and a
+    // chained one carries no balance over
     if ((creditedAccounts == null || chainPredecessor != null)
         && isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
       return true;
