@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 26.11.2
 
 ### Breaking Changes
 - The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
