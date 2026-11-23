@@ -17,6 +17,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -24,6 +29,7 @@ import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
@@ -43,7 +49,9 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -275,6 +283,68 @@ public class DebugTraceBlockByNumberTest {
     assertThat(structLogs.size())
         .as("server step limit of 3 should cap structLogs at 3 entries (contract has 9 opcodes)")
         .isEqualTo(3);
+  }
+
+  @Test
+  public void shouldReturnPrunedHistoryWhenParentStateIsUnavailableAndHeadStateIsAvailable() {
+    final DebugTraceBlockByNumber method = methodWithArchive(archiveWithUnavailableParentState());
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "debug_traceBlockByNumber", new Object[] {"0x1"}));
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response)
+        .as("block with transactions and no parent state")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse error = (JsonRpcErrorResponse) response;
+    assertThat(error.getErrorType()).isEqualTo(RpcErrorType.PRUNED_HISTORY_UNAVAILABLE);
+    assertThat(error.getErrorType().getCode()).isEqualTo(4444);
+  }
+
+  @Test
+  public void shouldReturnInternalErrorWhenTracingThrowsAndStateIsAvailable() {
+    final DebugTraceBlockByNumber method = methodWithArchive(archiveWhereTracingThrows());
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "debug_traceBlockByNumber", new Object[] {"0x1"}));
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response)
+        .as("tracing threw while the parent state was available")
+        .isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse error = (JsonRpcErrorResponse) response;
+    assertThat(error.getErrorType().getCode())
+        .as("a trace failure must not be reported as pruned history")
+        .isEqualTo(RpcErrorType.INTERNAL_ERROR.getCode());
+    assertThat(error.getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
+  }
+
+  private DebugTraceBlockByNumber methodWithArchive(final WorldStateArchive archive) {
+    final BlockchainQueries queries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            archive,
+            MiningConfiguration.MINING_DISABLED);
+    return new DebugTraceBlockByNumber(fixture.getProtocolSchedule(), queries);
+  }
+
+  private WorldStateArchive archiveWithUnavailableParentState() {
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    doReturn(Optional.empty()).when(archive).getWorldState(any());
+    doReturn(true).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
+    return archive;
+  }
+
+  private WorldStateArchive archiveWhereTracingThrows() {
+    final WorldStateArchive archive = spy(fixture.getStateArchive());
+    doReturn(true).when(archive).isWorldStateAvailable(any(Hash.class), any(Hash.class));
+    final MutableWorldState state = mock(MutableWorldState.class);
+    when(state.updater()).thenThrow(new RuntimeException("trace failed"));
+    doReturn(Optional.of(state)).when(archive).getWorldState(any());
+    return archive;
   }
 
   @Test
