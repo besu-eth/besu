@@ -17,47 +17,25 @@ package org.hyperledger.besu.evm.v2.worldstate;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.CsvSource;
 
 class SlotKeyTest {
 
-  private static SlotKey key(final String hex) {
-    return new SlotKey(UInt256.fromBytes(Bytes32.fromHexString(hex)));
-  }
-
-  /** A key with {@code word} set in the 64-bit word at {@code index} and every other word zero. */
-  private static SlotKey keyWithWord(final int index, final long word) {
+  /** A slot with {@code word} in the 64-bit word at {@code index} and every other word zero. */
+  private static UInt256 slotWithWord(final int index, final long word) {
     final long[] words = new long[4];
     words[index] = word;
-    return key(String.format("0x%016x%016x%016x%016x", words[0], words[1], words[2], words[3]));
-  }
-
-  @ParameterizedTest
-  @ValueSource(ints = {0, 1, 2, 3})
-  void comparesEachWordAsUnsigned(final int index) {
-    final SlotKey highBit = keyWithWord(index, 0x8000000000000000L);
-    final SlotKey belowHighBit = keyWithWord(index, 0x7fffffffffffffffL);
-    final SlotKey allOnes = keyWithWord(index, -1L);
-
-    assertThat(highBit.compareTo(belowHighBit)).isPositive();
-    assertThat(belowHighBit.compareTo(highBit)).isNegative();
-    assertThat(allOnes.compareTo(highBit)).isPositive();
-    assertThat(highBit.compareTo(keyWithWord(index, 0x8000000000000000L))).isZero();
-  }
-
-  @Test
-  void anEarlierWordDecidesTheOrder() {
-    final SlotKey highFirstWord = key("0x80" + "00".repeat(31));
-    final SlotKey highLaterWords = key("0x" + "7f" + "ff".repeat(31));
-
-    assertThat(highFirstWord.compareTo(highLaterWords)).isPositive();
-    assertThat(highLaterWords.compareTo(highFirstWord)).isNegative();
+    return UInt256.fromBytes(
+        Bytes32.fromHexString(
+            String.format("0x%016x%016x%016x%016x", words[0], words[1], words[2], words[3])));
   }
 
   @Test
@@ -65,13 +43,7 @@ class SlotKeyTest {
     final List<UInt256> values = new ArrayList<>();
     for (int index = 0; index < 4; index++) {
       for (final long word : new long[] {1L, 0x7fffffffffffffffL, 0x8000000000000000L, -1L}) {
-        final long[] words = new long[4];
-        words[index] = word;
-        values.add(
-            UInt256.fromBytes(
-                Bytes32.fromHexString(
-                    String.format(
-                        "0x%016x%016x%016x%016x", words[0], words[1], words[2], words[3]))));
+        values.add(slotWithWord(index, word));
       }
     }
     values.add(UInt256.ZERO);
@@ -90,5 +62,16 @@ class SlotKeyTest {
         }
       }
     }
+  }
+
+  @ParameterizedTest
+  @CsvSource({"0, 32", "0, 0", "1, 32", "1, 0", "2, 32", "2, 0", "3, 32", "3, 0"})
+  void everyHalfOfEveryWordChangesTheHash(final int index, final int shift) {
+    // keys that differ in one 32-bit half only, which a hash leaving that half out would collide
+    final Set<Integer> hashes = new HashSet<>();
+    for (long half = 1; half <= 64; half++) {
+      hashes.add(new SlotKey(slotWithWord(index, half << shift)).hashCode());
+    }
+    assertThat(hashes).hasSizeGreaterThan(1);
   }
 }

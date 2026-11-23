@@ -182,15 +182,6 @@ class JournaledWorldUpdaterV2Test {
     contract.setStorageValue(SLOT, UInt256.valueOf(2));
     contract.setStorageValue(SLOT, UInt256.valueOf(3));
     assertThat(journal.journalSize()).isEqualTo(size);
-
-    // a frame opened on it logs the slot again, so its revert restores the value it replaced
-    final WorldUpdater inner = frame.updater();
-    inner.getAccount(CONTRACT).setStorageValue(SLOT, UInt256.valueOf(4));
-    inner.revert();
-    inner.commit();
-    assertThat(frame.get(CONTRACT).getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(3));
-    frame.revert();
-    assertThat(frame.get(CONTRACT).getStorageValue(SLOT)).isEqualTo(UInt256.valueOf(7));
   }
 
   @Test

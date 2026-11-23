@@ -186,8 +186,14 @@ class BlockReplayTest {
 
   private static BlockReplay.TransactionAction<Hash> rootAfterReplay(
       final Tracer.TraceableState state) {
-    return (transaction, index, block, blockchain, transactionProcessor, blobGasPrice) ->
-        state.rootHash();
+    return (transaction, index, block, blockchain, transactionProcessor, blobGasPrice) -> {
+      // block import leaves no accounts in the block updater between transactions, so that
+      // committing a transaction does not go over the accounts of the earlier ones again
+      final WorldUpdater blockUpdater = state.updater();
+      assertThat(blockUpdater.getTouchedAccounts()).isEmpty();
+      assertThat(blockUpdater.getDeletedAccountAddresses()).isEmpty();
+      return state.rootHash();
+    };
   }
 
   /** The state roots before the first transaction and after each one, as block import runs them. */
