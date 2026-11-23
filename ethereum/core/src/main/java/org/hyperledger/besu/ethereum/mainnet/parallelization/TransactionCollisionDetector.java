@@ -74,7 +74,7 @@ public class TransactionCollisionDetector {
    * @param parallelizedTransactionContext the speculative result with the state it read and wrote
    * @param blockAccumulator the state changes of the earlier transactions of the block
    * @param creditedAccounts receives the accounts whose balance change must be carried over, or
-   *     null to treat every balance change as a collision
+   *     null to treat every balance change as a collision; left empty when the method returns true
    * @return true if the speculative result must not be used
    */
   public boolean hasCollision(
@@ -108,6 +108,10 @@ public class TransactionCollisionDetector {
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
       if (hasCollision(
           transaction, address, transactionAccumulator, blockAccumulator, creditedAccounts)) {
+        // an account before it may have qualified already
+        if (creditedAccounts != null) {
+          creditedAccounts.clear();
+        }
         return true;
       }
     }

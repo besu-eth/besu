@@ -1124,6 +1124,20 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void collisionLeavesNoCreditedAccounts() {
+    final Transaction transaction = creditScenario(80);
+    final Address credited = Address.fromHexString("0x2");
+    // the credit qualifies, but the transaction also read a slot of the account that an earlier
+    // transaction of the block wrote
+    putSlot(trxUpdater, credited, 1, UInt256.ONE, UInt256.ONE);
+    putSlot(bonsaiUpdater, credited, 1, UInt256.ONE, UInt256.valueOf(2));
+    final List<Address> creditedAccounts = new ArrayList<>();
+
+    assertTrue(hasCollisionCarryingCredits(transaction, creditedAccounts));
+    assertThat(creditedAccounts).isEmpty();
+  }
+
+  @Test
   void balanceChangeOfTheSenderIsACollision() {
     final Address sender = Address.fromHexString("0x1");
     trxUpdater.recordBalanceObservations();
