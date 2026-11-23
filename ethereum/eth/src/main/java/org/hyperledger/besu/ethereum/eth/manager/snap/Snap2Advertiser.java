@@ -81,11 +81,6 @@ public final class Snap2Advertiser implements BlockAddedObserver {
     }
   }
 
-  /** Returns whether snap/2 is advertised. */
-  synchronized boolean isDone() {
-    return done;
-  }
-
   private synchronized void check(final BlockHeader head) {
     // without a snap server, SNAP2 peers would send it requests it answers empty
     if (done

@@ -135,7 +135,7 @@ public class NetworkRunner implements AutoCloseable {
           capability -> {
             subscribeMessages(protocolManager, capability);
             network.addCapability(capability);
-            LOG.info("Capability {} added, advertised to new connections", capability);
+            LOG.debug("Capability {} added, advertised to new connections", capability);
           });
     }
 

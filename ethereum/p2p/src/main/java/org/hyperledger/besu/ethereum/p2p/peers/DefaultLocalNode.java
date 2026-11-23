@@ -27,8 +27,8 @@ class DefaultLocalNode implements MutableLocalNode {
   private final AtomicBoolean isReady = new AtomicBoolean(false);
   private final String clientId;
   private final int p2pVersion;
-  // replaced, with the peer info, when a capability is added
-  private volatile List<Capability> supportedCapabilities;
+  // guarded by this, replaced with the peer info when a capability is added
+  private List<Capability> supportedCapabilities;
   private volatile Optional<PeerInfo> peerInfo = Optional.empty();
   private volatile Optional<Peer> peer = Optional.empty();
 

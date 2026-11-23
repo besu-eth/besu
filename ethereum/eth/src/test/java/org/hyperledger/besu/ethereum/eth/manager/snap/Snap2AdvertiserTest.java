@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -86,7 +85,7 @@ class Snap2AdvertiserTest {
 
   @Test
   void advertisesOnTheFirstBlockAfterTheSync() {
-    final Snap2Advertiser advertiser = start();
+    start();
     execute(SERVED_BLOCKS);
     syncDone();
     verify(snapProtocolManager, never()).advertiseSnap2();
@@ -94,14 +93,13 @@ class Snap2AdvertiserTest {
     execute(1);
 
     verify(snapProtocolManager).advertiseSnap2();
-    assertThat(advertiser.isDone()).isTrue();
     verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
   @Test
   void advertisesOnceItHoldsTheBlockAccessListsOfTheLast128Blocks() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
-    final Snap2Advertiser advertiser = start();
+    start();
     executeBeforeTheFork(10);
     execute(SERVED_BLOCKS - 1);
     verify(snapProtocolManager, never()).advertiseSnap2();
@@ -110,7 +108,6 @@ class Snap2AdvertiserTest {
     execute(1);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
-    assertThat(advertiser.isDone()).isTrue();
     verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
@@ -146,10 +143,10 @@ class Snap2AdvertiserTest {
     execute(SERVED_BLOCKS);
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
 
-    final Snap2Advertiser advertiser = start();
+    start();
 
     verify(snapProtocolManager).advertiseSnap2();
-    assertThat(advertiser.isDone()).isTrue();
+    verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
   @Test
@@ -179,14 +176,15 @@ class Snap2AdvertiserTest {
   @Test
   void survivesAFailedAdvertisement() {
     when(snapProtocolManager.advertiseSnap2()).thenThrow(new IllegalStateException("no network"));
-    final Snap2Advertiser advertiser = start();
+    start();
     execute(SERVED_BLOCKS);
 
     syncDone();
     execute(1);
+    execute(1);
 
     verify(snapProtocolManager, times(1)).advertiseSnap2();
-    assertThat(advertiser.isDone()).isTrue();
+    verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
   @Test
