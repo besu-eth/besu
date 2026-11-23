@@ -238,10 +238,15 @@ public class QbftBlockHeightManagerFactoryEarlyRoundChangeTest {
   public void earlyFactoryManagerMovesToFutureRoundOnFPlusOneRoundChangesAndSendsOwnRoundChange() {
     final QbftBlockHeightManager manager = managerAtRoundOne(true);
 
+    // With 7 validators f = (7 - 1) / 3 = 2, so the early round change threshold is f + 1 = 3.
+    // After round changes for round 3 from only two validators (validators 1 and 2) the threshold
+    // is not reached yet, so the current round number is still 1.
     manager.handleRoundChangePayload(roundChangeFrom(1, 3));
     manager.handleRoundChangePayload(roundChangeFrom(2, 3));
     assertThat(currentRoundNumber(manager)).isEqualTo(1);
 
+    // The round change from validator 3 is the third (f + 1) one for round 3, so the manager jumps
+    // straight to round 3 and multicasts its own round change for that round.
     manager.handleRoundChangePayload(roundChangeFrom(3, 3));
 
     assertThat(currentRoundNumber(manager)).isEqualTo(3);
@@ -252,12 +257,18 @@ public class QbftBlockHeightManagerFactoryEarlyRoundChangeTest {
   public void nonEarlyFactoryManagerStaysOnSameInput() {
     final QbftBlockHeightManager manager = managerAtRoundOne(false);
 
-    manager.handleRoundChangePayload(roundChangeFrom(1, 3));
-    manager.handleRoundChangePayload(roundChangeFrom(2, 3));
-    manager.handleRoundChangePayload(roundChangeFrom(3, 3));
-
-    assertThat(currentRoundNumber(manager)).isEqualTo(1);
+    // Without early round change, f + 1 round changes have no effect: the manager stays on round 1
+    // for every round change below the quorum (QUORUM - 1 = 4 validators).
+    for (int validator = 1; validator < QUORUM; validator++) {
+      manager.handleRoundChangePayload(roundChangeFrom(validator, 3));
+      assertThat(currentRoundNumber(manager)).isEqualTo(1);
+    }
     verify(validatorMulticaster, never()).send(any());
+
+    // The quorum-th round change completes a round change certificate, which moves the manager to
+    // round 3 through the normal (non-early) round change path.
+    manager.handleRoundChangePayload(roundChangeFrom(QUORUM, 3));
+    assertThat(currentRoundNumber(manager)).isEqualTo(3);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -285,6 +296,25 @@ public class QbftBlockHeightManagerFactoryEarlyRoundChangeTest {
 
     assertThat(currentRoundNumber(manager)).isEqualTo(1);
     verify(validatorMulticaster, never()).send(any());
+  }
+
+  @Test
+  public void exactDuplicateRoundChangeCountsOnce() {
+    final QbftBlockHeightManager manager = managerAtRoundOne(true);
+    final RoundChange fromValidatorTwo = roundChangeFrom(2, 3);
+
+    manager.handleRoundChangePayload(roundChangeFrom(1, 3));
+    manager.handleRoundChangePayload(fromValidatorTwo);
+    // The exact same message (same validator, same round) received again must not count as a
+    // third round change.
+    manager.handleRoundChangePayload(fromValidatorTwo);
+
+    assertThat(currentRoundNumber(manager)).isEqualTo(1);
+    verify(validatorMulticaster, never()).send(any());
+
+    // A round change from a third distinct validator still reaches f + 1 and triggers the jump.
+    manager.handleRoundChangePayload(roundChangeFrom(3, 3));
+    assertThat(currentRoundNumber(manager)).isEqualTo(3);
   }
 
   @Test
