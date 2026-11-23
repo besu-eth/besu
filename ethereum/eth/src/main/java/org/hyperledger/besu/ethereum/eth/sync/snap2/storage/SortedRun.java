@@ -147,10 +147,6 @@ final class SortedRun {
   }
 
   private void writeRegular(final List<byte[]> regularKeys, final List<byte[]> regularValues) {
-    final RegularWriter regular = new RegularWriter(storage, segment, stats);
-    for (int i = 0; i < regularKeys.size(); i++) {
-      regular.put(regularKeys.get(i), regularValues.get(i));
-    }
-    regular.commit();
+    RegularWriter.writeAll(storage, segment, stats, regularKeys, regularValues);
   }
 }

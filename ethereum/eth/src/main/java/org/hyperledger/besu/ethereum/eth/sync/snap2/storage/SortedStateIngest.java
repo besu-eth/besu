@@ -34,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -65,7 +66,7 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
   static final long MIN_FILE_BYTES = MEGABYTE;
   // a file is ended at this size, so that later compactions work on files of a usual size
   static final long MAX_FILE_BYTES = 128 * MEGABYTE;
-  private static final long MIN_MEMORY_LIMIT = 256 * MEGABYTE;
+  private static final long MIN_MEMORY_LIMIT = 64 * MEGABYTE;
   private static final long MAX_MEMORY_LIMIT = 2048 * MEGABYTE;
 
   private enum Mode {
@@ -228,20 +229,15 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
     final byte[][] slotValues = new byte[slotHashes.size()][];
     long bytes = 0;
     for (int i = 0; i < keys.length; i++) {
-      keys[i] = concat(account.prefix, slotHashes.get(i).toArrayUnsafe());
+      keys[i] =
+          com.google.common.primitives.Bytes.concat(
+              account.prefix, slotHashes.get(i).toArrayUnsafe());
       slotValues[i] = values.get(i).toArray();
       bytes += keys[i].length + slotValues[i].length;
     }
     switch (account.mode) {
       case REGULAR -> writeRegular(storageSegment, Arrays.asList(keys), Arrays.asList(slotValues));
-      case OWN_FILES -> {
-        final SortedRun run = account.stream(stream);
-        putAll(run, keys, slotValues);
-        if (run.size() >= MAX_FILE_BYTES) {
-          end(run);
-          account.streams.remove(stream);
-        }
-      }
+      case OWN_FILES -> putOwn(account, stream, keys, slotValues);
       case WAIT -> {
         account.pieces.add(new Piece(stream, keys, slotValues, bytes));
         account.bytes += bytes;
@@ -279,15 +275,17 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
 
   @Override
   public void storageRemoved(final Bytes32 accountHash) {
+    final boolean inFiles;
     synchronized (this) {
       if (closed) {
         return;
       }
+      // the slots of a passed account may be in the storage file
+      final boolean passed = lastPassed != null && accountHash.compareTo(lastPassed) <= 0;
       final AccountStorage account = storages.get(accountHash);
+      inFiles = passed || (account != null && account.mode == Mode.OWN_FILES);
       if (account != null) {
-        waitingStorage -= account.bytes;
-        account.bytes = 0;
-        account.pieces.clear();
+        drainPieces(account, piece -> {});
         account.streams.values().forEach(SortedRun::discard);
         account.streams.clear();
         // its slots are gone, nothing is waited for any more
@@ -297,12 +295,15 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
           storages.remove(accountHash);
         }
       }
-      // slots of the account in the storage file are removed through reads, which see the file
-      // once it is stored
-      storageRun = end(storageRun);
+      if (passed) {
+        storageRun = end(storageRun);
+      }
       advanceStorage();
     }
-    awaitFiles();
+    if (inFiles) {
+      // its slots in files are removed through reads, which see a file once it is stored
+      awaitFiles();
+    }
   }
 
   @Override
@@ -317,14 +318,7 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
         switch (account.mode) {
           case WAIT -> {
             if (!account.pieces.isEmpty()) {
-              account.pieces.forEach(
-                  piece ->
-                      writeRegular(
-                          storageSegment, Arrays.asList(piece.keys), Arrays.asList(piece.values)));
-              waitingStorage -= account.bytes;
-              account.bytes = 0;
-              account.pieces.clear();
-              account.mode = Mode.REGULAR;
+              giveUp(account);
             }
           }
           case OWN_FILES -> account.endStreams();
@@ -420,20 +414,9 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
           return;
         }
         account.pieces.sort(Comparator.comparing(piece -> Bytes.wrap(piece.keys[0])));
-        for (final Piece piece : account.pieces) {
-          for (int i = 0; i < piece.keys.length; i++) {
-            if (storageRun == null) {
-              storageRun = newRun(storageSegment);
-            }
-            storageRun.put(piece.keys[i], piece.values[i]);
-          }
-        }
-        waitingStorage -= account.bytes;
+        drainPieces(account, this::putInStorageFile);
         storages.remove(accountHash);
         lastPassed = storageOrder.pollFirst();
-        if (storageRun != null && storageRun.size() >= MAX_FILE_BYTES) {
-          storageRun = end(storageRun);
-        }
         continue;
       }
       // its slots are elsewhere: the storage file ends before them
@@ -511,13 +494,7 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
   private void toRegular(final Bytes32 accountHash) {
     final AccountStorage account = storages.get(accountHash);
     if (account != null) {
-      account.pieces.forEach(
-          piece ->
-              writeRegular(storageSegment, Arrays.asList(piece.keys), Arrays.asList(piece.values)));
-      waitingStorage -= account.bytes;
-      account.bytes = 0;
-      account.pieces.clear();
-      account.mode = Mode.REGULAR;
+      giveUp(account);
       account.passed = true;
     } else {
       final AccountStorage given = new AccountStorage(accountHash);
@@ -529,14 +506,50 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
 
   private void toOwnFiles(final AccountStorage account) {
     account.mode = Mode.OWN_FILES;
-    for (final Piece piece : account.pieces) {
-      putAll(account.stream(piece.stream), piece.keys, piece.values);
+    drainPieces(account, piece -> putOwn(account, piece.stream, piece.keys, piece.values));
+    if (account.complete) {
+      account.endStreams();
     }
+  }
+
+  // what waits goes through the regular write path, as does what is still to come
+  private void giveUp(final AccountStorage account) {
+    drainPieces(
+        account,
+        piece ->
+            writeRegular(storageSegment, Arrays.asList(piece.keys), Arrays.asList(piece.values)));
+    account.mode = Mode.REGULAR;
+  }
+
+  // the pieces no longer wait in memory once written
+  private void drainPieces(final AccountStorage account, final Consumer<Piece> write) {
+    account.pieces.forEach(write);
     waitingStorage -= account.bytes;
     account.bytes = 0;
     account.pieces.clear();
-    if (account.complete) {
-      account.endStreams();
+  }
+
+  private void putInStorageFile(final Piece piece) {
+    if (storageRun == null) {
+      storageRun = newRun(storageSegment);
+    }
+    putAll(storageRun, piece.keys, piece.values);
+    if (storageRun.size() >= MAX_FILE_BYTES) {
+      storageRun = end(storageRun);
+    }
+  }
+
+  // each stream has a run of its own, ended at the size of a file
+  private void putOwn(
+      final AccountStorage account,
+      final Object stream,
+      final byte[][] keys,
+      final byte[][] values) {
+    final SortedRun run = account.stream(stream);
+    putAll(run, keys, values);
+    if (run.size() >= MAX_FILE_BYTES) {
+      end(run);
+      account.streams.remove(stream);
     }
   }
 
@@ -600,11 +613,7 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
 
   private void writeRegular(
       final SegmentIdentifier segment, final List<byte[]> keys, final List<byte[]> values) {
-    final RegularWriter regular = new RegularWriter(storage, segment, stats);
-    for (int i = 0; i < keys.size(); i++) {
-      regular.put(keys.get(i), values.get(i));
-    }
-    regular.commit();
+    RegularWriter.writeAll(storage, segment, stats, keys, values);
   }
 
   private static List<byte[]> keys(final List<Bytes32> hashes) {
@@ -613,12 +622,5 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
 
   private static List<byte[]> values(final List<Bytes> accounts) {
     return accounts.stream().map(Bytes::toArray).toList();
-  }
-
-  private static byte[] concat(final byte[] a, final byte[] b) {
-    final byte[] out = new byte[a.length + b.length];
-    System.arraycopy(a, 0, out, 0, a.length);
-    System.arraycopy(b, 0, out, a.length, b.length);
-    return out;
   }
 }

@@ -267,6 +267,75 @@ class SortedStateIngestTest {
     assertStored(world);
   }
 
+  @Test
+  void removesTheSlotsOfAPassedStorageThatAreStillInTheStorageFile() {
+    final Random random = new Random(7);
+    final World world = World.sized(random, 500, 20, 1_000);
+    ingest = start(Long.MAX_VALUE, world);
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    // in key order, each storage goes into the open storage file once complete
+    for (final Map.Entry<Bytes32, TreeMap<Bytes32, Bytes32>> account : world.storage.entrySet()) {
+      handOverStorage(account.getKey(), account.getValue(), random);
+    }
+    final Bytes32 removed = new ArrayList<>(world.storage.keySet()).get(10);
+    world.storage.remove(removed);
+
+    ingest.storageRemoved(removed);
+    deleteSlots(removed);
+    ingest.flush();
+
+    assertStored(world);
+    assertThat(slotsOf(removed)).isZero();
+  }
+
+  @Test
+  void removingAStorageWithNothingInFilesDoesNotWaitForTheFiles() throws Exception {
+    final Random random = new Random(8);
+    final World world = World.sized(random, 12_000, 20, 1_000);
+    storage.holdCommits();
+    ingest = start(Long.MAX_VALUE, world);
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    // an earlier storage that has not arrived holds the turn of the removed one back
+    final Bytes32 removed = world.storage.lastKey();
+    final Bytes32 holding = world.storage.lowerKey(removed);
+    final TreeMap<Bytes32, Bytes32> removedSlots = world.storage.remove(removed);
+    for (final Map.Entry<Bytes32, TreeMap<Bytes32, Bytes32>> account : world.storage.entrySet()) {
+      if (!account.getKey().equals(holding)) {
+        handOverStorage(account.getKey(), account.getValue(), random);
+      }
+    }
+    final Bytes32 firstSlot = removedSlots.firstKey();
+    ingest.storage(removed, "stream", List.of(firstSlot), List.of(removedSlots.get(firstSlot)));
+    // the flush waits for the files, held while being stored
+    final Thread flush = new Thread(ingest::flush);
+    flush.start();
+    storage.awaitCommitting();
+
+    final Thread remove =
+        new Thread(
+            () -> {
+              ingest.storageRemoved(removed);
+              deleteSlots(removed);
+            });
+    remove.start();
+    remove.join(TimeUnit.SECONDS.toMillis(5));
+    final boolean removedWhileStoring = !remove.isAlive();
+    storage.releaseCommits();
+    remove.join(TimeUnit.SECONDS.toMillis(10));
+    flush.join(TimeUnit.SECONDS.toMillis(10));
+    pendingStorage.remove(removed);
+    handOverStorage(holding, world.storage.get(holding), random);
+    ingest.flush();
+
+    assertThat(removedWhileStoring).isTrue();
+    assertStored(world);
+    assertThat(slotsOf(removed)).isZero();
+  }
+
   private SortedStateIngest start(final long memoryLimit, final World world) {
     final SortedStateIngest started =
         new SortedStateIngest(
@@ -357,6 +426,23 @@ class SortedStateIngestTest {
                                 .get(ACCOUNT_STORAGE_STORAGE, slotKey(account, slot))
                                 .map(Bytes::wrap))
                         .contains(value)));
+  }
+
+  // as the sync storage removes a storage: the slots it reads
+  private void deleteSlots(final Bytes32 account) {
+    final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+    storage
+        .streamKeys(ACCOUNT_STORAGE_STORAGE)
+        .filter(key -> Bytes.wrap(key, 0, Bytes32.SIZE).equals(account))
+        .forEach(key -> tx.remove(ACCOUNT_STORAGE_STORAGE, key));
+    tx.commit();
+  }
+
+  private long slotsOf(final Bytes32 account) {
+    return storage
+        .streamKeys(ACCOUNT_STORAGE_STORAGE)
+        .filter(key -> Bytes.wrap(key, 0, Bytes32.SIZE).equals(account))
+        .count();
   }
 
   private static byte[] slotKey(final Bytes32 account, final Bytes32 slot) {

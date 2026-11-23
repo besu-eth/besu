@@ -18,6 +18,8 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
+import java.util.List;
+
 /** Writes entries of one segment through the regular write path, in bounded batches. */
 final class RegularWriter {
 
@@ -34,6 +36,20 @@ final class RegularWriter {
     this.storage = storage;
     this.segment = segment;
     this.stats = stats;
+  }
+
+  /** Writes the entries and commits them. */
+  static void writeAll(
+      final SegmentedKeyValueStorage storage,
+      final SegmentIdentifier segment,
+      final SortedIngestStats stats,
+      final List<byte[]> keys,
+      final List<byte[]> values) {
+    final RegularWriter regular = new RegularWriter(storage, segment, stats);
+    for (int i = 0; i < keys.size(); i++) {
+      regular.put(keys.get(i), values.get(i));
+    }
+    regular.commit();
   }
 
   void put(final byte[] key, final byte[] value) {
