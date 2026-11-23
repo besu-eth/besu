@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
@@ -31,9 +32,11 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSync;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BadChainListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -61,7 +64,8 @@ import org.slf4j.LoggerFactory;
 /**
  * Backward sync on the Besu pipelines. To reach a head the chain does not hold, it downloads the
  * headers from that head down to the finalized block the chain holds, then downloads and imports
- * the blocks above the chain, the next batches downloading while one imports.
+ * the blocks above the chain, the next batches downloading while one imports. Finalized blocks are
+ * imported from their block access list instead of being executed.
  */
 public class BackwardSyncV2 implements BackwardSync {
 
@@ -79,6 +83,7 @@ public class BackwardSyncV2 implements BackwardSync {
   private final SynchronizerConfiguration syncConfig;
   private final EthContext ethContext;
   private final HeaderStore headerStore;
+  private final BalImporter balImporter;
   private final LabelledMetric<Counter> headersPipelineCounter;
   private final LabelledMetric<Counter> importPipelineCounter;
   private final Subscribers<BadChainListener> badChainListeners = Subscribers.create();
@@ -116,6 +121,7 @@ public class BackwardSyncV2 implements BackwardSync {
             storageProvider.getStorageBySegmentIdentifier(
                 KeyValueSegmentIdentifier.BACKWARD_SYNC_HEADERS),
             ScheduleBasedBlockHeaderFunctions.create(protocolSchedule));
+    this.balImporter = new BalImporter(protocolContext, protocolSchedule);
     this.headersPipelineCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.SYNCHRONIZER,
@@ -225,7 +231,8 @@ public class BackwardSyncV2 implements BackwardSync {
     headerStore.clear();
     headerStore.putAll(List.of(targetHeader));
     final StoreHeadersStep storeHeaders =
-        new StoreHeadersStep(headerStore, targetHeader, anchor.getNumber());
+        new StoreHeadersStep(
+            headerStore, targetHeader, anchor.getNumber(), finalizedBlockHash::get);
     if (targetHeader.getNumber() - 1 > anchor.getNumber()) {
       run(headersPipeline(targetHeader.getNumber() - 1, anchor.getNumber(), storeHeaders));
     }
@@ -238,6 +245,8 @@ public class BackwardSyncV2 implements BackwardSync {
         new ImportBlocksStep(
             protocolContext,
             protocolSchedule,
+            balImporter,
+            storeHeaders.finalizedNumber(),
             targetHeader.getNumber(),
             badBlock -> notifyBadChain(badBlock, targetHeader.getNumber()));
     final long first = firstBlockToImport(anchor.getNumber() + 1, targetHeader.getNumber());
@@ -245,9 +254,11 @@ public class BackwardSyncV2 implements BackwardSync {
     final long last =
         head.block().isPresent() ? targetHeader.getNumber() - 1 : targetHeader.getNumber();
     if (first <= last) {
-      run(importPipeline(first, last, importBlocks));
+      run(importPipeline(first, last, storeHeaders.finalizedNumber(), importBlocks));
     }
-    head.block().ifPresent(block -> importBlocks.importBlock(block, head.blockAccessList()));
+    head.block()
+        .ifPresent(
+            block -> importBlocks.importBlock(block, head.blockAccessList(), Optional.empty()));
     headerStore.clear();
   }
 
@@ -327,11 +338,20 @@ public class BackwardSyncV2 implements BackwardSync {
   }
 
   private Pipeline<Long> importPipeline(
-      final long first, final long last, final ImportBlocksStep importBlocks) {
+      final long first,
+      final long last,
+      final long finalizedNumber,
+      final ImportBlocksStep importBlocks) {
     final Iterator<Long> starts =
         LongStream.iterate(first, number -> number <= last, number -> number + IMPORT_BATCH_SIZE)
             .boxed()
             .iterator();
+    final DownloadSyncReceiptsStep downloadReceipts =
+        new DownloadSyncReceiptsStep(
+            protocolSchedule,
+            ethContext,
+            new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
     return PipelineBuilder.createPipelineFrom(
             "blockSource",
             starts,
@@ -350,7 +370,9 @@ public class BackwardSyncV2 implements BackwardSync {
                 Duration.ofMillis(syncConfig.getBodiesDownloadStepTimeoutMillis())),
             DOWNLOADS_AHEAD)
         .thenProcessAsyncOrdered(
-            "downloadBlockData", new DownloadBlockDataStep(ethContext), DOWNLOADS_AHEAD)
+            "downloadBlockData",
+            new DownloadBlockDataStep(ethContext, downloadReceipts, finalizedNumber),
+            DOWNLOADS_AHEAD)
         .andFinishWith("importBlocks", importBlocks);
   }
 

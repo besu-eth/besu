@@ -457,8 +457,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       arity = "0..1",
       fallbackValue = "true",
       description =
-          "Backward sync on the Besu pipelines, downloading the next blocks while it imports the "
-              + "current ones. (default: ${DEFAULT-VALUE})")
+          "Backward sync downloads the next blocks while importing the current ones, and imports "
+              + "finalized blocks from their block access list instead of executing them. (default: ${DEFAULT-VALUE})")
   private Boolean backwardSyncV2Enabled =
       SynchronizerConfiguration.DEFAULT_BACKWARD_SYNC_V2_ENABLED;
 

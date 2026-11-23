@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync2;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -36,7 +37,7 @@ class StoreHeadersStepTest {
 
   @Test
   void storesEachBatchThatIsTheParentChainOfTheHeadersAbove() {
-    final StoreHeadersStep step = step();
+    final StoreHeadersStep step = step(Hash.ZERO);
 
     step.accept(descending(9, 5));
     step.accept(descending(4, 1));
@@ -47,13 +48,32 @@ class StoreHeadersStepTest {
 
   @Test
   void rejectsABatchThatIsNotTheParentChain() {
-    final StoreHeadersStep step = step();
+    final StoreHeadersStep step = step(Hash.ZERO);
     step.accept(descending(9, 5));
 
     assertThatThrownBy(() -> step.accept(descending(3, 1)))
         .isInstanceOf(IllegalStateException.class);
     assertThat(headerStore.get(3)).isEmpty();
     assertThat(step.lowest()).isEqualTo(chain.get(5));
+  }
+
+  @Test
+  void findsTheFinalizedBlockAmongTheHeaders() {
+    final StoreHeadersStep step = step(chain.get(6).getHash());
+
+    step.accept(descending(9, 5));
+    step.accept(descending(4, 1));
+
+    assertThat(step.finalizedNumber()).isEqualTo(6);
+  }
+
+  @Test
+  void hasNoFinalizedBlockWhenItIsNotAmongTheHeaders() {
+    final StoreHeadersStep step = step(chain.get(0).getHash());
+
+    step.accept(descending(9, 1));
+
+    assertThat(step.finalizedNumber()).isEqualTo(-1);
   }
 
   @Test
@@ -65,8 +85,8 @@ class StoreHeadersStepTest {
     assertThat(headerStore.get(5)).isEmpty();
   }
 
-  private StoreHeadersStep step() {
-    return new StoreHeadersStep(headerStore, chain.get(10), 0);
+  private StoreHeadersStep step(final Hash finalizedBlockHash) {
+    return new StoreHeadersStep(headerStore, chain.get(10), 0, () -> finalizedBlockHash);
   }
 
   private List<BlockHeader> descending(final int from, final int to) {

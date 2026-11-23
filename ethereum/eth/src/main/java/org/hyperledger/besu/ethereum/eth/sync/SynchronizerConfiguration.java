@@ -312,7 +312,7 @@ public class SynchronizerConfiguration {
     return snapSyncHeadersToCheckpointOnly;
   }
 
-  /** Whether backward sync runs on the Besu pipelines. */
+  /** Whether backward sync pipelines its downloads and imports finalized blocks from their BAL. */
   public boolean isBackwardSyncV2Enabled() {
     return backwardSyncV2Enabled;
   }
