@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- Remove the unused `RunnableTimedCounter` from `metrics/core`. Its last internal caller was removed with fast sync. [#11554](https://github.com/besu-eth/besu/pull/11554)
 - The Docker images use the Eclipse Temurin JRE again instead of the JDK, which they have used by mistake since 26.5.0. The image is about 62 MB smaller, and the JDK tools (`jcmd`, `jstack`, `jmap`, `jshell`, `javac` and others) are no longer in it; `java`, `jfr` and `keytool` still are. [#11877](https://github.com/besu-eth/besu/pull/11877)
 - `eth_createAccessList` now returns an error for a transaction that is not valid at the target block, as `eth_estimateGas` does. This includes a block before Berlin, where an access list transaction is not valid, and fee fields before London. Previously the method returned an empty access list, or an `execution reverted` result with the gas cap as `gasUsed`. [#11631](https://github.com/besu-eth/besu/pull/11631)
 - In a call that runs with zero fees, the `BLOBBASEFEE` opcode now returns the block's blob base fee instead of 1, as in Geth. A call runs with zero fees in `eth_call`, `debug_traceCall`, `trace_call`, `trace_callMany` and GraphQL `call` when it has no fee fields, all fee fields are zero, or it sets `strict: false`, and in `eth_estimateGas` and `eth_createAccessList` when it sets `strict: false`. Plugins that call `TransactionSimulationService` with `ALLOW_EXCEEDING_BALANCE` are also affected. A blob call without a positive `maxFeePerBlobGas` still runs with a blob base fee of 0, and `eth_simulateV1` is unchanged. A result changes only if the called code reads `BLOBBASEFEE`. [#11890](https://github.com/besu-eth/besu/pull/11890)
@@ -11,6 +12,8 @@
 - `trace_rawTransaction` returns the validation error for a signed transaction that fails validation, such as a nonce ahead of the sender's or a sender who cannot pay the up-front gas cost, instead of a successful response. It also applies the EIP-7825 transaction gas limit cap, the intrinsic gas limit cap and the EIP-3607 check against senders with deployed code, which it skipped, and rejects a gas limit above the RPC gas cap instead of clamping it. [#11395](https://github.com/besu-eth/besu/pull/11395)
 - The default opcode tracer of `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` now reports `memory`, `refund` and `returnData` as they were before the opcode executes, like `stack` and `gas`. `storage` appears only at `SLOAD` and `SSTORE`, and shows every slot the current contract has accessed so far in the transaction. Memory written by `EXTCODECOPY` is now captured in traces, as it is for `CODECOPY`. Tools that compare traces with output from earlier Besu versions will see differences. [#11636](https://github.com/besu-eth/besu/pull/11636)
 - Besu now fails at startup when a WebSocket RPC SSL password and its password file are both set, from the command line, the config file or a mix of the two: `--rpc-ws-ssl-keystore-password` with `--rpc-ws-ssl-keystore-password-file`, or `--rpc-ws-ssl-truststore-password` with `--rpc-ws-ssl-truststore-password-file`. Passing both on the command line was previously accepted, and the password was used. Remove one of the two options. These passwords and password files are also no longer ignored when set in the config file, including when other `--rpc-ws-*` options are passed on the command line. [#11839](https://github.com/besu-eth/besu/pull/11839)
+- `--rpc-tx-feecap` now treats a value of 0 as limiting fees to 0, so every transaction submitted through RPC with a positive gas price is rejected. Previously 0 meant "do not cap fees". To get the previous behaviour, set it to a suitably large value. This change was first announced as an upcoming breaking change in 26.7.0. [#11993](https://github.com/besu-eth/besu/pull/11993)
+- `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `debug_traceCall` now reject a request with a fourth parameter with `Invalid params` (`-32602`, message `Too many arguments: expected at most 3`), and `debug_traceCall` also rejects a `blockOverrides` member in its trace config (`-32602`, message `Block overrides are not supported in the trace config; use eth_simulateV1`). Block overrides are only supported by `eth_simulateV1`; these methods previously dropped them silently and returned a result for the unmodified block. Remove the fourth parameter or the `blockOverrides` member, or use `eth_simulateV1` for calls that need block overrides. [#11629](https://github.com/besu-eth/besu/pull/11629)
 
 ### Upcoming Breaking Changes
 - Plugin API
@@ -26,15 +29,20 @@
   - `PluginVersionsProvider`, `plugin.data.Request`, `plugin.data.Restriction`, `plugin.data.UnsignedPrivateMarkerTransaction` and `plugin.data.Signature` are deprecated for removal, with no replacement. None is reachable through any plugin service or data contract: the three privacy types were orphaned when private transaction support was removed, `Request` is implemented internally but never exposed, and `PluginVersionsProvider` is internal `--version` plumbing
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - `--snapsync-synchronizer-pre-checkpoint-headers-only-enabled` is deprecated (since 26.8.1) and will be removed in a future release; the flag is now a silent no-op.
-- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 - JSON-RPC methods will reject a malformed address parameter with `Invalid params` (`-32602`). An address must be `0x` or `0X` followed by exactly 40 hex digits (20 bytes). Today a shorter value is left-padded with zeros, so a call can read or act on a different account than intended. This also applies to the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. Clients that send short or unprefixed addresses will need to send the full 20-byte address. [#11888](https://github.com/besu-eth/besu/pull/11888)
 
 ### Bug fixes
+- `admin_logsRemoveCache` now removes every log bloom cache segment intersecting the requested block range, including the final segment when the start block is not aligned to a cache segment boundary. [#11949](https://github.com/besu-eth/besu/pull/11949)
+- `debug_accountRange` and `debug_storageRangeAt` return `Method not enabled` (`-32604`) on Bonsai (PathBased) instead of a successful empty result. These methods only work with `--data-storage-format=FOREST`. [#11979](https://github.com/besu-eth/besu/issues/11979)
 - An eth/69 peer is disconnected when its Status message has an earliest block above its latest block or a zero best hash, or when a `BlockRangeUpdate` has a zero block hash. These values were previously accepted. [#11987](https://github.com/besu-eth/besu/pull/11987)
-- `evmtool t8n` and `b11r` report a missing, `null` or empty required input (`alloc` or `env` for `t8n`, `header` for `b11r`) as a usage error naming the `--input` option, instead of failing with a `NullPointerException`. `b11r` also accepts an empty stdin when the header comes from a file. [#11938](https://github.com/besu-eth/besu/pull/11938)
+- `debug_accountAt` now returns `codehash` as full 32-byte data. A code hash that starts with zero bytes or a zero nibble was previously returned as a quantity with the leading zeros stripped. [#11832](https://github.com/besu-eth/besu/issues/11832)
+- `debug_traceBlock`, `debug_traceBlockByHash`, `debug_traceBlockByNumber` and `trace_block` return `Pruned history unavailable` (4444) when the parent block's world state cannot be loaded and the chain head's state is available, and `World state unavailable` (-32000) when the head state is also unavailable. They previously returned an empty trace for a block that has transactions. A trace that starts and then fails returns `Internal error` (-32603) instead of a missing-state error. The genesis block still returns an empty trace. [#11946](https://github.com/besu-eth/besu/issues/11946)
 - OpenTelemetry counters and timers with the same name in different categories no longer share an instrument or inherit a disabled category's no-op metric. JSON-RPC `request_time` timings now use the `rpc` scope and `methodName` attribute. If the peer timer was registered first, these timings previously used the `peers` scope and `taskName` attribute. OpenTelemetry dashboards that query the old series should update their queries. Besu's native Prometheus metrics are unchanged. [#11829](https://github.com/besu-eth/besu/issues/11829)
+- `evmtool t8n` and `b11r` report a missing, `null` or empty required input (`alloc` or `env` for `t8n`, `header` for `b11r`) as a usage error naming the `--input` option, instead of failing with a `NullPointerException`. `b11r` also accepts an empty stdin when the header comes from a file. [#11938](https://github.com/besu-eth/besu/pull/11938)
 - `evmtool t8n` and `b11r` no longer fail when the input has no transactions: a missing or `null` `txs`, an empty txs file, or (for `t8n`) an empty stdin. `t8n` runs the block with no transactions and `b11r` builds a block with none. [#11930](https://github.com/besu-eth/besu/pull/11930)
+- `evmtool block-test --json --trace-output <file>` opens the trace file once per run and closes it at the end. It was opened again for every test and never closed, so a run over a large fixture directory could fail with too many open files. [#12008](https://github.com/besu-eth/besu/pull/12008)
 - `callTracer` and `flatCallTracer` no longer report a frame for a CALL or CREATE opcode that halts before it makes the call, such as a CALL with value in a static context or out of gas for the opcode. Since Amsterdam, a CREATE that fails the depth, balance or nonce check also gets no frame, because EIP-8037 makes the check fail in the parent opcode. [#11637](https://github.com/besu-eth/besu/pull/11637)
+- Snap sync now sends a receipts request to the next peer when a peer fails to serve it, for example by sending back no receipts, instead of retrying the same peer up to five more times. [#11615](https://github.com/besu-eth/besu/issues/11615)
 - `admin_logsRemoveCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when `startBlock` or `stopBlock` is not known, including an unknown block number and an unknown `safe` or `finalized` tag. [#11892](https://github.com/besu-eth/besu/issues/11892)
 - `admin_logsRepairCache` returns `-39001 Unknown block` instead of `-32603 Internal error` when the given block number is not known. [#11914](https://github.com/besu-eth/besu/issues/11914)
 - `eth_getStorageValues`, `testing_buildBlockV1` and `testing_commitBlockV1` now return the error detail in `message`, not in `data`, as [execution-apis#967](https://github.com/ethereum/execution-apis/pull/967) specifies. [#11861](https://github.com/besu-eth/besu/pull/11861)
@@ -57,6 +65,7 @@
 - `eth_getProof` on Bonsai now returns `Internal error` (`-32603`) when building the proof fails, for example on a trie or storage error. Previously the failure was logged and reported as `World state unavailable` (`-32000`), as if the node did not have the state of the block. A block whose state cannot be loaded, for example one before the snap sync pivot, is still reported as unavailable. [#11673](https://github.com/besu-eth/besu/pull/11673)
 - Keep Parity trace errors local to the failed call instead of marking successful siblings or callers of failed precompiles as reverted, or failing a caller whose child halts in `RETURN` or `REVERT`. [#11345](https://github.com/besu-eth/besu/pull/11345)
 - Parity flat traces now report a successful nested `CREATE` whose constructor executes `SELFDESTRUCT` with `result.code: "0x"`, like any other creation, instead of `result.output: "0x"`. [#11362](https://github.com/besu-eth/besu/pull/11362)
+- Parity traces retain nested precompile calls with nonzero transferred or inherited value, with child-local errors and trace paths numbered over retained frames. [#11360](https://github.com/besu-eth/besu/pull/11360)
 - `trace_*` results include a precompile's return data in the call's `result.output`, instead of `0x`, when the transaction calls the precompile directly. [#11346](https://github.com/besu-eth/besu/pull/11346)
 - Struct logs from `debug_traceTransaction` and `debug_traceCall`, and from `debug_traceBlock*` in JSON-RPC batch requests, report a failed code deposit's `error` on the creation's last operation, usually its `RETURN`, instead of the last operation that was not a `RETURN`. [#11345](https://github.com/besu-eth/besu/pull/11345)
 - `trace_rawTransaction` validates and executes the original signed transaction. Invalid signatures and empty EIP-7702 authorization lists are rejected. `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `eth_sendRawTransaction`, `trace_call` and `trace_callMany` return `-32602` instead of `Internal error` (`-32603`) when they reject a transaction for an init code above the size limit or an up-front cost above 2^256, and `eth_sendRawTransaction` also does for an empty EIP-7702 authorization list. [#11395](https://github.com/besu-eth/besu/pull/11395)
@@ -76,6 +85,7 @@
 - Add `trace_replayTransaction` to the `TRACE` API. It replays one mined transaction on top of the transactions before it in its block and returns the same result as `trace_replayBlockTransactions` for that transaction. [#11406](https://github.com/besu-eth/besu/pull/11406)
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - Update the Docker base images (Ubuntu 24.04), resolving 8 OS package CVEs including CVE-2026-109518 (apt), and re-enable apt download retries during the image build. [#11964](https://github.com/besu-eth/besu/pull/11964)
+- Update the Docker base images (Eclipse Temurin 25.0.5.1), resolving CVE-2026-114938 [#12022](https://github.com/besu-eth/besu/pull/12022)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
 - The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
@@ -91,6 +101,13 @@
 - New hidden option `--Xkzg-trusted-setup-background-load-enabled` loads the KZG trusted setup on a background thread while the rest of the node starts, which saves several seconds per start for test harnesses such as hive. Off by default. [#11813](https://github.com/besu-eth/besu/pull/11813)
 - Prewarm the state for the next block from the transaction pool, on by default for Bonsai nodes on mainnet, Sepolia, Hoodi and Ephemery (`--mempool-prewarm-enabled`). [#11759](https://github.com/besu-eth/besu/pull/11759) [#11956](https://github.com/besu-eth/besu/pull/11956)
 - Parallel transaction execution runs the transactions of one sender in order on one worker and keeps their results when the block holds the state they started from. [#11808](https://github.com/besu-eth/besu/pull/11808)
+- The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
+- Update besu-native to 2.2.0 and recover secp256k1 public keys, such as transaction senders, in a single native call. A recovery id outside 0 to 3 recovers nothing, where it used to abort a node running native secp256k1. [#11921](https://github.com/besu-eth/besu/pull/11921)
+
+## 26.11.1
+
+### Bug fixes
+- Besu now starts with `-XX:-UseBASE64Intrinsics` to mitigate [CVE-2026-114938](https://www.aikido.dev/blog/java-17-rce-vulnerability-cve-2026-114938), a heap overflow in the JVM's Base64 decoder on x86-64 CPUs with AVX-512. Set `BESU_OPTS=-XX:+UseBASE64Intrinsics` to turn the intrinsic back on. [#11995](https://github.com/besu-eth/besu/pull/11995)
 
 ## 26.11.0
 
@@ -140,6 +157,10 @@
 - `eth_getLogs` range-limit errors (`-32005`) now return `--rpc-max-logs-range` as `data`; the message is unchanged. [#11628](https://github.com/besu-eth/besu/pull/11628)
 
 ## 26.10.2
+
+### Security Fixes
+- [GHSA-hhgq-3gvc-4jhp](https://github.com/besu-eth/besu/security/advisories/GHSA-hhgq-3gvc-4jhp): QBFT RoundChange executes the piggybacked block before the free hash check, letting a non-validator replay one captured signature with substituted blocks
+- [GHSA-6pcq-hcgg-5q76](https://github.com/besu-eth/besu/security/advisories/GHSA-6pcq-hcgg-5q76): IBFT Accepts Oversized Base Fees that can stop block production
 
 ### Breaking Changes
 - `eth_getProof` now rejects a request with more than 1024 storage keys with `Invalid storage keys params` (`-32602`), the same limit as geth, Nethermind and Erigon. [#11697](https://github.com/besu-eth/besu/pull/11697)
@@ -205,10 +226,8 @@ This release is identical to 26.10.0 but will not activate Glamsterdam on Hoodi 
 
 ## 26.10.0
 
-This release contains security fixes. Operators are advised to upgrade promptly.
-Details will be published in security advisories on
-https://github.com/besu-eth/besu/security/advisories after operators have had an
-opportunity to upgrade.
+### Security Fixes
+- [GHSA-x2jm-6mc4-8g78](https://github.com/besu-eth/besu/security/advisories/GHSA-x2jm-6mc4-8g78): QBFT/IBFT validator forgets its prepared certificate when the round advances by any route other than its own timer, weakening the quorum-intersection argument 
 
 ### Breaking Changes
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` has been removed; it was deprecated as a no-op since 26.6.1. [#11499](https://github.com/besu-eth/besu/pull/11499)
