@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -1301,22 +1302,24 @@ class OptimisticTransactionProcessorUnitTest {
     }
 
     @Test
-    @DisplayName("A warm-up recovers the sender on the block's transaction before copying it")
-    void warmUpRecoversTheSenderBeforeCopyingTheTransaction() {
+    @DisplayName("A warm-up recovers the authorities on the block's transaction before copying it")
+    void warmUpRecoversTheAuthoritiesBeforeCopyingTheTransaction() {
       final List<Runnable> warmUps = new ArrayList<>();
       processor =
           new OptimisticConcurrentTransactionProcessor(
               transactionProcessor, collisionDetector, warmUps::add);
       final Transaction tx1 = mockTransactionFrom(sender);
       final Transaction tx2 = mockTransactionFrom(sender);
+      final CodeDelegation codeDelegation = mock(CodeDelegation.class);
+      when(tx2.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
       stubSuccessfulTransaction(Optional.empty());
 
       runBlock(List.of(tx1, tx2), task -> {});
       assertThat(warmUps).hasSize(1);
       warmUps.forEach(Runnable::run);
 
-      final InOrder inOrder = Mockito.inOrder(tx2);
-      inOrder.verify(tx2).getSender();
+      final InOrder inOrder = Mockito.inOrder(codeDelegation, tx2);
+      inOrder.verify(codeDelegation).authorizer();
       inOrder.verify(tx2).detachedCopy();
     }
 
