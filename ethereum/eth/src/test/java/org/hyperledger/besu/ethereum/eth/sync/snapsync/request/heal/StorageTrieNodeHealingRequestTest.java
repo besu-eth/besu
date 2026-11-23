@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.TrieGenerator;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
@@ -164,7 +165,8 @@ class StorageTrieNodeHealingRequestTest {
     final WorldStateKeyValueStorage.Updater updater = coordinator.updater();
     for (final TrieNodeHealingRequest child : children) {
       child.setData(nodes.get(child.getNodeHash()));
-      child.persist(coordinator, updater, downloadState, snapSyncState, snapSyncConfiguration);
+      child.persist(
+          coordinator, updater, downloadState, snapSyncState, snapSyncConfiguration, new UndoLog());
     }
     updater.commit();
 

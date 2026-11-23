@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.err
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.getRetryableErrorCounter;
 
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.TrieNodeHealingRequest;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -68,6 +69,7 @@ public class LoadLocalDataStep {
   public Stream<Task<SnapDataRequest>> loadLocalDataTrieNode(
       final Task<SnapDataRequest> task, final Pipe<Task<SnapDataRequest>> completedTasks) {
     final TrieNodeHealingRequest request = (TrieNodeHealingRequest) task.getData();
+    final UndoLog undoLog = new UndoLog();
     // check if node is already stored in the worldstate
     try {
       if (snapSyncState.hasPivotBlockHeader()) {
@@ -91,7 +93,8 @@ public class LoadLocalDataStep {
               updater,
               downloadState,
               snapSyncState,
-              snapSyncConfiguration);
+              snapSyncConfiguration,
+              undoLog);
           updater.commit();
           downloadState.enqueueRequests(rootStorageRequests.get().stream());
           completedTasks.put(task);
@@ -108,6 +111,8 @@ public class LoadLocalDataStep {
               getRetryableErrorCounter(),
               storageException.getMessage());
         }
+        // nothing was stored, so the retried request counts in its parent again
+        undoLog.undo();
         task.getData().clear();
       } else {
         throw storageException;
