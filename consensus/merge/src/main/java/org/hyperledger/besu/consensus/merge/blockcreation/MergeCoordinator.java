@@ -40,7 +40,7 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSync;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BadChainListener;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.AbstractGasLimitSpecification;
@@ -98,7 +98,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   protected final EthScheduler ethScheduler;
 
   /** The Backward sync context. */
-  protected final BackwardSyncContext backwardSyncContext;
+  protected final BackwardSync backwardSyncContext;
 
   /** The Protocol schedule. */
   protected final ProtocolSchedule protocolSchedule;
@@ -128,7 +128,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final EthScheduler ethScheduler,
       final TransactionPool transactionPool,
       final MiningConfiguration miningParams,
-      final BackwardSyncContext backwardSyncContext) {
+      final BackwardSync backwardSyncContext) {
     this(
         protocolContext,
         protocolSchedule,
@@ -156,7 +156,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final EthScheduler ethScheduler,
       final TransactionPool transactionPool,
       final MiningConfiguration miningParams,
-      final BackwardSyncContext backwardSyncContext,
+      final BackwardSync backwardSyncContext,
       final Optional<MempoolPrewarmer> mempoolPrewarmer) {
     this(
         protocolContext,
@@ -194,7 +194,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final ProtocolSchedule protocolSchedule,
       final EthScheduler ethScheduler,
       final MiningConfiguration miningParams,
-      final BackwardSyncContext backwardSyncContext,
+      final BackwardSync backwardSyncContext,
       final MergeBlockCreatorFactory mergeBlockCreatorFactory) {
     this(
         protocolContext,
@@ -223,7 +223,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final ProtocolSchedule protocolSchedule,
       final EthScheduler ethScheduler,
       final MiningConfiguration miningParams,
-      final BackwardSyncContext backwardSyncContext,
+      final BackwardSync backwardSyncContext,
       final MergeBlockCreatorFactory mergeBlockCreatorFactory,
       final Optional<MempoolPrewarmer> mempoolPrewarmer) {
     this.protocolContext = protocolContext;
@@ -719,6 +719,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .log();
     } else if (mergeContext.isInitialSyncDone()) {
       backwardSyncContext.maybeUpdateTargetHeight(headHash);
+      backwardSyncContext.updateFinalizedBlockHash(finalizedHash);
       finalizedHashAfterBackwardSync.set(finalizedHash);
       final CompletableFuture<Void> session = backwardSyncContext.syncBackwardsUntil(headHash);
       // all calls during a session share its future, so one callback applies the latest finalized
@@ -1177,7 +1178,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     }
     // only a header we already know can be linked to its parent, anything else must be synced
     return backwardSyncContext
-        .getBackwardChain()
         .getHeader(blockHash)
         .flatMap(this::checkAndMarkBadDescendant)
         .isPresent();
