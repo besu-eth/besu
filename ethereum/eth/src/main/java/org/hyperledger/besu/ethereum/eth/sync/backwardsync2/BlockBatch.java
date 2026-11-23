@@ -16,10 +16,17 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync2;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
 import java.util.Map;
 
-/** Consecutive blocks to import, in order, with the block access lists downloaded for them. */
-record BlockBatch(List<Block> blocks, Map<Hash, BlockAccessList> blockAccessLists) {}
+/**
+ * Consecutive blocks to import, in order, with the block access lists and the receipts downloaded
+ * for them, by block hash.
+ */
+record BlockBatch(
+    List<Block> blocks,
+    Map<Hash, BlockAccessList> blockAccessLists,
+    Map<Hash, List<TransactionReceipt>> receipts) {}

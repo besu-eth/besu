@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -62,6 +64,7 @@ class ImportBlocksStepTest {
   @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolSpec protocolSpec;
   @Mock private BlockValidator blockValidator;
+  @Mock private BalImporter balImporter;
 
   private MutableBlockchain blockchain;
   private Block block1;
@@ -81,14 +84,64 @@ class ImportBlocksStepTest {
   }
 
   @Test
-  void executesEveryBlockOfABatchInOrder() {
+  void importsAFinalizedBlockFromItsBalWithoutExecutingIt() {
+    final List<TransactionReceipt> receipts = generator.receipts(block1);
+    when(balImporter.applyToWorldState(block1, receipts, bal)).thenReturn(true);
+
+    step(1).importBlock(block1, Optional.of(bal), Optional.of(receipts));
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block1.getHash());
+    assertThat(blockchain.getTxReceipts(block1.getHash())).contains(receipts);
+    verifyNoInteractions(blockValidator);
+  }
+
+  @Test
+  void executesABlockAboveTheFinalizedOne() {
+    final List<TransactionReceipt> receipts = generator.receipts(block1);
+    executionSucceeds(block1, receipts);
+
+    step(0).importBlock(block1, Optional.of(bal), Optional.of(receipts));
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block1.getHash());
+    verifyNoInteractions(balImporter);
+  }
+
+  @Test
+  void executesAFinalizedBlockItsBalCannotImport() {
+    final List<TransactionReceipt> receipts = generator.receipts(block1);
+    when(balImporter.applyToWorldState(block1, receipts, bal)).thenReturn(false);
+    executionSucceeds(block1, receipts);
+
+    step(1).importBlock(block1, Optional.of(bal), Optional.of(receipts));
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block1.getHash());
+  }
+
+  @Test
+  void executesAFinalizedBlockWithoutReceipts() {
     executionSucceeds(block1, generator.receipts(block1));
+
+    step(1).importBlock(block1, Optional.of(bal), Optional.empty());
+
+    verifyNoInteractions(balImporter);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block1.getHash());
+  }
+
+  @Test
+  void importsEveryBlockOfABatchInOrder() {
+    final List<TransactionReceipt> receipts1 = generator.receipts(block1);
+    when(balImporter.applyToWorldState(block1, receipts1, bal)).thenReturn(true);
     whenExecuted(block2, Optional.empty())
         .thenReturn(
             new BlockProcessingResult(
                 Optional.of(new BlockProcessingOutputs(null, generator.receipts(block2)))));
 
-    step().accept(new BlockBatch(List.of(block1, block2), Map.of(block1.getHash(), bal)));
+    step(1)
+        .accept(
+            new BlockBatch(
+                List.of(block1, block2),
+                Map.of(block1.getHash(), bal),
+                Map.of(block1.getHash(), receipts1)));
 
     assertThat(blockchain.getChainHeadHash()).isEqualTo(block2.getHash());
   }
@@ -97,11 +150,11 @@ class ImportBlocksStepTest {
   void failsOnAKnownBadBlockWithoutExecutingIt() {
     badBlockManager.addBadBlock(block1, BadBlockCause.fromValidationFailure("invalid"));
 
-    assertThatThrownBy(() -> step().importBlock(block1, Optional.of(bal)))
+    assertThatThrownBy(() -> step(1).importBlock(block1, Optional.of(bal), Optional.empty()))
         .isInstanceOf(IllegalStateException.class);
 
     assertThat(reportedBadBlocks).containsExactly(block1.getHeader());
-    verifyNoInteractions(blockValidator);
+    verifyNoInteractions(blockValidator, balImporter);
     assertThat(blockchain.contains(block1.getHash())).isFalse();
   }
 
@@ -114,7 +167,7 @@ class ImportBlocksStepTest {
               return new BlockProcessingResult("invalid");
             });
 
-    assertThatThrownBy(() -> step().importBlock(block1, Optional.of(bal)))
+    assertThatThrownBy(() -> step(0).importBlock(block1, Optional.of(bal), Optional.empty()))
         .isInstanceOf(IllegalStateException.class);
 
     assertThat(reportedBadBlocks).containsExactly(block1.getHeader());
@@ -125,14 +178,16 @@ class ImportBlocksStepTest {
   void doesNotReportABlockThatFailsForALocalReason() {
     whenExecuted(block1).thenReturn(new BlockProcessingResult("storage failure"));
 
-    assertThatThrownBy(() -> step().importBlock(block1, Optional.of(bal)))
+    assertThatThrownBy(() -> step(0).importBlock(block1, Optional.of(bal), Optional.empty()))
         .isInstanceOf(IllegalStateException.class);
 
     assertThat(reportedBadBlocks).isEmpty();
+    verify(balImporter, never()).applyToWorldState(any(), any(), any());
   }
 
-  private ImportBlocksStep step() {
-    return new ImportBlocksStep(protocolContext, protocolSchedule, 2, reportedBadBlocks::add);
+  private ImportBlocksStep step(final long finalizedNumber) {
+    return new ImportBlocksStep(
+        protocolContext, protocolSchedule, balImporter, finalizedNumber, 2, reportedBadBlocks::add);
   }
 
   private void executionSucceeds(final Block block, final List<TransactionReceipt> receipts) {

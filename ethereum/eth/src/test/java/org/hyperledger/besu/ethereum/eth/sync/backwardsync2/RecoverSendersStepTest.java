@@ -39,7 +39,7 @@ class RecoverSendersStepTest {
     final List<Transaction> transactions = decoded.getBody().getTransactions();
     assertThat(transactions).isNotEmpty().allMatch(tx -> tx.getSenderIfKnown().isEmpty());
 
-    final BlockBatch batch = new BlockBatch(List.of(decoded), Map.of());
+    final BlockBatch batch = new BlockBatch(List.of(decoded), Map.of(), Map.of());
     final BlockBatch recovered =
         new RecoverSendersStep(new DeterministicEthScheduler()).apply(batch).join();
 
@@ -48,6 +48,17 @@ class RecoverSendersStepTest {
         .map(tx -> tx.getSenderIfKnown().orElseThrow())
         .containsExactlyElementsOf(
             generated.getBody().getTransactions().stream().map(Transaction::getSender).toList());
+  }
+
+  @Test
+  void skipsABlockImportedFromItsBal() {
+    final Block decoded = decode(generator.nextBlock(generator.genesisBlock()));
+    final BlockBatch batch =
+        new BlockBatch(List.of(decoded), Map.of(), Map.of(decoded.getHash(), List.of()));
+
+    new RecoverSendersStep(new DeterministicEthScheduler()).apply(batch).join();
+
+    assertThat(decoded.getBody().getTransactions()).allMatch(tx -> tx.getSenderIfKnown().isEmpty());
   }
 
   // a decoded body has transactions whose senders are not recovered yet

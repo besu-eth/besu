@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
@@ -32,7 +33,9 @@ import org.hyperledger.besu.ethereum.eth.sync.DownloadSyncBodiesStep;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BadChainListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -44,6 +47,7 @@ import org.hyperledger.besu.util.Subscribers;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
@@ -53,7 +57,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Syncs the chain to one head, on two pipelines: the headers from the head down to the finalized
- * block, then the blocks above the chain, the next batches downloading while one imports.
+ * block, then the blocks above the chain, the next batches downloading while one imports. Finalized
+ * blocks are imported from their block access list instead of being executed.
  */
 class HeadSync {
 
@@ -69,6 +74,7 @@ class HeadSync {
   private final SynchronizerConfiguration syncConfig;
   private final EthContext ethContext;
   private final HeaderStore headerStore;
+  private final BalImporter balImporter;
   private final Supplier<Hash> finalizedBlockHash;
   private final Subscribers<BadChainListener> badChainListeners;
   private final LabelledMetric<Counter> headersPipelineCounter;
@@ -92,6 +98,7 @@ class HeadSync {
     this.syncConfig = syncConfig;
     this.ethContext = ethContext;
     this.headerStore = headerStore;
+    this.balImporter = new BalImporter(protocolContext, protocolSchedule);
     this.finalizedBlockHash = finalizedBlockHash;
     this.badChainListeners = badChainListeners;
     this.headersPipelineCounter =
@@ -123,8 +130,8 @@ class HeadSync {
     LOG.info("Backward sync from {} to {}", anchor.toLogString(), target.toLogString());
     headerStore.clear();
     try {
-      downloadHeaders(target, anchor);
-      importBlocks(head, target, anchor);
+      final long finalizedNumber = downloadHeaders(target, anchor);
+      importBlocks(head, target, anchor, finalizedNumber);
     } finally {
       headerStore.clear();
     }
@@ -162,11 +169,15 @@ class HeadSync {
     return headers.getFirst();
   }
 
-  /** Stores the headers from {@code target} down to {@code anchor}, excluded. */
-  private void downloadHeaders(final BlockHeader target, final BlockHeader anchor) {
+  /**
+   * Stores the headers from {@code target} down to {@code anchor}, excluded.
+   *
+   * @return the number of the finalized block among them, -1 if it is not one of them
+   */
+  private long downloadHeaders(final BlockHeader target, final BlockHeader anchor) {
     headerStore.putAll(List.of(target));
     final StoreHeadersStep storeHeaders =
-        new StoreHeadersStep(headerStore, target, anchor.getNumber());
+        new StoreHeadersStep(headerStore, target, anchor.getNumber(), finalizedBlockHash);
     if (target.getNumber() - 1 > anchor.getNumber()) {
       runToEnd(headersPipeline(target.getNumber() - 1, anchor.getNumber(), storeHeaders));
     }
@@ -175,23 +186,32 @@ class HeadSync {
         "Head %s does not descend from %s",
         target.toLogString(),
         anchor.toLogString());
+    return storeHeaders.finalizedNumber();
   }
 
   /** Imports the stored blocks the chain does not hold, up to {@code head}. */
-  private void importBlocks(final Head head, final BlockHeader target, final BlockHeader anchor) {
+  private void importBlocks(
+      final Head head,
+      final BlockHeader target,
+      final BlockHeader anchor,
+      final long finalizedNumber) {
     final ImportBlocksStep importBlocks =
         new ImportBlocksStep(
             protocolContext,
             protocolSchedule,
+            balImporter,
+            finalizedNumber,
             target.getNumber(),
             badBlock -> notifyBadChain(badBlock, target.getNumber()));
     final long first = firstBlockToImport(anchor.getNumber() + 1, target.getNumber());
     // the head that came in a new payload is imported from it, peers may not serve it yet
     final long last = head.block().isPresent() ? target.getNumber() - 1 : target.getNumber();
     if (first <= last) {
-      runToEnd(importPipeline(first, last, importBlocks));
+      runToEnd(importPipeline(first, last, finalizedNumber, importBlocks));
     }
-    head.block().ifPresent(block -> importBlocks.importBlock(block, head.blockAccessList()));
+    head.block()
+        .ifPresent(
+            block -> importBlocks.importBlock(block, head.blockAccessList(), Optional.empty()));
   }
 
   // the blocks above the anchor the chain already holds are not imported again
@@ -236,7 +256,10 @@ class HeadSync {
   }
 
   private Pipeline<Long> importPipeline(
-      final long first, final long last, final ImportBlocksStep importBlocks) {
+      final long first,
+      final long last,
+      final long finalizedNumber,
+      final ImportBlocksStep importBlocks) {
     final Iterator<Long> batchStarts =
         LongStream.iterate(first, number -> number <= last, number -> number + IMPORT_BATCH_SIZE)
             .boxed()
@@ -246,6 +269,12 @@ class HeadSync {
             protocolSchedule,
             ethContext,
             Duration.ofMillis(syncConfig.getBodiesDownloadStepTimeoutMillis()));
+    final DownloadSyncReceiptsStep downloadReceipts =
+        new DownloadSyncReceiptsStep(
+            protocolSchedule,
+            ethContext,
+            new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
     return PipelineBuilder.createPipelineFrom(
             "blockSource",
             batchStarts,
@@ -258,7 +287,9 @@ class HeadSync {
             start -> headerStore.getRange(start, Math.min(start + IMPORT_BATCH_SIZE - 1, last)))
         .thenProcessAsyncOrdered("downloadBodies", downloadBodies, DOWNLOADS_AHEAD)
         .thenProcessAsyncOrdered(
-            "downloadBlockData", new DownloadBlockDataStep(ethContext), DOWNLOADS_AHEAD)
+            "downloadBlockData",
+            new DownloadBlockDataStep(ethContext, downloadReceipts, finalizedNumber),
+            DOWNLOADS_AHEAD)
         .thenProcessAsyncOrdered(
             "recoverSenders", new RecoverSendersStep(ethContext.getScheduler()), DOWNLOADS_AHEAD)
         .andFinishWith("importBlocks", importBlocks);

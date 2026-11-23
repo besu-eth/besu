@@ -34,8 +34,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Last stage of the import pipeline: executes each block of a batch in order and makes it the chain
- * head.
+ * Last stage of the import pipeline: imports each block of a batch in order, finalized blocks from
+ * their block access list when one was downloaded with their receipts, the others by executing
+ * them, and makes each one the chain head.
  */
 class ImportBlocksStep implements Consumer<BlockBatch> {
 
@@ -44,21 +45,30 @@ class ImportBlocksStep implements Consumer<BlockBatch> {
 
   private final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
+  private final BalImporter balImporter;
+  private final long finalizedNumber;
   private final long targetNumber;
   private final Consumer<BlockHeader> badBlockListener;
+  private long fromBal;
+  private long executed;
   private long lastLogMillis;
 
   /**
+   * @param finalizedNumber the highest finalized block of the sync, -1 if none
    * @param targetNumber the head the sync imports up to, for the progress logs
    * @param badBlockListener told of a block that is invalid
    */
   ImportBlocksStep(
       final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
+      final BalImporter balImporter,
+      final long finalizedNumber,
       final long targetNumber,
       final Consumer<BlockHeader> badBlockListener) {
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
+    this.balImporter = balImporter;
+    this.finalizedNumber = finalizedNumber;
     this.targetNumber = targetNumber;
     this.badBlockListener = badBlockListener;
   }
@@ -66,18 +76,35 @@ class ImportBlocksStep implements Consumer<BlockBatch> {
   @Override
   public void accept(final BlockBatch batch) {
     for (final Block block : batch.blocks()) {
-      importBlock(block, Optional.ofNullable(batch.blockAccessLists().get(block.getHash())));
+      importBlock(
+          block,
+          Optional.ofNullable(batch.blockAccessLists().get(block.getHash())),
+          Optional.ofNullable(batch.receipts().get(block.getHash())));
     }
   }
 
   /** Imports a block whose parent is imported, or throws if it cannot. */
-  void importBlock(final Block block, final Optional<BlockAccessList> bal) {
+  void importBlock(
+      final Block block,
+      final Optional<BlockAccessList> bal,
+      final Optional<List<TransactionReceipt>> receipts) {
     // executing it again can only repeat the failure that recorded it
     if (protocolContext.getBadBlockManager().isBadBlock(block.getHash())) {
       badBlockListener.accept(block.getHeader());
       throw new IllegalStateException("Block " + block.toLogString() + " is a known bad block");
     }
-    execute(block, bal);
+    final boolean importedFromBal =
+        block.getHeader().getNumber() <= finalizedNumber
+            && bal.isPresent()
+            && receipts.isPresent()
+            && balImporter.applyToWorldState(block, receipts.get(), bal.get());
+    if (importedFromBal) {
+      append(block, receipts.get(), bal);
+      fromBal++;
+    } else {
+      execute(block, bal);
+      executed++;
+    }
     logProgress(block.getHeader().getNumber());
   }
 
@@ -131,7 +158,10 @@ class ImportBlocksStep implements Consumer<BlockBatch> {
     final long now = System.currentTimeMillis();
     if (now - lastLogMillis >= LOG_INTERVAL_MILLIS || number == targetNumber) {
       lastLogMillis = now;
-      LOG.info(String.format("Backward sync imported #%,d of #%,d", number, targetNumber));
+      LOG.info(
+          String.format(
+              "Backward sync imported #%,d of #%,d, %,d from their BAL, %,d executed",
+              number, targetNumber, fromBal, executed));
     }
   }
 }
