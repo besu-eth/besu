@@ -114,7 +114,7 @@ Rate on realistic reachability, default exposure, the privilege needed and the i
 - **Medium:**
   - denial of service that needs many peers or significant attacker resources;
   - exhaustion through sustained load on a namespace enabled by default (`eth_`, `net_`, `web3_`, `txpool_`);
-  - one request, or a few, to `debug_`, `trace_` or `admin_` that stops an exposed node or its block import. These namespaces are off by default, so what we rate here is amplification an operator who enables them cannot answer with rate limiting;
+  - one request, or a few, to `debug_`, `trace_` or `admin_` that stops an exposed node or its block import. These namespaces are disabled by default, so what we rate here is amplification an operator who enables them cannot answer with rate limiting;
   - degraded sync, discovery or transaction propagation that recovers on its own;
   - relay-safety problems;
   - excess work on valid input that is measured but stays within the slot.
