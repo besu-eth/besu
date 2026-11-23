@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.EMPTY_ACCOUNT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
@@ -334,6 +335,20 @@ class OptimisticParallelBlockProcessorIntegrationTest {
 
       assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A transaction that deleted the empty coinbase account is executed again")
+    void transactionThatDeletedTheEmptyCoinbaseAccountIsExecutedAgain() {
+      assertThat(createFreshContext().getStateArchive().getWorldState().get(EMPTY_ACCOUNT))
+          .isNotNull();
+
+      // the zero fee credit touches the coinbase account, and state clearing deletes it
+      final ComparisonResult result =
+          executeAndCompare(Wei.of(5), EMPTY_ACCOUNT, transfer(0, ACCOUNT_4));
+
+      assertThat(result.seqWorldState().get(EMPTY_ACCOUNT)).isNull();
+      assertThat(result.parWorldState().get(EMPTY_ACCOUNT)).isNull();
     }
 
     @Test

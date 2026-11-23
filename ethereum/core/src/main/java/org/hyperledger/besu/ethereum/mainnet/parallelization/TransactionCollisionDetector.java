@@ -94,6 +94,11 @@ public class TransactionCollisionDetector {
         && isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
       return true;
     }
+    // a run that touched the beneficiary only for its fee no longer holds it among its accounts,
+    // so taking the result would drop the deletion of an empty beneficiary
+    if (transactionAccumulator.getDeletedAccountAddresses().contains(miningBeneficiary)) {
+      return true;
+    }
     if (chainPredecessor != null) {
       return hasCollisionWithChainedState(
           transactionAccumulator, chainPredecessor, blockAccumulator);

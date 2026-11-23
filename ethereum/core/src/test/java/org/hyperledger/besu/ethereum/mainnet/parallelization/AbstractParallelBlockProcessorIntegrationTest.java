@@ -383,12 +383,17 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
   }
 
   protected ComparisonResult executeAndCompare(final Wei baseFee, final Transaction... txs) {
-    final Hash stateRoot = discoverStateRoot(baseFee, txs);
+    return executeAndCompare(baseFee, MINING_BENEFICIARY, txs);
+  }
+
+  protected ComparisonResult executeAndCompare(
+      final Wei baseFee, final Address coinbase, final Transaction... txs) {
+    final Hash stateRoot = discoverStateRoot(baseFee, coinbase, txs);
 
     // Sequential processing
     final ExecutionContextTestFixture seqCtx = createFreshContext();
     final MutableWorldState seqWs = seqCtx.getStateArchive().getWorldState();
-    final Block block = createBlock(seqCtx, stateRoot, baseFee, txs);
+    final Block block = createBlock(seqCtx, stateRoot, baseFee, coinbase, txs);
     final BlockProcessor seqProcessor = createSequentialProcessor(seqCtx);
     final BlockProcessingResult seqResult =
         seqProcessor.processBlock(
@@ -405,7 +410,7 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     // Parallel processing
     final ExecutionContextTestFixture parCtx = createFreshContext();
     final MutableWorldState parWs = parCtx.getStateArchive().getWorldState();
-    final Block parBlock = createBlock(parCtx, stateRoot, baseFee, txs);
+    final Block parBlock = createBlock(parCtx, stateRoot, baseFee, coinbase, txs);
     final BlockProcessor parProcessor = createParallelProcessor(parCtx);
     final BlockProcessingResult parResult =
         parProcessor.processBlock(

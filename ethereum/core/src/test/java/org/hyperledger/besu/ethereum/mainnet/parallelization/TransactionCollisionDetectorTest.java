@@ -674,6 +674,31 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void runThatDeletedTheMiningBeneficiaryCollidesEvenCarryingCredits() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x9");
+    trxUpdater.recordBalanceObservations();
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 1, 90)));
+    trxUpdater.deleteAccount(beneficiary);
+    trxUpdater.commit();
+    // the worker drops a beneficiary the transaction touched only for its fee
+    trxUpdater.getAccountsToUpdate().remove(beneficiary);
+    trxUpdater.getStorageToClear().remove(beneficiary);
+
+    assertTrue(
+        collisionDetector.hasCollision(
+            createTransaction(sender, Address.fromHexString("0x2")),
+            beneficiary,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater,
+            new ArrayList<>()),
+        "Expected a collision as taking the result would not delete the beneficiary");
+  }
+
+  @Test
   void chainedTransactionThatTouchedTheMiningBeneficiaryCollidesEvenCarryingCredits() {
     final Address sender = Address.fromHexString("0x1");
     final Address beneficiary = Address.fromHexString("0x9");
