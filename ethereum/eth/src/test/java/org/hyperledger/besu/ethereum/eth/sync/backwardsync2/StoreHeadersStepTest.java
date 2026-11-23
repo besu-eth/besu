@@ -66,7 +66,7 @@ class StoreHeadersStepTest {
   }
 
   private StoreHeadersStep step() {
-    return new StoreHeadersStep(headerStore, chain.get(10), 0);
+    return new StoreHeadersStep(headerStore, chain.get(10));
   }
 
   private List<BlockHeader> descending(final int from, final int to) {
