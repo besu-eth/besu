@@ -129,6 +129,13 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
   private QbftExtraDataCodec qbftExtraDataCodec;
   private BftBlockInterface bftBlockInterface;
 
+  /**
+   * Shared by block creation, validation and import, so that the protocol schedule importer, used
+   * by the QBFT round and the network, does not execute again a block that QBFT created or
+   * validated.
+   */
+  private final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
+
   /** Default Constructor. */
   public QbftBesuControllerBuilder() {}
 
@@ -208,8 +215,6 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
 
     final Address localAddress = Util.publicKeyToAddress(nodeKey.getPublicKey());
     final BftProtocolSchedule bftProtocolSchedule = (BftProtocolSchedule) protocolSchedule;
-    // shared by block creation, validation and import
-    final ValidatedBlockCache validatedBlockCache = new ValidatedBlockCache();
     QbftProtocolSchedule qbftProtocolSchedule =
         new QbftProtocolScheduleAdaptor(
             bftProtocolSchedule, protocolContext, qbftExtraDataCodec, validatedBlockCache);
@@ -385,7 +390,8 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
         isParallelTxProcessingEnabled,
         balConfiguration,
         metricsSystem,
-        genesisConfig.getGasLimit());
+        genesisConfig.getGasLimit(),
+        validatedBlockCache);
   }
 
   @Override

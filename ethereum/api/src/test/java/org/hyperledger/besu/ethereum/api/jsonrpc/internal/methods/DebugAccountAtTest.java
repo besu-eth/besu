@@ -265,6 +265,55 @@ class DebugAccountAtTest {
     Assertions.assertThat(result.getCodehash()).isEqualTo(codeHash.getBytes().toHexString());
   }
 
+  @Test
+  void shouldReturnFull32ByteCodeHashWhenHashHasLeadingZeroByte() {
+    final String codeHashString =
+        "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+
+    final DebugAccountAtResult result =
+        accountAtWithCode(Bytes.fromHexString("0x6001"), Hash.fromHexString(codeHashString));
+
+    Assertions.assertThat(result.getCodehash()).isEqualTo(codeHashString);
+  }
+
+  @Test
+  void shouldReturnFullEmptyCodeHashWhenAccountHasNoCode() {
+    final DebugAccountAtResult result = accountAtWithCode(Bytes.EMPTY, Hash.EMPTY);
+
+    Assertions.assertThat(result.getCode()).isEqualTo("0x0");
+    Assertions.assertThat(result.getCodehash())
+        .isEqualTo("0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470");
+  }
+
+  private DebugAccountAtResult accountAtWithCode(final Bytes code, final Hash codeHash) {
+    doAnswer(
+            invocation ->
+                invocation
+                    .<Function<MutableWorldState, Optional<? extends JsonRpcResponse>>>getArgument(
+                        1)
+                    .apply(worldState))
+        .when(blockchainQueries)
+        .getAndMapWorldState(any(), any());
+
+    setupMockTransaction();
+    setupMockAccount();
+    setupMockBlock();
+
+    Mockito.when(account.getCode()).thenReturn(code);
+    Mockito.when(account.getNonce()).thenReturn(0L);
+    Mockito.when(account.getBalance()).thenReturn(Wei.ZERO);
+    Mockito.when(account.getCodeHash()).thenReturn(codeHash);
+
+    final Object[] params =
+        new Object[] {Hash.ZERO.getBytes().toHexString(), 0, Address.ZERO.getBytes().toHexString()};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_accountAt", params));
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) debugAccountAt.response(request);
+
+    return (DebugAccountAtResult) response.getResult();
+  }
+
   private void setupMockAccount() {
     Mockito.when(transactionTrace.getTraceFrames())
         .thenReturn(Collections.singletonList(traceFrame));

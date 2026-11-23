@@ -634,6 +634,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                 }
 
                 @Override
+                public boolean allowsJournal() {
+                  return true;
+                }
+
+                @Override
                 public void traceBeforeRewardTransaction(
                     final WorldView worldView,
                     final org.hyperledger.besu.datatypes.Transaction tx,

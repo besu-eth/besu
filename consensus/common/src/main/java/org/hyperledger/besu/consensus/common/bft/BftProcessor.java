@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,7 +33,7 @@ public class BftProcessor implements Runnable {
   private volatile boolean shutdown = false;
   private final EventMultiplexer eventMultiplexer;
   private volatile CountDownLatch shutdownLatch = new CountDownLatch(1);
-  private volatile Thread processorThread;
+  private volatile @Nullable Thread processorThread;
 
   /**
    * Construct a new BftProcessor
