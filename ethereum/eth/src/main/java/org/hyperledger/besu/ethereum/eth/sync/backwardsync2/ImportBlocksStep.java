@@ -113,6 +113,32 @@ class ImportBlocksStep implements Consumer<BlockBatch> {
     }
     final BlockProcessingOutputs outputs = result.getYield().orElseThrow();
     append(block, outputs.getReceipts(), outputs.getBlockAccessList());
+    logExecuted(block, result.getNbParallelizedTransactions(), bal.isPresent());
+  }
+
+  private static void logExecuted(
+      final Block block, final Optional<Integer> parallelized, final boolean balDownloaded) {
+    if (!LOG.isDebugEnabled()) {
+      return;
+    }
+    final int transactions = block.getBody().getTransactions().size();
+    final String parallel =
+        parallelized
+            .filter(count -> transactions > 0)
+            .map(count -> String.format(" (%.1f%% parallel)", 100.0 * count / transactions))
+            .orElse("");
+    final String bal =
+        block.getHeader().getBalHash().isEmpty()
+            ? ""
+            : balDownloaded ? " | BAL downloaded" : " | BAL rebuilt";
+    LOG.debug(
+        String.format(
+            "Backward sync executed #%,d (%s) | %d tx%s%s",
+            block.getHeader().getNumber(),
+            block.getHash().toShortLogString(),
+            transactions,
+            parallel,
+            bal));
   }
 
   private void append(
