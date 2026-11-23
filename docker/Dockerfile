@@ -1,15 +1,16 @@
 # syntax=docker/dockerfile:1@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
 # Stage: Eclipse Temurin JRE (only /opt/java/openjdk is copied into the final image)
-# OpenJDK 25.0.5+8 (2026-10-20 LTS) on Ubuntu 26.04.1 LTS, image built 2026-10-29. The tag is rebuilt
+# OpenJDK 25.0.5.1+2 (2026-11-17 LTS) on Ubuntu 26.04.1 LTS, image built 2026-11-20. The tag is rebuilt
 # when its OS base updates, so the digest is what is pinned.
-FROM mirror.gcr.io/library/eclipse-temurin:25.0.5_8-jre-resolute@sha256:b6e00330337143a2c1a20f1c1c693d4b6ce9a3c30ade8b9d03fc68cc9e3871e7 AS java-base
+FROM mirror.gcr.io/library/eclipse-temurin:25.0.5.1_2-jre-resolute@sha256:a0862ac8790c648f6b5db8a113b9990d24fbe8e65f3c4ba8d68b0302d270c1e6 AS java-base
 
 # Remove the roots OpenJDK lists after the October 2026 eMudhra CA compromise
 # (https://openjdk.org/emudhra, JDK-8395690, CVE-2026-114820): emSign Root CA - G1, emSign Root CA - G2,
 # emSign ECC Root CA - G3 and AAA Certificate Services. Temurin builds its cacerts from Mozilla's root list,
 # not OpenJDK's, so OpenJDK's fix does not reach it: Mozilla has dropped G3 but still trusts G1, so Temurin
-# 25.0.5+8 still ships G1 (G2 and AAA Certificate Services are not in it). All four are matched anyway, so the
+# 25.0.5.1+2 still ships G1 although its release notes list JDK-8395690 (G2 and AAA Certificate Services are
+# not in it). All four are matched anyway, so the
 # step keeps working whatever the base ships. The emSign ECC Root CA - C3 and emSign Root CA -
 # C1 roots (eMudhra Inc, US) are deliberately left trusted: OpenJDK does not list them, and the
 # compromised intermediates chain to G3, not the C series. Matched by SHA-256 fingerprint, so this works
