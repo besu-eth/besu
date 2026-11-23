@@ -52,6 +52,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.LongStream;
 
 import org.slf4j.Logger;
@@ -81,6 +82,7 @@ public class BackwardSyncV2 implements BackwardSync {
   private final LabelledMetric<Counter> headersPipelineCounter;
   private final LabelledMetric<Counter> importPipelineCounter;
   private final Subscribers<BadChainListener> badChainListeners = Subscribers.create();
+  private final AtomicReference<Hash> finalizedBlockHash = new AtomicReference<>(Hash.ZERO);
 
   // guarded by this
   private final Map<Hash, Head> recentPayloads =
@@ -138,6 +140,11 @@ public class BackwardSyncV2 implements BackwardSync {
   // the progress logs use the head of each sync
   @Override
   public void maybeUpdateTargetHeight(final Hash headHash) {}
+
+  @Override
+  public void updateFinalizedBlockHash(final Hash finalizedBlockHash) {
+    this.finalizedBlockHash.set(finalizedBlockHash);
+  }
 
   @Override
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Hash newBlockHash) {
@@ -245,14 +252,14 @@ public class BackwardSyncV2 implements BackwardSync {
   }
 
   /**
-   * The block the headers are downloaded down to: the finalized block of the chain, so that no fork
-   * reaches below it.
+   * The block the headers are downloaded down to: the finalized block of the consensus client if
+   * the chain holds it, else the finalized block of the chain, so that no fork reaches below it.
    */
   private BlockHeader anchor() {
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
     return blockchain
-        .getFinalized()
-        .flatMap(blockchain::getBlockHeader)
+        .getBlockHeader(finalizedBlockHash.get())
+        .or(() -> blockchain.getFinalized().flatMap(blockchain::getBlockHeader))
         .filter(header -> header.getNumber() <= blockchain.getChainHeadBlockNumber())
         .orElseGet(blockchain::getChainHeadHeader);
   }

@@ -40,6 +40,13 @@ public interface BackwardSync {
   void maybeUpdateTargetHeight(Hash headHash);
 
   /**
+   * Records the finalized block the consensus client sent with a head to sync to.
+   *
+   * @param finalizedBlockHash the finalized block hash, zero if none
+   */
+  default void updateFinalizedBlockHash(final Hash finalizedBlockHash) {}
+
+  /**
    * Syncs up to the head {@code newBlockHash}, downloading it.
    *
    * @param newBlockHash the head hash

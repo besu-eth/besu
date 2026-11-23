@@ -719,6 +719,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .log();
     } else if (mergeContext.isInitialSyncDone()) {
       backwardSyncContext.maybeUpdateTargetHeight(headHash);
+      backwardSyncContext.updateFinalizedBlockHash(finalizedHash);
       finalizedHashAfterBackwardSync.set(finalizedHash);
       final CompletableFuture<Void> session = backwardSyncContext.syncBackwardsUntil(headHash);
       // all calls during a session share its future, so one callback applies the latest finalized
