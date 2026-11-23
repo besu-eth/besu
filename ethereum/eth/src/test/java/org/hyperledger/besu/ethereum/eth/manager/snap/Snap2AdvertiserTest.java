@@ -35,7 +35,6 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -51,7 +50,6 @@ import org.junit.jupiter.api.Test;
 class Snap2AdvertiserTest {
 
   private static final int SERVED_BLOCKS = 128;
-  private static final long SYNC_SUBSCRIPTION = 7L;
   private static final long CHAIN_SUBSCRIPTION = 5L;
 
   private final Blockchain blockchain = mock(Blockchain.class);
@@ -61,7 +59,6 @@ class Snap2AdvertiserTest {
   private final Set<Hash> storedAccessLists = new HashSet<>();
   private BlockHeader head;
   private BlockAddedObserver chain;
-  private InitialSyncCompletionListener syncCompletion;
 
   @BeforeEach
   void setUp() {
@@ -85,25 +82,19 @@ class Snap2AdvertiserTest {
               chain = invocation.getArgument(0);
               return CHAIN_SUBSCRIPTION;
             });
-    when(syncState.subscribeCompletionReached(any()))
-        .thenAnswer(
-            invocation -> {
-              syncCompletion = invocation.getArgument(0);
-              return SYNC_SUBSCRIPTION;
-            });
   }
 
   @Test
-  void waitsForTheSyncOnceItHoldsTheBlockAccessLists() {
+  void advertisesOnTheFirstBlockAfterTheSync() {
     final Snap2Advertiser advertiser = start();
     execute(SERVED_BLOCKS);
+    syncDone();
     verify(snapProtocolManager, never()).advertiseSnap2();
 
-    syncDone();
+    execute(1);
 
     verify(snapProtocolManager).advertiseSnap2();
     assertThat(advertiser.isDone()).isTrue();
-    verify(syncState).unsubscribeInitialConditionReached(SYNC_SUBSCRIPTION);
     verify(blockchain).removeObserver(CHAIN_SUBSCRIPTION);
   }
 
@@ -163,10 +154,10 @@ class Snap2AdvertiserTest {
 
   @Test
   void waitsWithoutReadingWhileTheSyncedChainIsBeforeTheFork() {
-    start();
-    executeBeforeTheFork(200);
-
     syncDone();
+    start();
+
+    executeBeforeTheFork(200);
 
     verify(snapProtocolManager, never()).advertiseSnap2();
     verify(blockchain, never()).getBlockHeader(anyLong());
@@ -183,24 +174,6 @@ class Snap2AdvertiserTest {
     chain.onBlockAdded(BlockAddedEvent.createForFork(new Block(forkBlock, BlockBody.empty())));
 
     verify(snapProtocolManager, never()).advertiseSnap2();
-  }
-
-  @Test
-  void catchesUpOnTheNextHeadAfterAReorgReachedTheBlocksAsTheSyncEnded() {
-    start();
-    execute(SERVED_BLOCKS - 1);
-    // a reorg tells the new head before the chain head reads it
-    final BlockHeader reorgHead = block(true);
-    canonical.put(reorgHead.getNumber(), reorgHead);
-    storedAccessLists.add(reorgHead.getHash());
-    chain.onBlockAdded(headAdvancement(reorgHead));
-    syncDone();
-    verify(snapProtocolManager, never()).advertiseSnap2();
-
-    setHead(reorgHead);
-    execute(1);
-
-    verify(snapProtocolManager).advertiseSnap2();
   }
 
   @Test
@@ -238,7 +211,6 @@ class Snap2AdvertiserTest {
 
   private void syncDone() {
     when(syncState.isInitialSyncPhaseDone()).thenReturn(true);
-    syncCompletion.onInitialSyncCompleted();
   }
 
   // blocks the node executed past the fork, which stores their block access lists

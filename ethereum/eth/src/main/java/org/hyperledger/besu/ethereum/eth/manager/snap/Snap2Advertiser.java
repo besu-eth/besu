@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +29,7 @@ import org.slf4j.LoggerFactory;
  * access lists SNAP2 peers ask for, those of the last 128 blocks. Before, peers would agree on
  * snap/2, which drops the trie node requests the SNAP sync heals with.
  */
-public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCompletionListener {
+public final class Snap2Advertiser implements BlockAddedObserver {
 
   private static final Logger LOG = LoggerFactory.getLogger(Snap2Advertiser.class);
   // a SNAP2 peer picks a pivot 64 blocks behind the head, and moves it once the head is up to about
@@ -42,7 +41,6 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
   private final Blockchain blockchain;
   // guarded by this, set before any check
   private long chainSubscription;
-  private long syncSubscription;
   private boolean done;
 
   private Snap2Advertiser(
@@ -59,7 +57,7 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
    * of the last 128 blocks, now when all already hold.
    *
    * @param snapProtocolManager the manager that advertises snap/2
-   * @param syncState tells when the initial sync is done
+   * @param syncState tells whether the initial sync is done
    * @param blockchain the chain whose head is followed until snap/2 is advertised
    * @return the advertiser
    */
@@ -71,7 +69,6 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
         new Snap2Advertiser(snapProtocolManager, syncState, blockchain);
     synchronized (advertiser) {
       advertiser.chainSubscription = blockchain.observeBlockAdded(advertiser);
-      advertiser.syncSubscription = syncState.subscribeCompletionReached(advertiser);
       advertiser.check(blockchain.getChainHeadHeader());
     }
     return advertiser;
@@ -83,15 +80,6 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
       check(event.getHeader());
     }
   }
-
-  @Override
-  public void onInitialSyncCompleted() {
-    // the sync moves the chain head without a block added event
-    check(blockchain.getChainHeadHeader());
-  }
-
-  @Override
-  public void onInitialSyncRestart() {}
 
   /** Returns whether snap/2 is advertised. */
   synchronized boolean isDone() {
@@ -106,14 +94,13 @@ public final class Snap2Advertiser implements BlockAddedObserver, InitialSyncCom
         || !snapProtocolManager.isServing()) {
       return;
     }
-    // a failure here would fail the import of a block already stored, or the end of the sync
+    // a failure here would fail the import of a block already stored, or the start of the node
     try {
       if (!holdsTheBlockAccessListsBelow(head)) {
         return;
       }
       done = true;
       blockchain.removeObserver(chainSubscription);
-      syncState.unsubscribeInitialConditionReached(syncSubscription);
       if (snapProtocolManager.advertiseSnap2()) {
         LOG.info(
             "Blocks {} to {} have block access lists, advertising snap/2 to new connections",
