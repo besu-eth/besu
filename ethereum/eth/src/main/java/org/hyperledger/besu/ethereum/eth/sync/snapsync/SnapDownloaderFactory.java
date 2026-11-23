@@ -51,24 +51,13 @@ public class SnapDownloaderFactory {
 
   /**
    * Returns whether a snap sync in the data directory started downloading the chain and has not
-   * finished, reading its progress as the sync resumes it.
+   * finished: a finished sync deletes its folder.
    *
    * @param dataDirectory the data directory of the node
-   * @param protocolSchedule the protocol schedule the stored block headers are read with
    * @return true when a snap sync is in progress
    */
-  public static boolean isSyncInProgress(
-      final Path dataDirectory, final ProtocolSchedule protocolSchedule) {
-    return loadChainSyncState(dataDirectory.resolve(SYNC_FOLDER), protocolSchedule) != null;
-  }
-
-  private static ChainSyncState loadChainSyncState(
-      final Path syncDataDirectory, final ProtocolSchedule protocolSchedule) {
-    return new ChainSyncStateStorage(syncDataDirectory)
-        .loadState(
-            rlpInput ->
-                BlockHeader.readFrom(
-                    rlpInput, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)));
+  public static boolean isSyncInProgress(final Path dataDirectory) {
+    return ChainSyncStateStorage.isStored(dataDirectory.resolve(SYNC_FOLDER));
   }
 
   public static Optional<SnapSyncController> createSnapDownloader(
@@ -89,7 +78,12 @@ public class SnapDownloaderFactory {
 
     ensureDirectoryExists(syncDataDirectory.toFile());
 
-    final ChainSyncState chainSyncState = loadChainSyncState(syncDataDirectory, protocolSchedule);
+    final ChainSyncState chainSyncState =
+        new ChainSyncStateStorage(syncDataDirectory)
+            .loadState(
+                rlpInput ->
+                    BlockHeader.readFrom(
+                        rlpInput, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)));
     if (syncState.isResyncNeeded()) {
       snapContext.clear();
     } else if (chainSyncState == null
