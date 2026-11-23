@@ -70,7 +70,6 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
@@ -1367,9 +1366,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     final BlockHeader child = headerGenerator.parentHash(badParent.getHash()).buildHeader();
     badBlockManager.addBadHeader(badParent, BadBlockCause.fromValidationFailure("failed"));
 
-    final BackwardChain backwardChain = mock(BackwardChain.class);
-    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
-    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+    when(backwardSyncContext.getHeader(child.getHash())).thenReturn(Optional.of(child));
 
     assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isTrue();
     assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
@@ -1384,9 +1381,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         headerGenerator.parentHash(Hash.fromHexStringLenient("0xdead")).buildHeader(),
         BadBlockCause.fromValidationFailure("failed"));
 
-    final BackwardChain backwardChain = mock(BackwardChain.class);
-    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
-    when(backwardChain.getHeader(unknown.getHash())).thenReturn(Optional.empty());
+    when(backwardSyncContext.getHeader(unknown.getHash())).thenReturn(Optional.empty());
 
     assertThat(coordinator.checkAndMarkBadDescendant(unknown.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(unknown.getHash())).isFalse();
@@ -1397,7 +1392,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(coordinator.checkAndMarkBadDescendant(Hash.fromHexStringLenient("0xbeef")))
         .isFalse();
 
-    verify(backwardSyncContext, never()).getBackwardChain();
+    verify(backwardSyncContext, never()).getHeader(any());
   }
 
   @Test
@@ -1407,9 +1402,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     badBlockManager.addBadHeader(chainParent, BadBlockCause.fromValidationFailure("stale"));
     final BlockHeader child = headerGenerator.parentHash(chainParent.getHash()).buildHeader();
 
-    final BackwardChain backwardChain = mock(BackwardChain.class);
-    when(backwardSyncContext.getBackwardChain()).thenReturn(backwardChain);
-    when(backwardChain.getHeader(child.getHash())).thenReturn(Optional.of(child));
+    when(backwardSyncContext.getHeader(child.getHash())).thenReturn(Optional.of(child));
 
     assertThat(coordinator.checkAndMarkBadDescendant(child.getHash())).isFalse();
     assertThat(badBlockManager.isBadBlock(child.getHash())).isFalse();
@@ -1426,7 +1419,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .map(BadBlockCause::getDescription)
         .contains("Descends from bad block " + badParent.toLogString());
     assertThat(badBlockManager.isBadBlock(child.getHash())).isTrue();
-    verify(backwardSyncContext, never()).getBackwardChain();
+    verify(backwardSyncContext, never()).getHeader(any());
   }
 
   @Test

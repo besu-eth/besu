@@ -45,7 +45,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.event.Level;
 
-public class BackwardSyncContext {
+public class BackwardSyncContext implements BackwardSync {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncContext.class);
   public static final int BATCH_SIZE = 200;
   private static final int DEFAULT_MAX_RETRIES = 2;
@@ -120,12 +120,14 @@ public class BackwardSyncContext {
    *
    * @return true while a backward sync session is running
    */
+  @Override
   public synchronized boolean isSyncing() {
     return Optional.ofNullable(currentBackwardSyncStatus.get())
         .map(status -> !status.currentFuture.isDone())
         .orElse(Boolean.FALSE);
   }
 
+  @Override
   public synchronized void maybeUpdateTargetHeight(final Hash headHash) {
     if (!Hash.ZERO.equals(headHash)) {
       Optional<Status> maybeCurrentStatus = Optional.ofNullable(currentBackwardSyncStatus.get());
@@ -144,6 +146,7 @@ public class BackwardSyncContext {
     }
   }
 
+  @Override
   public synchronized CompletableFuture<Void> syncBackwardsUntil(final Hash newBlockHash) {
     if (!isTrusted(newBlockHash)) {
       LOG.atDebug()
@@ -169,6 +172,7 @@ public class BackwardSyncContext {
     return syncBackwardsUntil(newPivot, Optional.empty());
   }
 
+  @Override
   public synchronized CompletableFuture<Void> syncBackwardsUntil(
       final Block newPivot, final Optional<BlockAccessList> blockAccessList) {
     if (!isTrusted(newPivot.getHash())) {
@@ -323,6 +327,12 @@ public class BackwardSyncContext {
         && peerCount > 0;
   }
 
+  @Override
+  public Optional<BlockHeader> getHeader(final Hash blockHash) {
+    return getBackwardChain().getHeader(blockHash);
+  }
+
+  @Override
   public void subscribeBadChainListener(final BadChainListener badChainListener) {
     badChainListeners.subscribe(badChainListener);
   }
