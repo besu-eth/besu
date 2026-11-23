@@ -53,7 +53,6 @@ class ArchiveNodeHistoryStoreTest {
 
   @Test
   void noArchiveProgressByDefault() {
-    assertThat(store.isArchived(0L)).isFalse();
     assertThat(store.getArchivedBlock()).isEmpty();
   }
 
@@ -61,7 +60,7 @@ class ArchiveNodeHistoryStoreTest {
   void archiveProgressReadsBackLastSavedBlock() {
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     store.saveArchiveProgress(tx, new ArchivedBlock(7L, Hash.hash(Bytes.of(7))));
-    assertThat(store.isArchived(7L)).as("uncommitted").isFalse();
+    assertThat(store.getArchivedBlock()).as("uncommitted").isEmpty();
     tx.commit();
 
     final Hash hash = Hash.hash(Bytes.of(8));
@@ -70,9 +69,6 @@ class ArchiveNodeHistoryStoreTest {
     next.commit();
 
     assertThat(store.getArchivedBlock()).contains(new ArchivedBlock(8L, hash));
-    assertThat(store.isArchived(0L)).isTrue();
-    assertThat(store.isArchived(8L)).isTrue();
-    assertThat(store.isArchived(9L)).isFalse();
   }
 
   @Test
