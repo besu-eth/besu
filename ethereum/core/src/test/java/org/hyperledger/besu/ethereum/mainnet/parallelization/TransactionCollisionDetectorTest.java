@@ -43,6 +43,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -543,9 +545,84 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
-  void testCollisionWithDeletedAddress() {
+  void miningBeneficiaryAsSenderCollidesEvenCarryingCredits() {
+    final Address beneficiary = Address.ZERO;
+    trxUpdater.recordBalanceObservations();
+    // earlier transactions paid their fees to the beneficiary
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 2, 40)));
+
+    assertTrue(
+        hasCollisionCarryingCredits(
+            createTransaction(beneficiary, Address.fromHexString("0x2")), new ArrayList<>()),
+        "Expected a collision as the sender's balance paid for the gas");
+  }
+
+  @Test
+  void miningBeneficiaryWhoseBalanceWasReadCollidesEvenCarryingCredits() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.ZERO;
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.observeBalance(beneficiary);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 50)));
+
+    assertTrue(
+        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), new ArrayList<>()),
+        "Expected a collision as the transaction read the beneficiary's balance");
+  }
+
+  @Test
+  void paymentToTheMiningBeneficiaryIsCarriedOver() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.ZERO;
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 55)));
+    final List<Address> creditedAccounts = new ArrayList<>();
+
+    assertFalse(
+        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), creditedAccounts),
+        "Expected the payment to the beneficiary to be carried over");
+    assertThat(creditedAccounts).containsExactly(beneficiary);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void testCollisionWithDeletedAddress(final boolean carryingCredits) {
     final Address address = Address.fromHexString("0x1");
     final BonsaiAccount accountValue = createAccount(address);
+    trxUpdater.recordBalanceObservations();
 
     // Simulate that the address was deleted in the block
     bonsaiUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, null));
@@ -555,18 +632,14 @@ class TransactionCollisionDetectorTest {
     // Simulate that the deleted address is read in the next transaction
     trxUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, accountValue));
 
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected a collision with the deleted address");
+    assertTrue(
+        hasCollision(transaction, carryingCredits),
+        "Expected a collision with the deleted address");
   }
 
-  @Test
-  void testCollisionWithAddressDeletedByTransaction() {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void testCollisionWithAddressDeletedByTransaction(final boolean carryingCredits) {
     final Address address = Address.fromHexString("0x1");
     final BonsaiAccount priorAccountValue = createAccount(address);
     final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
@@ -577,18 +650,14 @@ class TransactionCollisionDetectorTest {
 
     final Transaction transaction =
         createTransaction(Address.fromHexString("0x2"), Address.fromHexString("0x3"));
+    trxUpdater.recordBalanceObservations();
     // the detector relies on the commit to list the deleted account among the updated ones
     trxUpdater.deleteAccount(address);
     trxUpdater.commit();
 
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected a collision with the address the transaction deleted");
+    assertTrue(
+        hasCollision(transaction, carryingCredits),
+        "Expected a collision with the address the transaction deleted");
   }
 
   @Test
@@ -1068,6 +1137,12 @@ class TransactionCollisionDetectorTest {
     assertTrue(
         hasCollisionCarryingCredits(
             createTransaction(sender, Address.fromHexString("0x3")), new ArrayList<>()));
+  }
+
+  private boolean hasCollision(final Transaction transaction, final boolean carryingCredits) {
+    return carryingCredits
+        ? hasCollisionCarryingCredits(transaction, new ArrayList<>())
+        : hasStrictCollision(transaction);
   }
 
   private boolean hasStrictCollision(final Transaction transaction) {
