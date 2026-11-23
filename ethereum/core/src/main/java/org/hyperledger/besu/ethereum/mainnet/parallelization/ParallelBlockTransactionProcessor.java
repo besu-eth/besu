@@ -125,18 +125,25 @@ public abstract class ParallelBlockTransactionProcessor {
    * is recovered once.
    */
   protected static Transaction detachedCopyWithSigners(final Transaction transaction) {
+    recoverSender(transaction);
+    transaction.getCodeDelegationList().ifPresent(list -> list.forEach(CodeDelegation::authorizer));
+    return transaction.detachedCopy();
+  }
+
+  /**
+   * Recovers the sender of the block's transaction. A signature that recovers no sender is left to
+   * processing the transaction, which reports it.
+   */
+  protected static void recoverSender(final Transaction transaction) {
     try {
       transaction.getSender();
     } catch (final IllegalStateException e) {
-      // processing the copy reports the invalid signature
       LOG.atTrace()
           .setMessage("Could not recover the sender of transaction {}")
           .addArgument(transaction::getHash)
           .setCause(e)
           .log();
     }
-    transaction.getCodeDelegationList().ifPresent(list -> list.forEach(CodeDelegation::authorizer));
-    return transaction.detachedCopy();
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(

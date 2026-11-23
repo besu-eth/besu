@@ -379,14 +379,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         from, Math.max(from, Math.min(transactionsOfSender.size(), MAX_CHAIN_LENGTH)));
   }
 
-  private static void recoverSender(final Transaction transaction) {
-    try {
-      transaction.getSender();
-    } catch (final IllegalStateException | IllegalArgumentException e) {
-      // an unrecoverable signature leaves the transaction unchained, its own run reports it
-    }
-  }
-
   /** Runs the rest of a chain on the result of its first member. */
   private void runChainAfter(
       final ParallelizedTransactionContext first,
