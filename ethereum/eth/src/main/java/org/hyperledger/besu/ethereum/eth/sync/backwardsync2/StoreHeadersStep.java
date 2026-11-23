@@ -37,24 +37,20 @@ class StoreHeadersStep implements Consumer<List<BlockHeader>> {
   private final HeaderStore headerStore;
   private final Supplier<Hash> finalizedBlockHash;
   private final long targetNumber;
-  private final long headersToStore;
   private BlockHeader lowest;
   private long finalizedNumber;
   private long lastLogMillis;
 
   /**
    * @param target the header of the head to sync to, already stored
-   * @param anchorNumber the block the stored headers must reach down to, excluded
    */
   StoreHeadersStep(
       final HeaderStore headerStore,
       final BlockHeader target,
-      final long anchorNumber,
       final Supplier<Hash> finalizedBlockHash) {
     this.headerStore = headerStore;
     this.finalizedBlockHash = finalizedBlockHash;
     this.targetNumber = target.getNumber();
-    this.headersToStore = target.getNumber() - anchorNumber;
     this.lowest = target;
     this.finalizedNumber =
         target.getHash().equals(finalizedBlockHash.get()) ? target.getNumber() : -1;
@@ -77,7 +73,7 @@ class StoreHeadersStep implements Consumer<List<BlockHeader>> {
     logProgress();
   }
 
-  /** The lowest stored header, the first one to import if its parent is the anchor. */
+  /** The lowest stored header, the next batch to store being its parent chain. */
   BlockHeader lowest() {
     return lowest;
   }
@@ -91,11 +87,10 @@ class StoreHeadersStep implements Consumer<List<BlockHeader>> {
     final long now = System.currentTimeMillis();
     if (now - lastLogMillis >= LOG_INTERVAL_MILLIS) {
       lastLogMillis = now;
-      final long stored = targetNumber - lowest.getNumber() + 1;
       LOG.info(
           String.format(
-              "Backward sync downloaded %,d of %,d headers (%.1f%%)",
-              stored, headersToStore, 100.0 * stored / headersToStore));
+              "Backward sync downloaded %,d headers, down to #%,d",
+              targetNumber - lowest.getNumber() + 1, lowest.getNumber()));
     }
   }
 }

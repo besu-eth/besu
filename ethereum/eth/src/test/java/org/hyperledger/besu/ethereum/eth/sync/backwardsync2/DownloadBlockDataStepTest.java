@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.eth.sync.backwardsync2;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,6 +39,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBlockAccessListsFromPeerTask;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler.TimeoutPolicy;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -67,8 +70,8 @@ class DownloadBlockDataStepTest {
 
   @BeforeEach
   void setUp() {
-    when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
-    when(ethContext.getPeerTaskExecutor()).thenReturn(peerTaskExecutor);
+    lenient().when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
+    lenient().when(ethContext.getPeerTaskExecutor()).thenReturn(peerTaskExecutor);
     Block parent = generator.genesisBlock();
     for (int number = 1; number <= 3; number++) {
       final BlockWithAccessList block =
@@ -130,6 +133,22 @@ class DownloadBlockDataStepTest {
     assertThat(batch.blockAccessLists()).isEmpty();
     assertThat(batch.receipts()).isEmpty();
     assertThat(batch.blocks()).hasSize(3);
+  }
+
+  @Test
+  void stopsWaitingForTheBalsAfterTheTimeout() {
+    final DeterministicEthScheduler scheduler =
+        new DeterministicEthScheduler(TimeoutPolicy.ALWAYS_TIMEOUT);
+    // the download only runs once the batch stopped waiting for it
+    scheduler.disableAutoRun();
+    when(ethContext.getScheduler()).thenReturn(scheduler);
+
+    final BlockBatch batch = step(-1, this::serveReceipts).apply(syncBlocks).join();
+    scheduler.runPendingFutures();
+
+    assertThat(batch.blockAccessLists()).isEmpty();
+    assertThat(batch.blocks()).hasSize(3);
+    verify(peerTaskExecutor, never()).execute(any(GetBlockAccessListsFromPeerTask.class));
   }
 
   private DownloadBlockDataStep step(

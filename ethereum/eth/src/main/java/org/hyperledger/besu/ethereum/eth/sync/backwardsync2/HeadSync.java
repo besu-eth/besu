@@ -56,9 +56,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Syncs the chain to one head, on two pipelines: the headers from the head down to the finalized
- * block, then the blocks above the chain, the next batches downloading while one imports. Finalized
- * blocks are imported from their block access list instead of being executed.
+ * Syncs the chain to one head, on two pipelines: the headers from the head down to the chain, then
+ * the blocks above the chain, the next batches downloading while one imports. Finalized blocks are
+ * imported from their block access list instead of being executed.
  */
 class HeadSync {
 
@@ -121,27 +121,23 @@ class HeadSync {
   void syncTo(final Head head) {
     final BlockHeader target =
         head.block().map(Block::getHeader).orElseGet(() -> downloadHeader(head.hash()));
-    final BlockHeader anchor = anchor();
-    checkState(
-        target.getNumber() > anchor.getNumber(),
-        "Head %s is not above %s",
-        target.toLogString(),
-        anchor.toLogString());
-    LOG.info("Backward sync from {} to {}", anchor.toLogString(), target.toLogString());
+    LOG.info("Backward sync to {}", target.toLogString());
     headerStore.clear();
     try {
-      final long finalizedNumber = downloadHeaders(target, anchor);
-      importBlocks(head, target, anchor, finalizedNumber);
+      final StoreHeadersStep storeHeaders =
+          new StoreHeadersStep(headerStore, target, finalizedBlockHash);
+      final BlockHeader anchor = downloadHeaders(target, storeHeaders);
+      importBlocks(head, target, anchor, storeHeaders.finalizedNumber());
     } finally {
       headerStore.clear();
     }
   }
 
   /**
-   * The block the headers are downloaded down to: the finalized block of the consensus client if
-   * the chain holds it, else the finalized block of the chain, so that no fork reaches below it.
+   * The finalized block of the consensus client if the chain holds it, else the finalized block of
+   * the chain: no fork reaches below it.
    */
-  private BlockHeader anchor() {
+  private BlockHeader finalizedBlock() {
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
     return blockchain
         .getBlockHeader(finalizedBlockHash.get())
@@ -170,23 +166,33 @@ class HeadSync {
   }
 
   /**
-   * Stores the headers from {@code target} down to {@code anchor}, excluded.
+   * Stores the headers from {@code target} down to the block of the chain they descend from: the
+   * chain head, which a new head almost always extends, else the finalized block. A sync that
+   * stopped halfway so resumes above the blocks it imported.
    *
-   * @return the number of the finalized block among them, -1 if it is not one of them
+   * @return the block of the chain the stored headers descend from
    */
-  private long downloadHeaders(final BlockHeader target, final BlockHeader anchor) {
+  private BlockHeader downloadHeaders(
+      final BlockHeader target, final StoreHeadersStep storeHeaders) {
     headerStore.putAll(List.of(target));
-    final StoreHeadersStep storeHeaders =
-        new StoreHeadersStep(headerStore, target, anchor.getNumber(), finalizedBlockHash);
-    if (target.getNumber() - 1 > anchor.getNumber()) {
-      runToEnd(headersPipeline(target.getNumber() - 1, anchor.getNumber(), storeHeaders));
+    final BlockHeader finalized = finalizedBlock();
+    for (final BlockHeader anchor :
+        List.of(protocolContext.getBlockchain().getChainHeadHeader(), finalized)) {
+      walkDownTo(anchor, storeHeaders);
+      if (storeHeaders.lowest().getParentHash().equals(anchor.getHash())) {
+        return anchor;
+      }
     }
-    checkState(
-        storeHeaders.lowest().getParentHash().equals(anchor.getHash()),
-        "Head %s does not descend from %s",
-        target.toLogString(),
-        anchor.toLogString());
-    return storeHeaders.finalizedNumber();
+    throw new IllegalStateException(
+        "Head " + target.toLogString() + " does not descend from " + finalized.toLogString());
+  }
+
+  // stores the headers below the lowest one stored, down to the anchor excluded
+  private void walkDownTo(final BlockHeader anchor, final StoreHeadersStep storeHeaders) {
+    final long top = storeHeaders.lowest().getNumber() - 1;
+    if (top > anchor.getNumber()) {
+      runToEnd(headersPipeline(top, anchor.getNumber(), storeHeaders));
+    }
   }
 
   /** Imports the stored blocks the chain does not hold, up to {@code head}. */
@@ -274,7 +280,7 @@ class HeadSync {
             protocolSchedule,
             ethContext,
             new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
-            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
+            DownloadBlockDataStep.OPTIONAL_DOWNLOAD_TIMEOUT);
     return PipelineBuilder.createPipelineFrom(
             "blockSource",
             batchStarts,

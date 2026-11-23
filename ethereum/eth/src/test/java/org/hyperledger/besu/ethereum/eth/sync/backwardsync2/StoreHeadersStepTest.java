@@ -86,7 +86,7 @@ class StoreHeadersStepTest {
   }
 
   private StoreHeadersStep step(final Hash finalizedBlockHash) {
-    return new StoreHeadersStep(headerStore, chain.get(10), 0, () -> finalizedBlockHash);
+    return new StoreHeadersStep(headerStore, chain.get(10), () -> finalizedBlockHash);
   }
 
   private List<BlockHeader> descending(final int from, final int to) {
