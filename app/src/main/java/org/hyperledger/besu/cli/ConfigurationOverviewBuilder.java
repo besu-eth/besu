@@ -71,6 +71,7 @@ public class ConfigurationOverviewBuilder {
   private BesuPluginContextImpl besuPluginContext;
   private boolean isHistoryExpiryPruneEnabled = false;
   private boolean isParallelTxProcessingEnabled = false;
+  private boolean isMempoolPrewarmEnabled = false;
   private ChainPruningStrategy chainPruningStrategy = ChainPruningStrategy.NONE;
   private Long chainPruningBlocksRetained;
   private Long chainPruningBalsRetained;
@@ -406,6 +407,18 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
+   * Sets whether mempool prewarming is enabled.
+   *
+   * @param isMempoolPrewarmEnabled mempool prewarming enabled
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setMempoolPrewarmEnabled(
+      final boolean isMempoolPrewarmEnabled) {
+    this.isMempoolPrewarmEnabled = isMempoolPrewarmEnabled;
+    return this;
+  }
+
+  /**
    * Sets the target gas limit.
    *
    * @param targetGasLimit the target gas limit
@@ -578,6 +591,12 @@ public class ConfigurationOverviewBuilder {
       lines.add("Parallel transaction processing enabled");
     } else {
       lines.add("Parallel transaction processing disabled");
+    }
+
+    if (isMempoolPrewarmEnabled) {
+      lines.add("Mempool prewarming enabled");
+    } else {
+      lines.add("Mempool prewarming disabled");
     }
 
     if (isLimitTrieLogsEnabled) {

@@ -411,6 +411,11 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     LOG.atTrace().setMessage("{}").addArgument(ethPeers::toString).log();
   }
 
+  private static boolean isValidEth69Status(final StatusMessage status) {
+    return status.isEth69Compatible()
+        && status.blockRange().filter(r -> r.isValidWith(status.bestHash())).isPresent();
+  }
+
   private void handleStatusMessage(final EthPeer peer, final Message message) {
     final StatusMessage status = StatusMessage.readFrom(message.getData());
     final ForkId forkId = status.forkId();
@@ -448,7 +453,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
         handleDisconnect(
             peer.getConnection(), DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY, false);
       } else if (EthProtocol.isEth69Compatible(peer.getConnection().capability(EthProtocol.NAME))
-          && !status.isEth69Compatible()) {
+          && !isValidEth69Status(status)) {
         LOG.atDebug()
             .setMessage("{} sent invalid status message {}")
             .addArgument(peer::toString)

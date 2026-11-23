@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.transaction;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.evm.tracing.OperationTracer.NO_TRACING;
 import static org.mockito.ArgumentMatchers.any;
@@ -1037,7 +1036,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
             legacyTransactionCallParameterBuilder().build(),
             unpriced,
             Optional.empty(),
-            MIN_BLOB_GASPRICE),
+            BLOCK_BLOB_GAS_PRICE),
         Arguments.of(
             "priced, no blobs",
             legacyTransactionCallParameterBuilder().gasPrice(Wei.ONE).build(),

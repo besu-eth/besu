@@ -1579,7 +1579,7 @@ public class BesuCommandTest extends CommandTestAbstract {
 
   @Test
   public void balPrefetchReadingDisabledDoesNotForceBonsaiCrossBlockCache() {
-    parseCommand("--Xbal-prefetch-reading-enabled=false");
+    parseCommand("--Xbal-prefetch-reading-enabled=false", "--mempool-prewarm-enabled=false");
     verify(mockControllerBuilder)
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
 
@@ -1596,8 +1596,32 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void mempoolPrewarmingAutoEnablesBonsaiCrossBlockCache() {
-    parseCommand("--Xbal-prefetch-reading-enabled=false", "--Xmempool-prewarm-enabled=true");
+  public void mempoolPrewarmingOnByDefaultAutoEnablesBonsaiCrossBlockCache() {
+    parseCommand("--Xbal-prefetch-reading-enabled=false");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfiguration =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(
+            dataStorageConfiguration
+                .getExtraStorageConfiguration()
+                .getUnstable()
+                .getBonsaiCrossBlockCacheEnabled())
+        .isTrue();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void mempoolPrewarmingEnabledWithGenesisFileAutoEnablesBonsaiCrossBlockCache()
+      throws IOException {
+    final Path genesisFile = createFakeGenesisFile(GENESIS_VALID_JSON);
+    parseCommand(
+        "--genesis-file",
+        genesisFile.toString(),
+        "--Xbal-prefetch-reading-enabled=false",
+        "--mempool-prewarm-enabled");
     verify(mockControllerBuilder)
         .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
 
@@ -3100,6 +3124,37 @@ public class BesuCommandTest extends CommandTestAbstract {
                 .getUnstable()
                 .getBonsaiArchiveStateProofsEnabled())
         .isTrue();
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsRejectSnapSync() {
+    parseCommand(
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-enabled",
+        "--sync-mode=SNAP");
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not SNAP");
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsRejectDefaultSnapSync() {
+    parseCommand(
+        "--network=sepolia",
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-enabled");
+    verifyNoInteractions(mockRunnerBuilder);
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--Xbonsai-archive-state-proofs-enabled needs --sync-mode=FULL, not SNAP");
+  }
+
+  @Test
+  public void bonsaiArchiveStateProofsAcceptFullSync() {
+    parseCommand(
+        "--data-storage-format=X_BONSAI_ARCHIVE",
+        "--Xbonsai-archive-state-proofs-enabled",
+        "--sync-mode=FULL");
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
