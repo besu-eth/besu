@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 /**
  * Backward sync on the Besu pipelines. While the chain does not hold the latest head the consensus
@@ -66,6 +67,8 @@ public class BackwardSyncV2 implements BackwardSync {
       };
   private Head latestHead;
   private boolean running;
+  // the reason the last sync stopped, null once a sync succeeds
+  private String lastFailure;
   private CompletableFuture<Void> sync = CompletableFuture.completedFuture(null);
 
   public BackwardSyncV2(
@@ -149,21 +152,29 @@ public class BackwardSyncV2 implements BackwardSync {
       }
       LOG.info("Backward sync done");
     } catch (final RuntimeException | Error e) {
-      synchronized (this) {
-        running = false;
-      }
-      LOG.info(
-          "Backward sync stopped ({}), the next head from the consensus client restarts it",
-          e.getMessage());
-      LOG.debug("Backward sync failure", e);
+      stoppedBy(e);
       throw e;
     }
+  }
+
+  /** Logs a failure once while every head that restarts the sync fails the same way. */
+  private synchronized void stoppedBy(final Throwable failure) {
+    running = false;
+    final String reason = String.valueOf(failure.getMessage());
+    LOG.atLevel(reason.equals(lastFailure) ? Level.DEBUG : Level.INFO)
+        .setMessage(
+            "Backward sync stopped ({}), the next head from the consensus client restarts it")
+        .addArgument(reason)
+        .log();
+    LOG.debug("Backward sync failure", failure);
+    lastFailure = reason;
   }
 
   /** The head to sync to next, empty once the chain holds the latest one, the sync then done. */
   private synchronized Optional<Head> nextHead() {
     if (protocolContext.getBlockchain().contains(latestHead.hash())) {
       running = false;
+      lastFailure = null;
       recentPayloads.clear();
       return Optional.empty();
     }
