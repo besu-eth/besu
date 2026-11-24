@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -131,7 +132,20 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
     if (worldState instanceof BonsaiWorldState) {
       ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
     }
-    return processBlockSequentially(context);
+    return processBlockSequentially(context)
+        .withSequentialFallback(blockProcessingResult.errorMessage);
+  }
+
+  @Override
+  protected ExecutionPath getSequentialExecutionPath(final ProtocolContext protocolContext) {
+    return isPathBased(protocolContext)
+        ? ExecutionPath.SEQUENTIAL
+        : ExecutionPath.SEQUENTIAL_NOT_PATH_BASED;
+  }
+
+  /** Whether the world state can run transactions in parallel. */
+  private static boolean isPathBased(final ProtocolContext protocolContext) {
+    return protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider;
   }
 
   /** Whether parallel execution runs on {@link BalConcurrentTransactionProcessor}. */
@@ -167,7 +181,7 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<BlockHeader> maybeParentHeader) {
-    if (!(protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider)) {
+    if (!isPathBased(protocolContext)) {
       return Optional.empty();
     }
 

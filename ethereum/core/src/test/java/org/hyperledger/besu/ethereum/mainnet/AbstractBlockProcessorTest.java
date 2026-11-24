@@ -29,6 +29,8 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockProcessingResult.ExecutionPath;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -208,6 +210,21 @@ abstract class AbstractBlockProcessorTest {
             .blockAccessList(Optional.empty())
             .build());
     verify(withdrawalsProcessor, never()).processWithdrawals(any(), any(), any(), any());
+  }
+
+  @Test
+  void sequentialImport_RecordsSequentialExecutionPath() {
+    when(protocolSpec.getWithdrawalsProcessor()).thenReturn(Optional.empty());
+    final Block block = testBlockBuilder(emptyList());
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(block)
+                .blockAccessList(Optional.empty())
+                .build());
+    assertThat(result.getExecutionPath()).contains(ExecutionPath.SEQUENTIAL);
   }
 
   @Test

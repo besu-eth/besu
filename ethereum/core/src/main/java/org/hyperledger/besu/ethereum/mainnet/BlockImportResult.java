@@ -14,9 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+
+import java.util.Optional;
+
 /** The result of a block import. */
 public class BlockImportResult {
   private final BlockImportStatus status;
+  private final Optional<BlockProcessingResult> processingResult;
 
   public enum BlockImportStatus {
     IMPORTED,
@@ -26,10 +31,25 @@ public class BlockImportResult {
 
   public BlockImportResult(final boolean status) {
     this.status = status ? BlockImportStatus.IMPORTED : BlockImportStatus.NOT_IMPORTED;
+    this.processingResult = Optional.empty();
+  }
+
+  /**
+   * A block import result carrying the result of processing the block.
+   *
+   * @param processingResult the result of validating and processing the block
+   */
+  public BlockImportResult(final BlockProcessingResult processingResult) {
+    this.status =
+        processingResult.isSuccessful()
+            ? BlockImportStatus.IMPORTED
+            : BlockImportStatus.NOT_IMPORTED;
+    this.processingResult = Optional.of(processingResult);
   }
 
   public BlockImportResult(final BlockImportStatus status) {
     this.status = status;
+    this.processingResult = Optional.empty();
   }
 
   /**
@@ -44,5 +64,23 @@ public class BlockImportResult {
 
   public BlockImportStatus getStatus() {
     return status;
+  }
+
+  /**
+   * The result of validating and processing the block, when the importer reports one.
+   *
+   * @return the processing result, or empty
+   */
+  public Optional<BlockProcessingResult> getProcessingResult() {
+    return processingResult;
+  }
+
+  /**
+   * The validation error that rejected the block, when the importer reports one.
+   *
+   * @return the error message, or empty
+   */
+  public Optional<String> getErrorMessage() {
+    return processingResult.flatMap(result -> result.errorMessage);
   }
 }
