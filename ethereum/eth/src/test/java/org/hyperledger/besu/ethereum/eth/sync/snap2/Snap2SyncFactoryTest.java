@@ -184,6 +184,14 @@ class Snap2SyncFactoryTest {
   }
 
   @Test
+  void keepsSnap2WithASyncFolderThatHoldsNoSyncState() throws IOException {
+    // a SNAP start creates the folder, even on a synced node the sync never runs on
+    Files.createDirectories(dataDirectory.resolve("syncFolder"));
+
+    assertThat(snap2OrSnap(1_000L, 10_000)).isSameAs(SNAP2);
+  }
+
+  @Test
   void dropsTheSnap2SyncThatWaitedForTheFork() throws IOException {
     Files.createFile(marker());
 
