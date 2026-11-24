@@ -19,6 +19,7 @@ import static org.slf4j.LoggerFactory.getLogger;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
+import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
@@ -74,6 +75,12 @@ public class GetTrieNodeFromPeerTask extends AbstractPeerRequestTask<Map<Bytes, 
         metricsSystem);
   }
 
+  // snap/2 has no trie node requests, so a peer that agreed on it disconnects on one
+  static boolean answersTrieNodeRequests(final EthPeerImmutableAttributes peer) {
+    return peer.isServingSnap()
+        && peer.ethPeer().getAgreedCapabilities().contains(SnapProtocolVersion.V1.getCapability());
+  }
+
   @Override
   protected PendingPeerRequest sendRequest() {
     return sendRequestToPeer(
@@ -100,7 +107,7 @@ public class GetTrieNodeFromPeerTask extends AbstractPeerRequestTask<Map<Bytes, 
 
           @Override
           public boolean isEthPeerSuitable(final EthPeerImmutableAttributes ethPeer) {
-            return ethPeer.isServingSnap();
+            return answersTrieNodeRequests(ethPeer);
           }
         },
         blockHeader.getNumber());

@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.blockcreation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
@@ -49,8 +51,12 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -201,6 +207,48 @@ class MempoolPrewarmerTest {
   }
 
   @Test
+  void runsTransactionsWithATracerThatAllowsTheJournal() {
+    final List<OperationTracer> tracers = new CopyOnWriteArrayList<>();
+    final ProtocolSchedule protocolSchedule = spy(fixture.getProtocolSchedule());
+    doAnswer(
+            invocation -> {
+              final ProtocolSpec spec = spy((ProtocolSpec) invocation.callRealMethod());
+              final MainnetTransactionProcessor transactionProcessor =
+                  spy(spec.getTransactionProcessor());
+              doAnswer(
+                      call -> {
+                        tracers.add(call.getArgument(4));
+                        return call.callRealMethod();
+                      })
+                  .when(transactionProcessor)
+                  .processTransaction(any(), any(), any(), any(), any(), any(), any(), any());
+              doReturn(transactionProcessor).when(spec).getTransactionProcessor();
+              return spec;
+            })
+        .when(protocolSchedule)
+        .getForNextBlockHeader(any(), anyLong());
+    prewarmer.close();
+    prewarmer =
+        new MempoolPrewarmer(
+            fixture.getProtocolContext(),
+            protocolSchedule,
+            transactionPool,
+            MiningConfiguration.newDefault(),
+            2,
+            4,
+            metricsSystem,
+            clock);
+    addCandidate(transfer(0));
+
+    prewarmer.start(head());
+    awaitExecuted(1);
+
+    assertThat(tracers)
+        .isNotEmpty()
+        .allSatisfy(tracer -> assertThat(tracer.allowsJournal()).isTrue());
+  }
+
+  @Test
   void leavesTheHeadStateAsItIs() {
     final MutableWorldState headState = fixture.getStateArchive().getWorldState();
     final Hash rootHash = headState.rootHash();
@@ -303,6 +351,73 @@ class MempoolPrewarmerTest {
   void doesNotStartAgainForTheHeadABlockIsBuiltOn() {
     prewarmer.start(head());
     prewarmer.stopForBlockBuilding();
+    addCandidate(transfer(0));
+
+    prewarmer.start(head());
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+  }
+
+  @Test
+  void startsForAHeadReceivedWhileABlockExecutesOnceTheExecutionEnds() {
+    addCandidate(transfer(0));
+    prewarmer.stopForExecution(childBlock());
+    prewarmer.start(head());
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+
+    prewarmer.executionEnded();
+    awaitExecuted(1);
+  }
+
+  @Test
+  void startsOnlyOnceEveryExecutingBlockHasEnded() {
+    addCandidate(transfer(0));
+    prewarmer.stopForExecution(childBlock());
+    prewarmer.stopForExecution(childBlock());
+    prewarmer.start(head());
+    prewarmer.executionEnded();
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+
+    prewarmer.executionEnded();
+    awaitExecuted(1);
+  }
+
+  @Test
+  void doesNotStartAfterAnExecutionForTheHeadABlockIsBuiltOn() {
+    addCandidate(transfer(0));
+    prewarmer.stopForExecution(childBlock());
+    prewarmer.start(head());
+    prewarmer.stopForBlockBuilding();
+    prewarmer.executionEnded();
+
+    // longer than several passes take
+    Awaitility.await()
+        .during(Duration.ofSeconds(1))
+        .atMost(Duration.ofSeconds(3))
+        .until(() -> executed() == 0);
+  }
+
+  @Test
+  void doesNotStartAfterAnExecutionForTheHeadABlockIsBuiltOnWhileAnotherHeadWasWarmed() {
+    prewarmer.start(childBlock().getHeader());
+    prewarmer.stopForExecution(childBlock());
+    prewarmer.start(head());
+    prewarmer.stopForBlockBuilding();
+    prewarmer.executionEnded();
     addCandidate(transfer(0));
 
     prewarmer.start(head());

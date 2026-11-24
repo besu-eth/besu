@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.eth.manager.MergePeerFilter;
 import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskRequestSender;
+import org.hyperledger.besu.ethereum.eth.manager.snap.Snap2Advertiser;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
@@ -74,6 +75,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.Snap2SyncFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.ForkchoiceHeadTracker;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -688,6 +690,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final List<Closeable> closeables = new ArrayList<>();
     final ProtocolSchedule protocolSchedule = createProtocolSchedule();
+    final boolean snap2Requested = syncConfig.getSyncMode() == SyncMode.SNAP2;
+    syncConfig =
+        Snap2SyncFactory.snap2OrSnap(
+            syncConfig, amsterdamOrLaterMilestone(protocolSchedule), clock, dataDirectory);
 
     final VariablesStorage variablesStorage = storageProvider.createVariablesStorage();
 
@@ -924,6 +930,15 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             snapMessages,
             scheduler,
             synchronizer);
+    // a SNAP2 node that syncs with SNAP serves block access lists over snap/2 once it holds them,
+    // through the snap server, which only runs on Bonsai
+    if (snap2Requested
+        && syncConfig.getSyncMode() == SyncMode.SNAP
+        && syncConfig.getSnapSyncConfiguration().isSnapServerEnabled()
+        && dataStorageConfiguration.getDataStorageFormat().isBonsaiFormat()) {
+      maybeSnapProtocolManager.ifPresent(
+          snapProtocolManager -> Snap2Advertiser.start(snapProtocolManager, syncState, blockchain));
+    }
 
     final MiningCoordinator miningCoordinator =
         createMiningCoordinator(

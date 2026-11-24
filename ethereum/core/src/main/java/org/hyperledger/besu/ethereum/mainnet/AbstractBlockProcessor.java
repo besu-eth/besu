@@ -262,6 +262,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             cumulativeExecutionGasUsed,
             cumulativeStateGasUsed,
             protocolSpec)) {
+          resetWorldStateOnFailure(worldState);
           return BlockProcessingResult.INSUFFICIENT_BLOCK_GAS;
         }
 
@@ -287,9 +288,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   blockHeader.getHash().getBytes().toHexString(),
                   transaction.getHash().getBytes().toHexString());
           LOG.info(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
-          }
+          resetWorldStateOnFailure(worldState);
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
 
@@ -320,6 +319,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 .getBlockGasAccountingStrategy()
                 .effectiveGasUsed(cumulativeExecutionGasUsed, cumulativeStateGasUsed);
         if (gasMeteredSoFar > blockHeader.getGasLimit()) {
+          resetWorldStateOnFailure(worldState);
           return new BlockProcessingResult(Optional.empty(), "gas metered exceeds block gas limit");
         }
 
@@ -355,9 +355,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   "block did not consume expected blob gas: header %d, transactions %d",
                   headerBlobGasUsed, currentBlobGasUsed);
           LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
+          resetWorldStateOnFailure(worldState);
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
       }
@@ -395,9 +393,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   blockAccessListBuilder);
         } catch (final Exception e) {
           LOG.error("failed processing withdrawals", e);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
+          resetWorldStateOnFailure(worldState);
           return new BlockProcessingResult(Optional.empty(), e);
         }
       }
@@ -418,9 +414,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       } catch (final Exception e) {
         LOG.error("failed processing requests", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
+        resetWorldStateOnFailure(worldState);
         return new BlockProcessingResult(Optional.empty(), e);
       }
 
@@ -435,9 +429,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           final String errorMessage =
               "Block has execution requests but header is missing the requestsHash field";
           LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
+          resetWorldStateOnFailure(worldState);
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
         final List<Request> requests = maybeRequests.get();
@@ -450,9 +442,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   calculatedRequestHash.getBytes().toHexString(),
                   headerRequestsHash.getBytes().toHexString());
           LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-          }
+          resetWorldStateOnFailure(worldState);
           return new BlockProcessingResult(Optional.empty(), errorMessage);
         }
       }
@@ -461,9 +451,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           .getBlockRewardProcessor()
           .rewardBeneficiaries(worldState, blockHeader, ommers, miningBeneficiary)) {
         // no need to log, rewardBeneficiaries logs the error.
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
+        resetWorldStateOnFailure(worldState);
         return new BlockProcessingResult(Optional.empty(), "ommer too old");
       }
 
@@ -480,9 +468,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                       blockAccessList,
                       balConfiguration.shouldLogBalsOnMismatch());
           if (constructedBalError.isPresent()) {
-            if (worldState instanceof BonsaiWorldState) {
-              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-            }
+            resetWorldStateOnFailure(worldState);
             return new BlockProcessingResult(
                 Optional.empty(),
                 constructedBalError.get().errorMessage(),
@@ -496,9 +482,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         }
       } catch (Exception e) {
         LOG.error("Error validating block access list", e);
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
+        resetWorldStateOnFailure(worldState);
         return new BlockProcessingResult(Optional.empty(), e);
       }
 
@@ -512,9 +496,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<BlockExecutionContext.OutputValidator> outputValidator =
           context.getOutputValidator();
       if (outputValidator.isPresent() && !outputValidator.get().validate(receipts, gasMetered)) {
-        if (worldState instanceof BonsaiWorldState) {
-          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-        }
+        resetWorldStateOnFailure(worldState);
         return new BlockProcessingResult(
             Optional.empty(), "failed to validate output of imported block");
       }
@@ -548,9 +530,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           parallelizedTxFound ? Optional.of(nbParallelTx) : Optional.empty());
     } catch (final MerkleTrieException | StorageException e) {
       // the block may be processed again on this world state, without the transactions before
-      if (worldState instanceof BonsaiWorldState) {
-        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-      }
+      resetWorldStateOnFailure(worldState);
       throw e;
     } finally {
       stateRootCommitter.cancel();
@@ -662,6 +642,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     }
 
     return true;
+  }
+
+  // the world state can be reused for another block on the same parent, which must not see the
+  // changes of the failed block
+  private static void resetWorldStateOnFailure(final MutableWorldState worldState) {
+    if (worldState instanceof BonsaiWorldState) {
+      ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+    }
   }
 
   private Optional<AccessLocationTracker> createTransactionAccessLocationTracker(

@@ -18,6 +18,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
@@ -31,14 +32,16 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.StreamSupport;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -107,7 +110,38 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<B
     }
     final BlockAccessListsMessage balMessage = BlockAccessListsMessage.readFrom(messageData);
     try {
-      return StreamSupport.stream(balMessage.blockAccessLists().spliterator(), false).toList();
+      final List<Optional<BlockAccessList>> result = new ArrayList<>();
+      int noOfBalsReceived = 0;
+      for (final Bytes rawBalRlp : balMessage.blockAccessListsRaw()) {
+        if (noOfBalsReceived >= blockHeaders.size()) {
+          throw new MalformedRlpFromPeerException(
+              "Too many block access lists returned", messageData.getData());
+        }
+        if (RLP.NULL.equals(rawBalRlp)) {
+          // The peer may legitimately not have a BAL beyond the history expiry window.
+          // TODO: Verify legitimacy of BAL unavailability.
+          result.add(Optional.empty());
+          noOfBalsReceived++;
+          continue;
+        }
+
+        final Hash expectedBalHash = blockHeaders.get(noOfBalsReceived).getBalHash().orElseThrow();
+        final Hash actualBalHash = BodyValidation.balHash(rawBalRlp);
+        if (!expectedBalHash.equals(actualBalHash)) {
+          LOG.atDebug()
+              .setMessage(
+                  "Received mismatched block access list at index {}: expected hash {}, actual hash {}")
+              .addArgument(noOfBalsReceived)
+              .addArgument(expectedBalHash)
+              .addArgument(actualBalHash)
+              .log();
+          throw new MalformedRlpFromPeerException(
+              "Block access list hash does not match query", messageData.getData());
+        }
+        result.add(Optional.of(BlockAccessListDecoder.decode(RLP.input(rawBalRlp))));
+        noOfBalsReceived++;
+      }
+      return result;
     } catch (RLPException e) {
       throw new MalformedRlpFromPeerException(e, messageData.getData());
     }
@@ -117,48 +151,6 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<B
   public PeerTaskValidationResponse validateResult(final List<Optional<BlockAccessList>> result) {
     if (result.isEmpty()) {
       return PeerTaskValidationResponse.NO_RESULTS_RETURNED;
-    }
-
-    if (result.size() > blockHeaders.size()) {
-      LOG.atDebug()
-          .setMessage("Received invalid block access list response size: received={}, requested={}")
-          .addArgument(result::size)
-          .addArgument(blockHeaders::size)
-          .log();
-      return PeerTaskValidationResponse.TOO_MANY_RESULTS_RETURNED;
-    }
-
-    for (int i = 0; i < result.size(); i++) {
-      final Hash expectedBalHash = blockHeaders.get(i).getBalHash().orElse(null);
-      final Optional<BlockAccessList> maybeBal = result.get(i);
-      if (maybeBal.isEmpty()) {
-        // If the request BAL lies beyond the history expiry window, the peer may not have the BAL
-        // available
-        // legitimately. TODO: Verify legitimacy of BAL unavailability.
-        continue;
-      }
-
-      final int responseIndex = i;
-      final Hash actualBalHash =
-          BodyValidation.balHash(
-              maybeBal
-                  .get()
-                  .rawRlp()
-                  .orElseThrow(
-                      () ->
-                          new IllegalStateException(
-                              "Block access list raw RLP is missing at index " + responseIndex)));
-
-      if (expectedBalHash == null || !expectedBalHash.equals(actualBalHash)) {
-        LOG.atDebug()
-            .setMessage(
-                "Received mismatched block access list at index {}: expected hash {}, actual hash {}")
-            .addArgument(i)
-            .addArgument(expectedBalHash)
-            .addArgument(actualBalHash)
-            .log();
-        return PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY;
-      }
     }
 
     return PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD;

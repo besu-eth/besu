@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.RejectedParametersException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
@@ -62,11 +63,12 @@ public class DebugTraceCall extends AbstractTraceCall {
 
   @Override
   protected TraceOptions getTraceOptions(final JsonRpcRequestContext requestContext) {
+    final Optional<TransactionTraceParams> maybeTraceParams;
+    final TraceOptions traceOptions;
     try {
-      return requestContext
-          .getOptionalParameter(2, TransactionTraceParams.class)
-          .map(TransactionTraceParams::traceOptions)
-          .orElse(TraceOptions.DEFAULT);
+      maybeTraceParams = requestContext.getOptionalParameter(2, TransactionTraceParams.class);
+      traceOptions =
+          maybeTraceParams.map(TransactionTraceParams::traceOptions).orElse(TraceOptions.DEFAULT);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid transaction trace parameter (index 2)",
@@ -77,6 +79,12 @@ public class DebugTraceCall extends AbstractTraceCall {
       throw new InvalidJsonRpcParameters(
           e.getMessage(), RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS, e);
     }
+    if (maybeTraceParams.map(params -> params.blockOverrides() != null).orElse(false)) {
+      throw new RejectedParametersException(
+          "Block overrides are not supported in the trace config; use eth_simulateV1",
+          RpcErrorType.INVALID_PARAMS);
+    }
+    return traceOptions;
   }
 
   @Override
