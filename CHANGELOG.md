@@ -83,6 +83,7 @@
 - `debug_traceTransaction` and `debug_storageRangeAt` replay the block's earlier transactions as block import does, so an SSTORE of a slot one of them wrote is no longer charged differently on Bonsai, and their changes are no longer lost on Forest. [#11754](https://github.com/besu-eth/besu/pull/11754)
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork. With `--snapsync-server-enabled` on Bonsai, it advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
 - DNS discovery now compares each linked ENR tree with its own previous sequence number, so a linked tree with a higher sequence number no longer stops the tree that links to it from being read, and each refresh reads a tree or subtree at most once and stops after 50,000 records or 5 minutes.
+- A block import tracer that a plugin provides now sees every transaction of an imported block: the block runs sequentially while the tracer is enabled, as results from parallel execution never reached it. [#12042](https://github.com/besu-eth/besu/pull/12042)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
