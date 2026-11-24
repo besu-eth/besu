@@ -1,0 +1,26 @@
+{
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0x627306090abab3a6e1400e9345bc60c78a8bef57",
+        "to": "0x0000000000000000000000000000000000000001",
+        "gas": "0x5334"
+      },
+      "latest"
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 21300,
+      "failed": true,
+      "returnValue": "0x",
+      "structLogs": []
+    }
+  },
+  "statusCode": 200
+}
