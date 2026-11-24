@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.core.json;
 
 import java.io.IOException;
 import java.util.OptionalLong;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
@@ -30,10 +31,36 @@ public final class QuantityJson {
 
   private static final UInt64 LONG_MAX_VALUE = UInt64.valueOf(Long.MAX_VALUE);
 
+  /**
+   * Engine/execution-apis {@code uint64} QUANTITY: {@code 0x}-prefixed hex, no leading zeros except
+   * {@code 0x0}, at most 16 hex digits ({@code
+   * ^0x(0|[1-9a-fA-F][0-9a-fA-F]{0,15})$}). Hex digits may be upper or lower case; the {@code 0x}
+   * prefix must be lower case, matching the OpenRPC base type.
+   */
+  private static final Pattern UINT64_QUANTITY =
+      Pattern.compile("^0x(0|[1-9a-fA-F][0-9a-fA-F]{0,15})$");
+
   private QuantityJson() {}
 
   public static String format(final long value) {
     return "0x" + Long.toHexString(value);
+  }
+
+  /**
+   * Parses an Engine API {@code uint64} QUANTITY into a long (unsigned semantics for values above
+   * {@link Long#MAX_VALUE}).
+   *
+   * @param quantity the JSON string form of the quantity
+   * @return the value as a long
+   * @throws IllegalArgumentException if {@code quantity} is not a {@code 0x}-prefixed QUANTITY
+   */
+  public static long parseUint64(final String quantity) {
+    if (quantity == null || !UINT64_QUANTITY.matcher(quantity).matches()) {
+      throw new IllegalArgumentException(
+          "Invalid QUANTITY: must be a 0x-prefixed hex string with no leading zeros (except 0x0)"
+              + " and at most 16 hex digits");
+    }
+    return UInt64.fromHexString(quantity).toBytes().toLong();
   }
 
   public static class LongSerializer extends StdSerializer<Long> {
@@ -86,9 +113,7 @@ public final class QuantityJson {
     @Override
     public Long deserialize(final JsonParser jsonParser, final DeserializationContext context)
         throws IOException {
-      return UInt64.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class))
-          .toBytes()
-          .toLong();
+      return parseUint64(jsonParser.getCodec().readValue(jsonParser, String.class));
     }
   }
 
