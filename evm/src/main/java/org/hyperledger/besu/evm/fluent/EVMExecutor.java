@@ -24,11 +24,13 @@ import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
@@ -36,8 +38,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -61,7 +61,7 @@ public class EVMExecutor {
   private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
   private OperationTracer tracer = OperationTracer.NO_TRACING;
   private Set<Address> accessListWarmAddresses = new HashSet<>(Address.SIZE);
-  private Multimap<Address, Bytes32> accessListWarmStorage = HashMultimap.create();
+  private Set<AddressStorageSlotKey> accessListWarmStorage = new HashSet<>();
   private MessageCallProcessor messageCallProcessor = null;
   private ContractCreationProcessor contractCreationProcessor = null;
   private MessageFrame.Type messageFrameType = MessageFrame.Type.MESSAGE_CALL;
@@ -510,7 +510,7 @@ public class EVMExecutor {
    * @param accessListWarmStorage the access list warm storage
    * @return the evm executor
    */
-  public EVMExecutor accessListWarmStorage(final Multimap<Address, Bytes32> accessListWarmStorage) {
+  public EVMExecutor accessListWarmStorage(final Set<AddressStorageSlotKey> accessListWarmStorage) {
     this.accessListWarmStorage = accessListWarmStorage;
     return this;
   }
@@ -523,7 +523,8 @@ public class EVMExecutor {
    * @return the evm executor
    */
   public EVMExecutor accessListWarmStorage(final Address address, final Bytes32... slots) {
-    this.accessListWarmStorage.putAll(address, List.of(slots));
+    Arrays.stream(slots)
+        .forEach(slot -> accessListWarmStorage.add(new AddressStorageSlotKey(address, slot)));
     return this;
   }
 

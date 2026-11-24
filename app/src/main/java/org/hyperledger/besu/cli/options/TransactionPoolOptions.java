@@ -114,7 +114,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
   @CommandLine.Option(
       names = {RPC_TX_FEECAP},
       description =
-          "Maximum transaction fees (in Wei) accepted for transaction submitted through RPC (default: ${DEFAULT-VALUE})")
+          "Maximum transaction fees (in Wei) accepted for transaction submitted through RPC. A value of 0 caps fees to 0, rejecting any transaction with a positive gas price (default: ${DEFAULT-VALUE})")
   private Wei txFeeCap = TransactionPoolConfiguration.DEFAULT_RPC_TX_FEE_CAP;
 
   @CommandLine.Option(

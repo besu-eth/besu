@@ -976,6 +976,61 @@ public class EnodeURLImplTest {
   }
 
   @Test
+  public void testResolverGivesAddressAReverseRecord() throws UnknownHostException {
+    // Guards the tests below against passing vacuously: the address must have a PTR record.
+    assertThat(InetAddress.getByName(ReverseDnsTestResolverProvider.ADDRESS_WITH_PTR).getHostName())
+        .isEqualTo(ReverseDnsTestResolverProvider.PTR_NAME);
+  }
+
+  @Test
+  public void ipLiteralShouldNotBeReplacedByReverseLookupNameWhenDnsUpdateEnabled() {
+    final String literal = ReverseDnsTestResolverProvider.ADDRESS_WITH_PTR;
+    final String enodeString = String.format("enode://%s@%s:%d", VALID_NODE_ID, literal, 9999);
+    final int reverseLookupsBefore = ReverseDnsTestResolverProvider.REVERSE_LOOKUPS.get();
+
+    final EnodeURL enode =
+        EnodeURLImpl.fromString(
+            enodeString,
+            ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build());
+
+    assertThat(enode.toString()).isEqualTo(enodeString);
+    assertThat(enode.getHost()).isEqualTo(literal);
+    assertThat(enode.getIpAsString()).isEqualTo(literal);
+    assertThat(ReverseDnsTestResolverProvider.REVERSE_LOOKUPS.get())
+        .isEqualTo(reverseLookupsBefore);
+  }
+
+  @Test
+  public void ipv6LiteralShouldStayLiteralWhenDnsUpdateEnabled() {
+    final String enodeString =
+        String.format("enode://%s@%s:%d", VALID_NODE_ID, IPV6_FULL_ADDRESS, 9999);
+
+    final EnodeURL enode =
+        EnodeURLImpl.fromString(
+            enodeString,
+            ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build());
+
+    assertThat(enode.toURI())
+        .isEqualTo(
+            URI.create(
+                String.format("enode://%s@%s:%d", VALID_NODE_ID, IPV6_COMPACT_ADDRESS, 9999)));
+  }
+
+  @Test
+  public void hostnameShouldStillBeTrackedWhenDnsUpdateEnabled() {
+    final String hostname = ReverseDnsTestResolverProvider.PTR_NAME;
+    final String enodeString = String.format("enode://%s@%s:%d", VALID_NODE_ID, hostname, 9999);
+
+    final EnodeURL enode =
+        EnodeURLImpl.fromString(
+            enodeString,
+            ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build());
+
+    assertThat(enode.toString()).isEqualTo(enodeString);
+    assertThat(enode.getIpAsString()).isEqualTo(ReverseDnsTestResolverProvider.ADDRESS_WITH_PTR);
+  }
+
+  @Test
   public void getHostShouldReturnHostNameIpv4() {
     final EnodeURL enode =
         EnodeURLImpl.builder()

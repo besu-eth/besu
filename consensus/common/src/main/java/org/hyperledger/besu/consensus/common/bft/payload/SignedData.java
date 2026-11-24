@@ -27,6 +27,7 @@ import java.util.Objects;
 import java.util.StringJoiner;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The type Signed data.
@@ -57,7 +58,8 @@ public class SignedData<M extends Payload> implements Authored {
     return new SignedData<>(payload, Util.signatureToAddress(signature, msgHash), signature);
   }
 
-  private SignedData(final M unsignedPayload, final Address sender, final SECPSignature signature) {
+  private SignedData(
+      final M unsignedPayload, final @Nullable Address sender, final SECPSignature signature) {
     if (!(signature.getS().compareTo(HALF_CURVE_ORDER) <= 0)) {
       throw new IllegalArgumentException("Signature is invalid");
     }

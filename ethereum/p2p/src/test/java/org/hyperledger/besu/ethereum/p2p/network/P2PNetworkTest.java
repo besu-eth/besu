@@ -134,6 +134,32 @@ public class P2PNetworkTest {
   }
 
   @Test
+  public void peersConnectingAfterACapabilityIsAddedAgreeOnIt() throws Exception {
+    final Capability eth68 = Capability.create("eth", 68);
+    final Capability eth69 = Capability.create("eth", 69);
+    try (final P2PNetwork listener = createP2PNetwork(NodeKeyUtils.generate(), List.of(eth68));
+        final P2PNetwork before = createP2PNetwork(NodeKeyUtils.generate(), List.of(eth68, eth69));
+        final P2PNetwork after = createP2PNetwork(NodeKeyUtils.generate(), List.of(eth68, eth69))) {
+      for (final P2PNetwork network : List.of(listener, before, after)) {
+        network
+            .getRlpxAgent()
+            .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
+        network.start();
+      }
+      final EnodeURL listenerEnode = listener.getLocalEnode().get();
+      final Peer listenerPeer =
+          createPeer(listenerEnode.getNodeId(), listenerEnode.getListeningPort().get());
+
+      final PeerConnection earlier = before.connect(listenerPeer).get(30L, TimeUnit.SECONDS);
+      listener.addCapability(eth69);
+      final PeerConnection later = after.connect(listenerPeer).get(30L, TimeUnit.SECONDS);
+
+      assertThat(earlier.getAgreedCapabilities()).containsExactly(eth68);
+      assertThat(later.getAgreedCapabilities()).containsExactly(eth69);
+    }
+  }
+
+  @Test
   public void rejectPeerWithNoSharedCaps() throws Exception {
     final NodeKey listenerNodeKey = NodeKeyUtils.generate();
     final NodeKey connectorNodeKey = NodeKeyUtils.generate();

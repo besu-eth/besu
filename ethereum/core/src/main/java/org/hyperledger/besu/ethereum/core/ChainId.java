@@ -200,22 +200,9 @@ public final class ChainId implements org.hyperledger.besu.datatypes.ChainId {
   }
 
   /**
-   * Reads a chain id encoded as an RLP scalar, without allocating when the value is the network
-   * chain id.
-   *
-   * @param input the RLP input
-   * @return the chain id
-   */
-  public static ChainId readFrom(final RLPInput input) {
-    if (input.nextSize() < Long.BYTES) {
-      return of(input.readLongScalar());
-    }
-    return of(input.readBigIntegerScalar());
-  }
-
-  /**
    * Reads a chain id encoded as an RLP scalar of at most the given size, without allocating when
-   * the value is the network chain id.
+   * the value is the network chain id. There is deliberately no unbounded variant: a chain id that
+   * does not match is rendered in decimal when rejected, which is superlinear in its width.
    *
    * @param input the RLP input
    * @param maxSizeBytes the maximum accepted size of the encoded value

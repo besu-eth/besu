@@ -25,6 +25,8 @@ import org.hyperledger.besu.consensus.ibft.messagewrappers.Commit;
 import org.hyperledger.besu.consensus.ibft.messagewrappers.Prepare;
 import org.hyperledger.besu.consensus.ibft.messagewrappers.Proposal;
 import org.hyperledger.besu.consensus.ibft.payload.MessageFactory;
+import org.hyperledger.besu.crypto.SECPSignature;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Util;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
@@ -166,6 +169,31 @@ public class SignedDataValidatorTest {
 
     assertThat(validator.validateProposal(proposalMsg.getSignedPayload())).isTrue();
     assertThat(validator.validateCommit(commitMsg.getSignedPayload())).isFalse();
+  }
+
+  @Test
+  public void receivingACommitMessageWhoseSealDoesNotRecoverFailsWithoutThrowing() {
+    final Proposal proposalMsg =
+        proposerMessageFactory.createProposal(roundIdentifier, block, Optional.empty());
+
+    // A well-formed Commit from a current validator (the proposer) carrying a seal that does not
+    // recover to an address. Util.signatureToAddress returns null for it, so without the guard
+    // validateCommit dereferences null and throws, losing the round for everyone revalidating it.
+    final Commit commitMsg =
+        proposerMessageFactory.createCommit(roundIdentifier, block.getHash(), nonRecoverableSeal());
+
+    assertThat(validator.validateProposal(proposalMsg.getSignedPayload())).isTrue();
+    assertThat(validator.validateCommit(commitMsg.getSignedPayload())).isFalse();
+  }
+
+  /**
+   * A structurally valid signature (r, s in [1, n)) that no backend can recover a key from: with
+   * recovery id 0 the point's x-coordinate is r, and 5^3 + 7 is not a square mod p, so no secp256k1
+   * point has x = 5. {@link Util#signatureToAddress} returns null for it.
+   */
+  private static SECPSignature nonRecoverableSeal() {
+    return SignatureAlgorithmFactory.getInstance()
+        .createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0);
   }
 
   @Test

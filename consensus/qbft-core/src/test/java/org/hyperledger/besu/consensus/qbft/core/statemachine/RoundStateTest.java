@@ -30,12 +30,14 @@ import org.hyperledger.besu.consensus.qbft.core.payload.MessageFactory;
 import org.hyperledger.besu.consensus.qbft.core.payload.PreparePayload;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCodec;
+import org.hyperledger.besu.consensus.qbft.core.validation.CommitValidator;
 import org.hyperledger.besu.consensus.qbft.core.validation.MessageValidator;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.Util;
 
 import java.math.BigInteger;
 import java.util.Collections;
@@ -257,6 +259,46 @@ public class RoundStateTest {
     assertThat(roundState.isPrepared()).isFalse();
     assertThat(roundState.isCommitted()).isFalse();
     assertThat(roundState.getCommitSeals()).containsOnly(validCommit.getCommitSeal());
+  }
+
+  @Test
+  public void priorCommitWithNonRecoverableSealIsDiscardedUponSubsequentProposal() {
+    final NodeKey committerKey = NodeKeyUtils.generate();
+    final MessageFactory committerMessageFactory = new MessageFactory(committerKey, blockEncoder);
+
+    // Validate with a real CommitValidator, so the buffered Commit is revalidated the way a node
+    // does it when the Proposal arrives.
+    final CommitValidator commitValidator =
+        new CommitValidator(
+            List.of(Util.publicKeyToAddress(committerKey.getPublicKey())),
+            roundIdentifier,
+            blockHash,
+            blockHash);
+    when(messageValidator.validateProposal(any())).thenReturn(true);
+    when(messageValidator.validateCommit(any()))
+        .thenAnswer(i -> commitValidator.validate(i.<Commit>getArgument(0)));
+
+    // A Commit from a current validator whose seal does not recover to an address: with recovery
+    // id 0 the point's x-coordinate is r, and no secp256k1 point has x = 5.
+    final Commit badSealCommit =
+        committerMessageFactory.createCommit(
+            roundIdentifier,
+            blockHash,
+            SIGNATURE_ALGORITHM.createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0));
+
+    // quorum 1: if the bad-seal Commit were kept, the round would commit
+    final RoundState roundState = new RoundState(roundIdentifier, 1, messageValidator);
+    roundState.addCommitMessage(badSealCommit);
+
+    final Proposal proposal =
+        validatorMessageFactories
+            .getFirst()
+            .createProposal(
+                roundIdentifier, block, Collections.emptyList(), Collections.emptyList());
+
+    assertThat(roundState.setProposedBlock(proposal)).isTrue();
+    assertThat(roundState.isCommitted()).isFalse();
+    assertThat(roundState.getCommitSeals()).isEmpty();
   }
 
   @Test

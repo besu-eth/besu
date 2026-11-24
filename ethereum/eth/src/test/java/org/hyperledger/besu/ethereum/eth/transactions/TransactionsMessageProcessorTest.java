@@ -20,8 +20,11 @@ import static java.time.Instant.now;
 import static java.util.Arrays.asList;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.SetCodeTransactionFixture.createSetCodeTransaction;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -30,6 +33,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationListLimit;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -68,6 +72,9 @@ public class TransactionsMessageProcessorTest {
 
   @BeforeEach
   public void setup() {
+    lenient()
+        .when(transactionPool.codeDelegationListLimit())
+        .thenReturn(CodeDelegationListLimit.UNLIMITED);
     metricsSystem = new StubMetricsSystem();
 
     messageHandler =
@@ -117,7 +124,7 @@ public class TransactionsMessageProcessorTest {
         now().minus(ofMinutes(1)),
         ofMillis(1));
     verifyNoInteractions(transactionTracker);
-    verifyNoInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
     assertThat(
             metricsSystem.getCounterValue(
                 TransactionPoolMetrics.EXPIRED_MESSAGES_COUNTER_NAME,
@@ -139,7 +146,7 @@ public class TransactionsMessageProcessorTest {
         ofMinutes(1));
 
     verify(transactionPool).addRemoteTransactions(singletonList(transaction1));
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -161,7 +168,23 @@ public class TransactionsMessageProcessorTest {
         peer1, TransactionsMessage.create(tooMany), now(), ofMinutes(1));
 
     verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
-    verifyNoInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
+    verifyNoInteractions(transactionTracker);
+  }
+
+  @Test
+  public void shouldDisconnectPeerWhenAuthorizationListExceedsLimit() {
+    // The attack in the report: a gas limit of 0 allows no authorization at all.
+    when(transactionPool.codeDelegationListLimit()).thenReturn(gasLimit -> 0);
+
+    messageHandler.processTransactionsMessage(
+        peer1,
+        TransactionsMessage.create(singletonList(createSetCodeTransaction(0, 3))),
+        now(),
+        ofMinutes(1));
+
+    verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verifyNoMoreTransactionPoolInteractions();
     verifyNoInteractions(transactionTracker);
   }
 
@@ -209,7 +232,14 @@ public class TransactionsMessageProcessorTest {
     messageHandler.processTransactionsMessage(peer1, transactionsMessage, now(), ofMinutes(1));
 
     verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
-    verifyNoInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
     verifyNoInteractions(transactionTracker);
+  }
+
+  private void verifyNoMoreTransactionPoolInteractions() {
+    // Every message is decoded against the pool's authorization list limit, so reading it is
+    // expected; anything else, such as adding a transaction, still has to be verified.
+    verify(transactionPool, atLeast(0)).codeDelegationListLimit();
+    verifyNoMoreInteractions(transactionPool);
   }
 }

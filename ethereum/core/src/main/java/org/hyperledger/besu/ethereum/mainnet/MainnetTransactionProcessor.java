@@ -39,11 +39,13 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.worldstate.JournaledWorldUpdaterV2;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -53,8 +55,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
@@ -244,8 +244,6 @@ public class MainnetTransactionProcessor {
 
       operationTracer.tracePrepareTransaction(worldState, transaction);
 
-      final Set<Address> eip2930WarmAddressList = new HashSet<>(Address.SIZE);
-
       final long previousNonce = sender.incrementNonce();
       LOG.trace(
           "Incremented sender {} nonce ({} -> {})",
@@ -278,14 +276,17 @@ public class MainnetTransactionProcessor {
 
       final List<AccessListEntry> eip2930AccessListEntries =
           transaction.getAccessList().orElse(List.of());
+      final Set<Address> eip2930WarmAddressList =
+          HashSet.newHashSet(eip2930AccessListEntries.size() + 1);
       // we need to keep a separate hash set of addresses in case they specify no storage.
       // No-storage is a common pattern, especially for Externally Owned Accounts
-      final Multimap<Address, Bytes32> eip2930StorageList = HashMultimap.create();
+      final HashSet<AddressStorageSlotKey> filteredEip2930StorageList = new HashSet<>();
       for (final var entry : eip2930AccessListEntries) {
         final Address address = entry.address();
         eip2930WarmAddressList.add(address);
-        final List<Bytes32> storageKeys = entry.storageKeys();
-        eip2930StorageList.putAll(address, storageKeys);
+        for (Bytes32 slot : entry.storageKeys()) {
+          filteredEip2930StorageList.add(new AddressStorageSlotKey(address, slot));
+        }
       }
       if (warmCoinbase) {
         eip2930WarmAddressList.add(miningBeneficiary);
@@ -376,7 +377,19 @@ public class MainnetTransactionProcessor {
       final long initialGas = Math.min(executionBudget, gasAvailable);
       final long initialStateGasReservoir = gasAvailable - initialGas;
 
-      final WorldUpdater worldUpdater = frameWorldState.updater();
+      // EVM v2 frames share one journal, unless the tracer accesses the world state
+      final WorldUpdater worldUpdater;
+      final Set<AddressStorageSlotKey> frameWarmStorage;
+      if (messageCallProcessor.runsOnEvmV2() && operationTracer.allowsJournal()) {
+        final JournaledWorldUpdaterV2 journal = new JournaledWorldUpdaterV2(frameWorldState);
+        // the journal keeps the warm slots, starting with the access list's
+        filteredEip2930StorageList.forEach(key -> journal.warmUpStorage(key.address(), key.slot()));
+        worldUpdater = journal;
+        frameWarmStorage = Set.of();
+      } else {
+        worldUpdater = frameWorldState.updater();
+        frameWarmStorage = filteredEip2930StorageList;
+      }
 
       operationTracer.traceStartTransaction(worldUpdater, transaction);
 
@@ -396,7 +409,7 @@ public class MainnetTransactionProcessor {
               .completer(__ -> {})
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
-              .eip2930AccessListWarmStorage(eip2930StorageList)
+              .eip2930AccessListWarmStorage(frameWarmStorage)
               .enableEvmV2(messageCallProcessor.runsOnEvmV2());
 
       accessLocationTracker.ifPresent(commonMessageFrameBuilder::eip7928AccessList);
