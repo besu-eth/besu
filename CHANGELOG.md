@@ -75,6 +75,8 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
 - The `JOURNALED` world updater mode (`--Xevm-worldstate-update-mode`) now commits storage clears, undoes them when a frame reverts, keeps an account that is created again after being deleted in the same transaction, and drops an account created in a frame that reverts. [#11811](https://github.com/besu-eth/besu/pull/11811)
+- Report exceptional halts on root precompile calls in Parity traces instead of showing a successful call frame. `vmTrace` no longer shows an op for a root creation that fails before its first opcode, such as on an address collision, since no opcode ran. [#11347](https://github.com/besu-eth/besu/pull/11347)
+- `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` return empty struct logs for a transaction sent directly to a precompile instead of a synthetic entry with an empty `op`. [#11347](https://github.com/besu-eth/besu/pull/11347)
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork, and advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
 
 ### Additions and Improvements
