@@ -215,7 +215,6 @@ public class MessageFrame {
   // the call depth whose free v2 stack this frame takes and returns
   private final int stackDepthV2;
   private int stackTopV2;
-  private final int stackMaxSizeV2;
   // Tracer view of the v2 stack: the item last handed out per slot, reused while the slot is
   // unchanged so that tracers snapshotting the stack every step share objects, as on v1
   private Bytes32[] stackViewV2;
@@ -295,10 +294,9 @@ public class MessageFrame {
     this.gasRemaining = initialGas;
     this.stack = enableEvmV2 ? null : new OperandStack(txValues.maxStackSize());
     this.stackDepthV2 = txValues.messageFrameStack().size();
-    this.stackDataV2 =
-        enableEvmV2 ? StacksV2.take(stackDepthV2, txValues.maxStackSize() * 4) : null;
+    // an EVM v2 frame always has the default stack size, as EvmConfiguration rejects any other
+    this.stackDataV2 = enableEvmV2 ? StacksV2.take(stackDepthV2) : null;
     this.stackTopV2 = 0;
-    this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
     this.recipient = recipient;
     this.contract = contract;
@@ -535,7 +533,7 @@ public class MessageFrame {
     }
     final int slot = stackTopV2 - 1 - offset;
     if (stackViewV2 == null) {
-      stackViewV2 = new Bytes32[stackMaxSizeV2];
+      stackViewV2 = new Bytes32[DEFAULT_MAX_STACK_SIZE];
     }
     final Bytes32 cached = stackViewV2[slot];
     if (cached != null && StackUtil.wordEquals(cached, stackDataV2, stackTopV2, offset)) {
@@ -590,7 +588,7 @@ public class MessageFrame {
    * @return true if the stack can accommodate n more items
    */
   public boolean stackHasSpaceV2(final int n) {
-    return stackTopV2 + n <= stackMaxSizeV2;
+    return stackTopV2 + n <= DEFAULT_MAX_STACK_SIZE;
   }
 
   /**
@@ -1935,7 +1933,8 @@ public class MessageFrame {
     }
 
     /**
-     * Sets Max stack size.
+     * Sets Max stack size. A frame on EVM v2 ignores it and always uses {@link
+     * MessageFrame#DEFAULT_MAX_STACK_SIZE}.
      *
      * @param maxStackSize the max stack size
      * @return the builder
