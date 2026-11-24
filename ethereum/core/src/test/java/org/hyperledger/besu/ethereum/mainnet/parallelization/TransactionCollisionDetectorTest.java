@@ -27,6 +27,7 @@ import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector.CarriedAccount;
 import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
@@ -37,8 +38,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -136,7 +138,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -166,7 +168,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -196,7 +198,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -238,7 +240,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -279,7 +281,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertFalse(
         hasCollision,
@@ -321,7 +323,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertFalse(hasCollision, "Expected no collision for a transfer that touches no storage slots");
   }
@@ -368,7 +370,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(hasCollision, "Expected collision when one of many block slots overlaps");
   }
@@ -406,7 +408,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertFalse(
         hasCollision, "Expected no collision when the block only read the overlapping slot");
@@ -447,7 +449,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(
         hasCollision, "Expected collision when tx read a slot that the block already modified");
@@ -483,7 +485,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
   }
@@ -510,7 +512,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertFalse(
         hasCollision,
@@ -535,13 +537,13 @@ class TransactionCollisionDetectorTest {
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 2, 40)));
 
-    final List<Address> carried = new ArrayList<>();
+    final Map<Address, CarriedAccount> carried = new HashMap<>();
 
     assertFalse(
         hasCollisionCarryingCredits(
             createTransaction(beneficiary, Address.fromHexString("0x2")), carried),
         "Expected no collision as the fees only raised the balance that paid for the gas");
-    assertThat(carried).containsExactly(beneficiary);
+    assertThat(carried).containsOnlyKeys(beneficiary);
   }
 
   @Test
@@ -564,7 +566,7 @@ class TransactionCollisionDetectorTest {
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 50)));
 
     assertTrue(
-        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), new ArrayList<>()),
+        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), new HashMap<>()),
         "Expected a collision as the transaction read the beneficiary's balance");
   }
 
@@ -585,12 +587,12 @@ class TransactionCollisionDetectorTest {
             beneficiary,
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 55)));
-    final List<Address> carriedAccounts = new ArrayList<>();
+    final Map<Address, CarriedAccount> carriedAccounts = new HashMap<>();
 
     assertFalse(
         hasCollisionCarryingCredits(createTransaction(sender, beneficiary), carriedAccounts),
         "Expected the payment to the beneficiary to be carried over");
-    assertThat(carriedAccounts).containsExactly(beneficiary);
+    assertThat(carriedAccounts).containsOnlyKeys(beneficiary);
   }
 
   @Test
@@ -608,7 +610,7 @@ class TransactionCollisionDetectorTest {
     trxUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, accountValue));
 
     assertTrue(
-        hasCollisionCarryingCredits(transaction, new ArrayList<>()),
+        hasCollisionCarryingCredits(transaction, new HashMap<>()),
         "Expected a collision with the deleted address");
   }
 
@@ -630,7 +632,7 @@ class TransactionCollisionDetectorTest {
     trxUpdater.commit();
 
     assertTrue(
-        hasCollisionCarryingCredits(transaction, new ArrayList<>()),
+        hasCollisionCarryingCredits(transaction, new HashMap<>()),
         "Expected a collision with the address the transaction deleted");
   }
 
@@ -657,7 +659,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>());
+            new HashMap<>());
 
     assertFalse(hasCollision, "Expected no collision with the read address");
   }
@@ -708,7 +710,7 @@ class TransactionCollisionDetectorTest {
         Address.ZERO,
         new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO, predecessorUpdater),
         bonsaiUpdater,
-        new ArrayList<>());
+        new HashMap<>());
   }
 
   @Test
@@ -757,7 +759,7 @@ class TransactionCollisionDetectorTest {
             beneficiary,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>()),
+            new HashMap<>()),
         "Expected a collision as taking the result would not delete the beneficiary");
   }
 
@@ -782,7 +784,7 @@ class TransactionCollisionDetectorTest {
             beneficiary,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>()),
+            new HashMap<>()),
         "Expected no collision as the block does not hold the beneficiary either");
   }
 
@@ -815,7 +817,7 @@ class TransactionCollisionDetectorTest {
             new ParallelizedTransactionContext(
                 trxUpdater, null, true, Wei.ZERO, predecessorUpdater),
             bonsaiUpdater,
-            new ArrayList<>()),
+            new HashMap<>()),
         "Expected a collision as a chained result carries no balance over");
   }
 
@@ -1013,7 +1015,7 @@ class TransactionCollisionDetectorTest {
   }
 
   private boolean hasCollisionCarryingCredits(
-      final Transaction transaction, final List<Address> carriedAccounts) {
+      final Transaction transaction, final Map<Address, CarriedAccount> carriedAccounts) {
     return collisionDetector.hasCollision(
         transaction,
         Address.ZERO,
@@ -1045,10 +1047,10 @@ class TransactionCollisionDetectorTest {
 
   @Test
   void creditToAnAccountWhoseBalanceChangedIsCarriedOver() {
-    final List<Address> carried = new ArrayList<>();
+    final Map<Address, CarriedAccount> carried = new HashMap<>();
 
     assertFalse(hasCollisionCarryingCredits(creditScenario(55), carried));
-    assertThat(carried).containsExactly(Address.fromHexString("0x2"));
+    assertThat(carried).containsOnlyKeys(Address.fromHexString("0x2"));
   }
 
   @Test
@@ -1056,12 +1058,12 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = creditScenario(55);
     trxUpdater.observeBalance(Address.fromHexString("0x2"));
 
-    assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(transaction, new HashMap<>()));
   }
 
   @Test
   void spendingFromAnAccountWhoseBalanceChangedIsACollision() {
-    assertTrue(hasCollisionCarryingCredits(creditScenario(45), new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(creditScenario(45), new HashMap<>()));
   }
 
   @Test
@@ -1069,10 +1071,10 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = creditScenario(45);
     // the transaction found 50 where it spent 10
     trxUpdater.observeSufficientBalance(Address.fromHexString("0x2"), Wei.of(40));
-    final List<Address> carried = new ArrayList<>();
+    final Map<Address, CarriedAccount> carried = new HashMap<>();
 
     assertFalse(hasCollisionCarryingCredits(transaction, carried));
-    assertThat(carried).containsExactly(Address.fromHexString("0x2"));
+    assertThat(carried).containsOnlyKeys(Address.fromHexString("0x2"));
   }
 
   @Test
@@ -1092,7 +1094,7 @@ class TransactionCollisionDetectorTest {
     // the transaction found 50 where it spent 45
     trxUpdater.observeSufficientBalance(spent, Wei.of(5));
 
-    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, spent), new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, spent), new HashMap<>()));
   }
 
   @Test
@@ -1113,7 +1115,7 @@ class TransactionCollisionDetectorTest {
             Address.ZERO,
             new ParallelizedTransactionContext(unrecorded, null, false, Wei.ZERO),
             bonsaiUpdater,
-            new ArrayList<>()));
+            new HashMap<>()));
   }
 
   @Test
@@ -1134,7 +1136,7 @@ class TransactionCollisionDetectorTest {
             credited,
             new BonsaiValue<>(createAccount(credited, 0, 50), createAccount(credited, 0, 60)));
 
-    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, credited), new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, credited), new HashMap<>()));
   }
 
   private Transaction senderScenario(final long blockBalance) {
@@ -1155,15 +1157,15 @@ class TransactionCollisionDetectorTest {
 
   @Test
   void senderBalanceTheBlockRaisedIsCarriedOver() {
-    final List<Address> carried = new ArrayList<>();
+    final Map<Address, CarriedAccount> carried = new HashMap<>();
 
     assertFalse(hasCollisionCarryingCredits(senderScenario(70), carried));
-    assertThat(carried).containsExactly(Address.fromHexString("0x1"));
+    assertThat(carried).containsOnlyKeys(Address.fromHexString("0x1"));
   }
 
   @Test
   void senderBalanceTheBlockLoweredIsACollision() {
-    assertTrue(hasCollisionCarryingCredits(senderScenario(45), new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(senderScenario(45), new HashMap<>()));
   }
 
   @Test
@@ -1171,7 +1173,7 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = senderScenario(70);
     trxUpdater.observeBalance(Address.fromHexString("0x1"));
 
-    assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(transaction, new HashMap<>()));
   }
 
   @Test
@@ -1187,7 +1189,7 @@ class TransactionCollisionDetectorTest {
 
     assertTrue(
         hasCollisionCarryingCredits(
-            createTransaction(sender, Address.fromHexString("0x3")), new ArrayList<>()));
+            createTransaction(sender, Address.fromHexString("0x3")), new HashMap<>()));
   }
 
   /**
@@ -1217,12 +1219,14 @@ class TransactionCollisionDetectorTest {
   void nonceTheBlockChangedIsKeptForAnAccountTheTransactionPaid() {
     final Address paid = Address.fromHexString("0x2");
     nonceScenario(paid, 1, 1);
-    final List<Address> carried = new ArrayList<>();
+    final Map<Address, CarriedAccount> carried = new HashMap<>();
 
     assertFalse(
         hasCollisionCarryingCredits(
             createTransaction(Address.fromHexString("0x1"), paid), carried));
-    assertThat(carried).containsExactly(paid);
+    assertThat(carried).containsOnlyKeys(paid);
+    // the run's credit of 5 on the block's balance of 70, and the block's nonce
+    assertThat(carried.get(paid)).isEqualTo(new CarriedAccount(Wei.of(75), 2));
   }
 
   @Test
@@ -1239,7 +1243,7 @@ class TransactionCollisionDetectorTest {
 
     assertTrue(
         hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), contract), new ArrayList<>()));
+            createTransaction(Address.fromHexString("0x1"), contract), new HashMap<>()));
   }
 
   @Test
@@ -1251,7 +1255,7 @@ class TransactionCollisionDetectorTest {
 
     assertTrue(
         hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), paid), new ArrayList<>()));
+            createTransaction(Address.fromHexString("0x1"), paid), new HashMap<>()));
   }
 
   @Test
@@ -1261,7 +1265,7 @@ class TransactionCollisionDetectorTest {
 
     assertTrue(
         hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), paid), new ArrayList<>()));
+            createTransaction(Address.fromHexString("0x1"), paid), new HashMap<>()));
   }
 
   @Test
@@ -1290,6 +1294,6 @@ class TransactionCollisionDetectorTest {
             .sender(Address.fromHexString("0x1"))
             .build();
 
-    assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
+    assertTrue(hasCollisionCarryingCredits(transaction, new HashMap<>()));
   }
 }

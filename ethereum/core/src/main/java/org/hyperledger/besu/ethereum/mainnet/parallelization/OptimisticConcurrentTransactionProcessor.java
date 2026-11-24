@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector.CarriedAccount;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -752,7 +753,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();
-      final List<Address> carriedAccounts = new ArrayList<>(0);
+      final Map<Address, CarriedAccount> carriedAccounts = new HashMap<>();
       // a reverted or halted execution is as repeatable as a successful one when nothing it read
       // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
       if (!transactionProcessingResult.isInvalid()
@@ -771,66 +772,23 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           miningBeneficiaryAccount.incrementBalance(reward);
 
           if (!reward.isZero()) {
-            final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
-            transactionProcessingResult
-                .getPartialBlockAccessView()
-                .ifPresent(
-                    partialBlockAccessView ->
-                        partialBlockAccessView.accountChanges().stream()
-                            .filter(
-                                accountChanges ->
-                                    accountChanges.getAddress().equals(miningBeneficiary))
-                            .findFirst()
-                            .ifPresent(
-                                accountChanges ->
-                                    accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+            setPostBalance(
+                transactionProcessingResult,
+                miningBeneficiary,
+                miningBeneficiaryAccount.getBalance());
           }
         }
 
-        final Wei[] carriedBalances = new Wei[carriedAccounts.size()];
-        final long[] carriedNonces = new long[carriedBalances.length];
-        for (int i = 0; i < carriedBalances.length; i++) {
-          final Address carried = carriedAccounts.get(i);
-          final BonsaiValue<? extends BonsaiAccount> inTransaction =
-              transactionAccumulator.getAccountsToUpdate().get(carried);
-          final BonsaiAccount inBlockAccount =
-              ((BonsaiValue<? extends BonsaiAccount>)
-                      blockAccumulator.getAccountsToUpdate().get(carried))
-                  .getUpdated();
-          final Wei inBlock = inBlockAccount.getBalance();
-          final Wei before = inTransaction.getPrior().getBalance();
-          final Wei after = inTransaction.getUpdated().getBalance();
-          carriedBalances[i] =
-              after.compareTo(before) >= 0
-                  ? inBlock.add(after.subtract(before))
-                  : inBlock.subtract(before.subtract(after));
-          // at most one of the block and the transaction changed the nonce
-          carriedNonces[i] =
-              inBlockAccount.getNonce()
-                  + inTransaction.getUpdated().getNonce()
-                  - inTransaction.getPrior().getNonce();
-        }
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-        for (int i = 0; i < carriedBalances.length; i++) {
-          final Address carried = carriedAccounts.get(i);
-          final Wei postBalance = carriedBalances[i];
+        for (final Map.Entry<Address, CarriedAccount> carried : carriedAccounts.entrySet()) {
           final BonsaiAccount imported =
               ((BonsaiValue<? extends BonsaiAccount>)
-                      blockAccumulator.getAccountsToUpdate().get(carried))
+                      blockAccumulator.getAccountsToUpdate().get(carried.getKey()))
                   .getUpdated();
-          imported.setBalance(postBalance);
-          imported.setNonce(carriedNonces[i]);
-          transactionProcessingResult
-              .getPartialBlockAccessView()
-              .ifPresent(
-                  partialBlockAccessView ->
-                      partialBlockAccessView.accountChanges().stream()
-                          .filter(
-                              accountChanges ->
-                                  accountChanges.getAddress().equals(carried)
-                                      && accountChanges.getPostBalance().isPresent())
-                          .findFirst()
-                          .ifPresent(accountChanges -> accountChanges.setPostBalance(postBalance)));
+          imported.setBalance(carried.getValue().balance());
+          imported.setNonce(carried.getValue().nonce());
+          setPostBalance(
+              transactionProcessingResult, carried.getKey(), carried.getValue().balance());
         }
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
@@ -849,5 +807,21 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       future.cancel(true);
     }
     return Optional.empty();
+  }
+
+  /** Sets the post balance of an account whose balance the transaction's access list records. */
+  private static void setPostBalance(
+      final TransactionProcessingResult result, final Address address, final Wei balance) {
+    result
+        .getPartialBlockAccessView()
+        .ifPresent(
+            partialBlockAccessView ->
+                partialBlockAccessView.accountChanges().stream()
+                    .filter(
+                        accountChanges ->
+                            accountChanges.getAddress().equals(address)
+                                && accountChanges.getPostBalance().isPresent())
+                    .findFirst()
+                    .ifPresent(accountChanges -> accountChanges.setPostBalance(balance)));
   }
 }

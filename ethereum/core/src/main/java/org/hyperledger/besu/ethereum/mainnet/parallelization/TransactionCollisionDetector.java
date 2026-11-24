@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.Account;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -32,6 +31,14 @@ import java.util.function.BiPredicate;
 import org.apache.tuweni.units.bigints.UInt256;
 
 public class TransactionCollisionDetector {
+
+  /**
+   * What taking a result sets an account to whose change the transaction carries over.
+   *
+   * @param balance the block's balance plus the transaction's change of it
+   * @param nonce the nonce of the block or of the transaction, whichever changed it
+   */
+  public record CarriedAccount(Wei balance, long nonce) {}
 
   /**
    * Checks whether the block changed state that the transaction read or wrote while it executed
@@ -49,8 +56,8 @@ public class TransactionCollisionDetector {
    * @param miningBeneficiary the mining beneficiary of the block
    * @param parallelizedTransactionContext the speculative result with the state it read and wrote
    * @param blockAccumulator the state changes of the earlier transactions of the block
-   * @param carriedAccounts receives the accounts whose change taking the result must carry over,
-   *     only to be read when the method returns false
+   * @param carriedAccounts receives what taking the result sets each account to whose change it
+   *     carries over, only to be read when the method returns false
    * @return true if the speculative result must not be used
    */
   public boolean hasCollision(
@@ -58,7 +65,7 @@ public class TransactionCollisionDetector {
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
-      final List<Address> carriedAccounts) {
+      final Map<Address, CarriedAccount> carriedAccounts) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
@@ -185,7 +192,7 @@ public class TransactionCollisionDetector {
       final Address address,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
-      final List<Address> carriedAccounts) {
+      final Map<Address, CarriedAccount> carriedAccounts) {
     final BonsaiValue<? extends BonsaiAccount> inBlock =
         blockAccumulator.getAccountsToUpdate().get(address);
     if (inBlock == null) {
@@ -195,7 +202,9 @@ public class TransactionCollisionDetector {
       if (!isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
         return true;
       }
-      carriedAccounts.add(address);
+      carriedAccounts.put(
+          address,
+          carry(inBlock.getUpdated(), transactionAccumulator.getAccountsToUpdate().get(address)));
     }
     final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
         transactionAccumulator.getStorageToUpdate().get(address);
@@ -269,6 +278,20 @@ public class TransactionCollisionDetector {
         .map(margin -> blockUpdated.getBalance().add(margin).compareTo(startingBalance) >= 0)
         // without spending, only a credit can be carried over
         .orElseGet(() -> inTransaction.getUpdated().getBalance().compareTo(startingBalance) >= 0);
+  }
+
+  private static CarriedAccount carry(
+      final BonsaiAccount inBlock, final BonsaiValue<? extends BonsaiAccount> inTransaction) {
+    return new CarriedAccount(
+        // the carry-over rules keep the result from going negative
+        inBlock
+            .getBalance()
+            .add(inTransaction.getUpdated().getBalance())
+            .subtract(inTransaction.getPrior().getBalance()),
+        // at most one of the block and the transaction changed the nonce
+        inBlock.getNonce()
+            + inTransaction.getUpdated().getNonce()
+            - inTransaction.getPrior().getNonce());
   }
 
   /**
