@@ -77,6 +77,7 @@
 - The `JOURNALED` world updater mode (`--Xevm-worldstate-update-mode`) now commits storage clears, undoes them when a frame reverts, keeps an account that is created again after being deleted in the same transaction, and drops an account created in a frame that reverts. [#11811](https://github.com/besu-eth/besu/pull/11811)
 - Report exceptional halts on root precompile calls in Parity traces instead of showing a successful call frame. `vmTrace` no longer shows an op for a root creation that fails before its first opcode, such as on an address collision, since no opcode ran. [#11347](https://github.com/besu-eth/besu/pull/11347)
 - `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` return empty struct logs for a transaction sent directly to a precompile instead of a synthetic entry with an empty `op`. [#11347](https://github.com/besu-eth/besu/pull/11347)
+- `debug_traceTransaction` and `debug_storageRangeAt` replay the block's earlier transactions as block import does, so an SSTORE of a slot one of them wrote is no longer charged differently on Bonsai, and their changes are no longer lost on Forest. [#11754](https://github.com/besu-eth/besu/pull/11754)
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork. With `--snapsync-server-enabled` on Bonsai, it advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
 
 ### Additions and Improvements
