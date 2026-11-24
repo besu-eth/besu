@@ -75,7 +75,7 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
 - The `JOURNALED` world updater mode (`--Xevm-worldstate-update-mode`) now commits storage clears, undoes them when a frame reverts, keeps an account that is created again after being deleted in the same transaction, and drops an account created in a frame that reverts. [#11811](https://github.com/besu-eth/besu/pull/11811)
-- A node far behind the chain head no longer runs out of memory during backward sync. It kept the block access list from every `engine_newPayload` in memory until that block was imported. It now keeps them only for blocks within 128 of its head, up to 8 MB. [#11989](https://github.com/besu-eth/besu/pull/11989)
+- A node far behind the chain head no longer runs out of memory during backward sync. It kept the block access list from every `engine_newPayload` in memory until that block was imported. It now keeps at most 128 of them, and only for blocks within 128 of its head. [#11989](https://github.com/besu-eth/besu/pull/11989)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)

@@ -184,36 +184,19 @@ public class InMemoryBackwardChainTest {
   }
 
   @Test
-  public void shouldEvictTrustedBalsBeyondTheCap() {
+  public void shouldDropOldestTrustedBalsBeyondTheCap() {
     final BlockAccessList bal = new BlockDataGenerator().blockAccessList(5);
-    final long balBytes = bal.rawRlp().orElseThrow().size();
     final BackwardChain chain =
-        new BackwardChain(
-            headersStorage, blocksStorage, chainStorage, sessionDataStorage, balBytes * 3);
+        new BackwardChain(headersStorage, blocksStorage, chainStorage, sessionDataStorage, 3);
 
     for (int i = 0; i < 10; i++) {
       chain.appendTrustedBlock(blocks.get(i), Optional.of(bal));
     }
-    chain.cleanUpTrustedBlockAccessLists();
 
-    final long kept =
-        blocks.subList(0, 10).stream()
-            .filter(b -> chain.getTrustedBlockAccessList(b.getHash()).isPresent())
-            .count();
-    assertThat(kept).isLessThanOrEqualTo(3L).isGreaterThan(0L);
-  }
-
-  @Test
-  public void shouldNotKeepBalHeavierThanTheCap() {
-    final BlockAccessList bal = new BlockDataGenerator().blockAccessList(5);
-    final BackwardChain chain =
-        new BackwardChain(headersStorage, blocksStorage, chainStorage, sessionDataStorage, 1);
-
-    chain.appendTrustedBlock(blocks.get(0), Optional.of(bal));
-    chain.cleanUpTrustedBlockAccessLists();
-
-    assertThat(chain.getTrustedBlockAccessList(blocks.get(0).getHash())).isEmpty();
-    assertThat(chain.getPivot()).contains(blocks.get(0));
+    for (int i = 0; i < 10; i++) {
+      assertThat(chain.getTrustedBlockAccessList(blocks.get(i).getHash()).isPresent())
+          .isEqualTo(i >= 7);
+    }
   }
 
   @Test

@@ -33,8 +33,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 
@@ -43,8 +41,7 @@ public class BackwardChain {
 
   private static final String FIRST_STORED_ANCESTOR_KEY = "firstStoredAncestor";
   private static final String LAST_STORED_PIVOT_KEY = "lastStoredPivot";
-  // encoded size; decoded BALs take roughly ten times this on the heap
-  static final long MAX_TRUSTED_BAL_BYTES = 8L * 1024 * 1024;
+  static final int MAX_TRUSTED_BALS = 128;
 
   private final GenericKeyValueStorageFacade<Hash, BlockHeader> headers;
   private final GenericKeyValueStorageFacade<Hash, Block> blocks;
@@ -53,16 +50,15 @@ public class BackwardChain {
   private Optional<BlockHeader> firstStoredAncestor;
   private Optional<BlockHeader> lastStoredPivot;
   private final Queue<Hash> hashesToAppend = new ArrayDeque<>();
-  // BALs received with trusted blocks (engine newPayload), kept in memory until the block is
-  // processed: best-effort and capped, a missing BAL is reconstructed during execution
-  private final Cache<Hash, BlockAccessList> trustedBlockAccessLists;
+  // newPayload BALs until import, oldest dropped first; a missing one is rebuilt
+  private final Map<Hash, BlockAccessList> trustedBlockAccessLists;
 
   public BackwardChain(
       final GenericKeyValueStorageFacade<Hash, BlockHeader> headersStorage,
       final GenericKeyValueStorageFacade<Hash, Block> blocksStorage,
       final GenericKeyValueStorageFacade<Hash, Hash> chainStorage,
       final GenericKeyValueStorageFacade<String, BlockHeader> sessionDataStorage) {
-    this(headersStorage, blocksStorage, chainStorage, sessionDataStorage, MAX_TRUSTED_BAL_BYTES);
+    this(headersStorage, blocksStorage, chainStorage, sessionDataStorage, MAX_TRUSTED_BALS);
   }
 
   @VisibleForTesting
@@ -71,13 +67,14 @@ public class BackwardChain {
       final GenericKeyValueStorageFacade<Hash, Block> blocksStorage,
       final GenericKeyValueStorageFacade<Hash, Hash> chainStorage,
       final GenericKeyValueStorageFacade<String, BlockHeader> sessionDataStorage,
-      final long maxTrustedBalBytes) {
+      final int maxTrustedBals) {
     this.trustedBlockAccessLists =
-        Caffeine.newBuilder()
-            .maximumWeight(maxTrustedBalBytes)
-            .weigher(this::weighBlockAccessList)
-            .executor(Runnable::run)
-            .build();
+        new LinkedHashMap<>() {
+          @Override
+          protected boolean removeEldestEntry(final Map.Entry<Hash, BlockAccessList> eldest) {
+            return size() > maxTrustedBals;
+          }
+        };
     this.headers = headersStorage;
     this.blocks = blocksStorage;
     this.chainStorage = chainStorage;
@@ -234,7 +231,7 @@ public class BackwardChain {
       return;
     }
     headers.drop(firstStoredAncestor.get().getHash());
-    trustedBlockAccessLists.invalidate(firstStoredAncestor.get().getHash());
+    trustedBlockAccessLists.remove(firstStoredAncestor.get().getHash());
     final Optional<Hash> hash = chainStorage.get(firstStoredAncestor.get().getHash());
     chainStorage.drop(firstStoredAncestor.get().getHash());
     updateFirstStoredAncestor(hash.flatMap(headers::get));
@@ -284,7 +281,7 @@ public class BackwardChain {
   }
 
   public synchronized Optional<BlockAccessList> getTrustedBlockAccessList(final Hash hash) {
-    return Optional.ofNullable(trustedBlockAccessLists.getIfPresent(hash));
+    return Optional.ofNullable(trustedBlockAccessLists.get(hash));
   }
 
   public synchronized void clear() {
@@ -295,16 +292,7 @@ public class BackwardChain {
     firstStoredAncestor = Optional.empty();
     lastStoredPivot = Optional.empty();
     hashesToAppend.clear();
-    trustedBlockAccessLists.invalidateAll();
-  }
-
-  @VisibleForTesting
-  void cleanUpTrustedBlockAccessLists() {
-    trustedBlockAccessLists.cleanUp();
-  }
-
-  private int weighBlockAccessList(final Hash hash, final BlockAccessList blockAccessList) {
-    return blockAccessList.rawRlp().orElseGet(blockAccessList::encode).size();
+    trustedBlockAccessLists.clear();
   }
 
   public synchronized Optional<Hash> getDescendant(final Hash blockHash) {
