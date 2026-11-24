@@ -106,20 +106,34 @@ public sealed class EngineForkchoiceUpdatedV1<
   }
 
   /**
-   * A head that is already the chain head is stored, and so are the blocks before it, so the call
-   * needs nothing from the payloads still being validated. Waiting for them would hold up the build
-   * of the next block for as long as a slow payload takes.
+   * The payloads still being validated can only add blocks and their states. Once the blocks the
+   * call names are stored, with the state of its head, they cannot change its outcome, and waiting
+   * for them would hold up the update and the build of the next block for as long as a slow payload
+   * takes.
    */
   @Override
   protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext requestContext) {
     try {
-      final Hash headBlockHash =
-          requestContext.getRequiredParameter(0, ForkchoiceStateV1.class).getHeadBlockHash();
-      return !headBlockHash.equals(protocolContext.getBlockchain().getChainHeadHash());
+      final ForkchoiceStateV1 forkchoiceState =
+          requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
+      final Optional<BlockHeader> head =
+          protocolContext.getBlockchain().getBlockHeader(forkchoiceState.getHeadBlockHash());
+      return head.isEmpty()
+          || !protocolContext
+              .getWorldStateArchive()
+              .isWorldStateAvailable(head.get().getStateRoot(), head.get().getHash())
+          || !isStoredOrUnset(forkchoiceState.getFinalizedBlockHash())
+          || !isStoredOrUnset(forkchoiceState.getSafeBlockHash());
     } catch (final JsonRpcParameter.JsonRpcParameterException | RuntimeException e) {
       // the call itself reports the invalid parameters
       return true;
     }
+  }
+
+  private boolean isStoredOrUnset(final Hash blockHash) {
+    // a zero hash names no block
+    return blockHash.getBytes().isZero()
+        || protocolContext.getBlockchain().getBlockHeader(blockHash).isPresent();
   }
 
   @SuppressWarnings("unchecked")

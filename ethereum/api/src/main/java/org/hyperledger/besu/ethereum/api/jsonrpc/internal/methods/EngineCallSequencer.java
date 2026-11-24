@@ -20,6 +20,7 @@ import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -33,8 +34,12 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Runs the {@code engine_forkchoiceUpdated} calls on one thread and the {@code engine_newPayload}
- * calls on another, each in the order received. A call waits for the calls of the other method
- * received before it, except a forkchoiceUpdated call that does not need them.
+ * calls on another, each in the order received. A newPayload call waits for the forkchoiceUpdated
+ * calls received before it. A forkchoiceUpdated call waits for the newPayload calls received before
+ * it until it no longer needs them, which it is asked again each time one of them finishes.
+ *
+ * <p>A forkchoiceUpdated call and the work a newPayload call queued for after its reply, which
+ * stores its block, never run at the same time.
  *
  * <p>One instance is shared by all the ordered engine methods of a Vertx instance.
  */
@@ -50,9 +55,19 @@ final class EngineCallSequencer implements Shareable {
   private final WorkerExecutor newPayloadExecutor;
   private final Queue<Runnable> workAfterReply = new ConcurrentLinkedQueue<>();
 
-  // complete once the last call of the method received so far, and so every earlier one, finished
+  // a forkchoiceUpdated call that no longer waits for the newPayload calls received before it must
+  // not move the chain head while one of them stores its block
+  private final ReentrantLock chainUpdates = new ReentrantLock();
+
+  // complete once the last forkchoiceUpdated call received so far, and so every earlier one,
+  // finished
   private CompletableFuture<Void> forkchoiceUpdatesDone = CompletableFuture.completedFuture(null);
-  private CompletableFuture<Void> newPayloadsDone = CompletableFuture.completedFuture(null);
+
+  private long newPayloadsReceived;
+
+  private final Object newPayloadProgress = new Object();
+  // the newPayload calls finish in the order received, so this many of the first ones have finished
+  private long newPayloadsFinished;
 
   private EngineCallSequencer(final Vertx vertx) {
     this.forkchoiceUpdatedExecutor =
@@ -76,14 +91,15 @@ final class EngineCallSequencer implements Shareable {
   /**
    * Queues a forkchoiceUpdated call.
    *
-   * @param needsEarlierNewPayloads whether the call waits for the newPayload calls received before
-   *     it, asked once the forkchoiceUpdated calls received before it have finished
+   * @param needsEarlierNewPayloads whether the call still waits for the newPayload calls received
+   *     before it, asked once the forkchoiceUpdated calls received before it have finished and
+   *     again each time one of those newPayload calls finishes
    * @param call the call
    * @return the call's response
    */
   synchronized Future<JsonRpcResponse> forkchoiceUpdated(
       final BooleanSupplier needsEarlierNewPayloads, final Supplier<JsonRpcResponse> call) {
-    final CompletableFuture<Void> earlierNewPayloads = newPayloadsDone;
+    final long earlierNewPayloads = newPayloadsReceived;
     final CompletableFuture<Void> done = new CompletableFuture<>();
     forkchoiceUpdatesDone = done;
     // ordered=false: the single thread already runs the calls in the order they were queued, while
@@ -92,10 +108,8 @@ final class EngineCallSequencer implements Shareable {
         .<JsonRpcResponse>executeBlocking(
             () -> {
               try {
-                if (needsEarlierNewPayloads.getAsBoolean()) {
-                  awaitEarlierCalls(earlierNewPayloads);
-                }
-                return call.get();
+                awaitNewPayloads(earlierNewPayloads, needsEarlierNewPayloads);
+                return withChainUpdates(call);
               } finally {
                 done.complete(null);
               }
@@ -114,14 +128,13 @@ final class EngineCallSequencer implements Shareable {
    */
   synchronized Future<JsonRpcResponse> newPayload(final Supplier<JsonRpcResponse> call) {
     final CompletableFuture<Void> earlierForkchoiceUpdates = forkchoiceUpdatesDone;
-    final CompletableFuture<Void> done = new CompletableFuture<>();
-    newPayloadsDone = done;
+    final long position = ++newPayloadsReceived;
     final Promise<JsonRpcResponse> response = Promise.promise();
     newPayloadExecutor
         .<Void>executeBlocking(
             () -> {
               try {
-                awaitEarlierCalls(earlierForkchoiceUpdates);
+                awaitForkchoiceUpdates(earlierForkchoiceUpdates);
                 response.complete(call.get());
                 // the work the call queued for after its reply runs before any call received
                 // after it that waits for it
@@ -130,7 +143,7 @@ final class EngineCallSequencer implements Shareable {
                 response.tryFail(e);
                 throw e;
               } finally {
-                done.complete(null);
+                newPayloadFinished(position);
               }
               return null;
             },
@@ -139,7 +152,7 @@ final class EngineCallSequencer implements Shareable {
             e -> {
               // a call the executor rejects must not hold up the calls received after it
               response.tryFail(e);
-              done.complete(null);
+              newPayloadFinished(position);
             });
     return response.future();
   }
@@ -164,22 +177,71 @@ final class EngineCallSequencer implements Shareable {
   }
 
   private void runWorkAfterReply() {
-    Runnable work;
-    while ((work = workAfterReply.poll()) != null) {
-      try {
-        work.run();
-      } catch (final RuntimeException e) {
-        // the calls received after it still have to run
-        LOG.error("Work queued for after a newPayload reply failed", e);
-      }
+    if (workAfterReply.isEmpty()) {
+      return;
+    }
+    withChainUpdates(
+        () -> {
+          Runnable work;
+          while ((work = workAfterReply.poll()) != null) {
+            try {
+              work.run();
+            } catch (final RuntimeException e) {
+              // the calls received after it still have to run
+              LOG.error("Work queued for after a newPayload reply failed", e);
+            }
+          }
+          return null;
+        });
+  }
+
+  private <T> T withChainUpdates(final Supplier<T> action) {
+    chainUpdates.lock();
+    try {
+      return action.get();
+    } finally {
+      chainUpdates.unlock();
+    }
+  }
+
+  private void newPayloadFinished(final long position) {
+    synchronized (newPayloadProgress) {
+      newPayloadsFinished = Math.max(newPayloadsFinished, position);
+      newPayloadProgress.notifyAll();
     }
   }
 
   /**
-   * Waits for the calls of the other method received before a call. The wait is interruptible, as
-   * closing the executors drops the queued calls without completing what they would complete.
+   * Waits until the first {@code count} newPayload calls have finished, or until the
+   * forkchoiceUpdated call no longer needs them. The wait is interruptible, as closing the
+   * executors drops the queued calls without finishing them.
    */
-  private static void awaitEarlierCalls(final CompletableFuture<Void> earlierCalls) {
+  private void awaitNewPayloads(final long count, final BooleanSupplier needsEarlierNewPayloads) {
+    try {
+      long finished;
+      synchronized (newPayloadProgress) {
+        finished = newPayloadsFinished;
+      }
+      while (finished < count && needsEarlierNewPayloads.getAsBoolean()) {
+        synchronized (newPayloadProgress) {
+          while (newPayloadsFinished == finished) {
+            newPayloadProgress.wait();
+          }
+          finished = newPayloadsFinished;
+        }
+      }
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while waiting for earlier engine calls", e);
+    }
+  }
+
+  /**
+   * Waits for the forkchoiceUpdated calls received before a newPayload call. The wait is
+   * interruptible, as closing the executors drops the queued calls without completing what they
+   * would complete.
+   */
+  private static void awaitForkchoiceUpdates(final CompletableFuture<Void> earlierCalls) {
     try {
       earlierCalls.get();
     } catch (final InterruptedException e) {

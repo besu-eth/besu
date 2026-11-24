@@ -38,8 +38,8 @@ import io.vertx.core.Future;
  * <p>Each series runs on a single thread of its own, created from the engine consensus API's
  * existing Vertx instance (the same one backing {@code EngineQosTimer}), so calls are serialized
  * globally in arrival order regardless of which HTTP connection they arrive on. A call also waits
- * for the calls of the other series received before it, unless it is a forkchoiceUpdated call that
- * does not need them (see {@link #needsEarlierNewPayloads}).
+ * for the calls of the other series received before it, except a forkchoiceUpdated call that no
+ * longer needs them (see {@link #needsEarlierNewPayloads}).
  */
 public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonRpcMethod {
 
@@ -113,12 +113,12 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
   }
 
   /**
-   * Returns whether a forkchoiceUpdated call waits for the newPayload calls received before it.
-   * Asked on the forkchoiceUpdated thread, once the forkchoiceUpdated calls received before it have
-   * finished.
+   * Returns whether a forkchoiceUpdated call still waits for the newPayload calls received before
+   * it. Asked on the forkchoiceUpdated thread once the forkchoiceUpdated calls received before it
+   * have finished, and again each time one of those newPayload calls finishes.
    *
    * @param request the forkchoiceUpdated request
-   * @return whether the call waits for the newPayload calls received before it
+   * @return whether the call still waits for the newPayload calls received before it
    */
   protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext request) {
     return true;
@@ -126,7 +126,8 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
 
   /**
    * Queues work to run once this newPayload call has replied, before the next newPayload call and
-   * before any forkchoiceUpdated call that waits for this one. Called while the call runs.
+   * before any forkchoiceUpdated call that waits for this one. No forkchoiceUpdated call runs at
+   * the same time as the work. Called while the call runs.
    *
    * @param work the work to run
    */
