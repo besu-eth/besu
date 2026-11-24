@@ -380,37 +380,35 @@ class MainnetTransactionProcessorTest {
   }
 
   @Test
-  void callToDelegatedAccountWithoutCodeDelegationRunsTheDesignatorAsCode() {
+  void callToDelegatedAccountBeforePragueRunsTheDesignatorAsCode() {
     when(messageCallProcessor.getOrCreateCachedJumpDest(
             Hash.hash(DELEGATION_CODE), DELEGATION_CODE))
         .thenReturn(new Code(DELEGATION_CODE));
 
-    final Bytes code = topLevelCodeOfDelegatedRecipient(null, Map.of());
+    final Bytes code = topLevelCodeOfDelegatedRecipient(false, Map.of());
 
     assertThat(code).isEqualTo(DELEGATION_CODE);
   }
 
   @Test
-  void callToDelegatedAccountWithCodeDelegationRunsTheTargetCode() {
+  void callToDelegatedAccountFromPragueRunsTheTargetCode() {
     final Bytes targetCode = Bytes.fromHexString("0x6001600055");
     final MutableAccount targetAccount = mock(MutableAccount.class);
     when(targetAccount.getOrCreateCachedCode()).thenReturn(new Code(targetCode));
 
     final Bytes code =
-        topLevelCodeOfDelegatedRecipient(
-            new CodeDelegationProcessor(ChainId.of(1), BigInteger.TEN, new CodeDelegationService()),
-            Map.of(DELEGATION_TARGET, targetAccount));
+        topLevelCodeOfDelegatedRecipient(true, Map.of(DELEGATION_TARGET, targetAccount));
 
     assertThat(code).isEqualTo(targetCode);
   }
 
   private Bytes topLevelCodeOfDelegatedRecipient(
-      final CodeDelegationProcessor codeDelegationProcessor,
-      final Map<Address, MutableAccount> otherAccounts) {
+      final boolean followsCodeDelegation, final Map<Address, MutableAccount> otherAccounts) {
     final Address toAddress = Address.fromHexString("0x2222222222222222222222222222222222222222");
     final Address senderAddress =
         Address.fromHexString("0x5555555555555555555555555555555555555555");
 
+    when(messageCallProcessor.followsCodeDelegation()).thenReturn(followsCodeDelegation);
     when(transaction.getType()).thenReturn(TransactionType.EIP1559);
     when(transaction.getTo()).thenReturn(Optional.of(toAddress));
     when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
@@ -452,7 +450,6 @@ class MainnetTransactionProcessorTest {
         .maxStackSize(MAX_STACK_SIZE)
         .feeMarket(FeeMarket.legacy())
         .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.frontier())
-        .codeDelegationProcessor(codeDelegationProcessor)
         .build()
         .processTransaction(
             worldState,

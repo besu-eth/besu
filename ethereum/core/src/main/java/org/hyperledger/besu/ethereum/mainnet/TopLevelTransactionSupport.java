@@ -130,7 +130,7 @@ final class TopLevelTransactionSupport {
       return false;
     }
     // EIP-2780: the top-level access to a delegated recipient's target is warm/cold aware.
-    if (recipient != null && hasCodeDelegation(recipient.getCode())) {
+    if (followsCodeDelegation && recipient != null && hasCodeDelegation(recipient.getCode())) {
       final Address target = CodeDelegationHelper.getTargetAddress(recipient.getCode());
       if (!chargeAccountAccess(frame, target)) {
         return false;

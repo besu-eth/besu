@@ -409,6 +409,19 @@ class TopLevelTransactionSupportTest {
     verifyNoInteractions(accessList);
   }
 
+  @Test
+  void unfollowedDelegationTargetIsNeitherChargedNorListed() {
+    final MessageFrame frame = frameWithGas(10_000L);
+    final WorldUpdater worldState = worldWithDelegatedRecipient();
+    when(frame.getValue()).thenReturn(Wei.ZERO);
+
+    assertThat(support(amsterdam, false).chargeTransactionEntry(frame, worldState, RECIPIENT))
+        .isTrue();
+    verify(frame, never()).warmUpAddress(any());
+    verify(frame, never()).decrementRemainingGas(anyLong());
+    verify(frame, never()).getEip7928AccessList();
+  }
+
   // settleSelfDestructs
 
   @Test

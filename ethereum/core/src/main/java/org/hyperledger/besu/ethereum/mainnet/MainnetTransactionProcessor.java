@@ -117,7 +117,7 @@ public class MainnetTransactionProcessor {
             gasCalculator,
             messageCallProcessor,
             coinbaseFeePriceCalculator,
-            this.maybeCodeDelegationProcessor.isPresent());
+            messageCallProcessor.followsCodeDelegation());
   }
 
   /**
