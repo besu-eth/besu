@@ -162,7 +162,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   public void shouldNotWaitForEarlierNewPayloadsWhenTheNamedBlocksAreStored() {
     final ForkchoiceStateV1 forkchoiceState = storedForkchoiceState();
 
-    assertThat(method.needsEarlierNewPayloads(requestContext(forkchoiceState))).isFalse();
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isFalse();
   }
 
   @Test
@@ -170,7 +170,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     final BlockHeader head = storedHeader(3);
 
     assertThat(
-            method.needsEarlierNewPayloads(
+            method.dependsOnEarlierCalls(
                 requestContext(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO))))
         .isFalse();
   }
@@ -181,7 +181,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(blockchain.getBlockHeader(forkchoiceState.getHeadBlockHash()))
         .thenReturn(Optional.empty());
 
-    assertThat(method.needsEarlierNewPayloads(requestContext(forkchoiceState))).isTrue();
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
   }
 
   @Test
@@ -190,7 +190,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(worldStateArchive.isWorldStateAvailable(any(), eq(forkchoiceState.getHeadBlockHash())))
         .thenReturn(false);
 
-    assertThat(method.needsEarlierNewPayloads(requestContext(forkchoiceState))).isTrue();
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
   }
 
   @Test
@@ -199,7 +199,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(blockchain.getBlockHeader(forkchoiceState.getFinalizedBlockHash()))
         .thenReturn(Optional.empty());
 
-    assertThat(method.needsEarlierNewPayloads(requestContext(forkchoiceState))).isTrue();
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
   }
 
   @Test
@@ -208,12 +208,12 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
     when(blockchain.getBlockHeader(forkchoiceState.getSafeBlockHash()))
         .thenReturn(Optional.empty());
 
-    assertThat(method.needsEarlierNewPayloads(requestContext(forkchoiceState))).isTrue();
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
   }
 
   @Test
   public void shouldWaitForEarlierNewPayloadsWhenForkchoiceStateIsInvalid() {
-    assertThat(method.needsEarlierNewPayloads(requestContext("not a forkchoice state"))).isTrue();
+    assertThat(method.dependsOnEarlierCalls(requestContext("not a forkchoice state"))).isTrue();
   }
 
   private ForkchoiceStateV1 storedForkchoiceState() {

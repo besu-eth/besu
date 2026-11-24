@@ -205,6 +205,19 @@ class EngineCallSequencerTest {
     assertThat(events).containsExactly("forkchoiceUpdated", "write");
   }
 
+  @Test
+  void callsAfterTheExecutorsClosedFailWithoutThrowing() {
+    vertx.close().toCompletionStage().toCompletableFuture().join();
+
+    final Future<JsonRpcResponse> newPayload = sequencer.newPayload(() -> RESPONSE);
+    final Future<JsonRpcResponse> forkchoiceUpdated =
+        sequencer.forkchoiceUpdated(() -> true, () -> RESPONSE);
+    sequencer.queueAfterReply(() -> {});
+
+    assertThat(newPayload.failed()).isTrue();
+    assertThat(forkchoiceUpdated.failed()).isTrue();
+  }
+
   private static <T> T result(final Future<T> future) throws Exception {
     return future.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
   }

@@ -67,8 +67,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Extends {@link OrderedExecutionJsonRpcMethod} because the Engine API spec mandates that
  * forkchoiceUpdated calls are processed in the order they have been received; this applies to the
- * whole sealed V1-V4 hierarchy. A call whose head is already the chain head does not wait for the
- * newPayload calls received before it, see {@link #needsEarlierNewPayloads}.
+ * whole sealed V1-V4 hierarchy. A call stops waiting for the newPayload calls received before it
+ * once the blocks it names are stored, see {@link #dependsOnEarlierCalls}.
  *
  * @param <PA> the payload-attributes type this version accepts
  * @param <FRP> the request-parameters type this version reads
@@ -112,10 +112,9 @@ public sealed class EngineForkchoiceUpdatedV1<
    * takes.
    */
   @Override
-  protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext requestContext) {
+  protected boolean dependsOnEarlierCalls(final JsonRpcRequestContext requestContext) {
     try {
-      final ForkchoiceStateV1 forkchoiceState =
-          requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
+      final ForkchoiceStateV1 forkchoiceState = readForkchoiceState(requestContext);
       final Optional<BlockHeader> head =
           protocolContext.getBlockchain().getBlockHeader(forkchoiceState.getHeadBlockHash());
       return head.isEmpty()
@@ -124,7 +123,7 @@ public sealed class EngineForkchoiceUpdatedV1<
               .isWorldStateAvailable(head.get().getStateRoot(), head.get().getHash())
           || !isStoredOrUnset(forkchoiceState.getFinalizedBlockHash())
           || !isStoredOrUnset(forkchoiceState.getSafeBlockHash());
-    } catch (final JsonRpcParameter.JsonRpcParameterException | RuntimeException e) {
+    } catch (final RuntimeException e) {
       // the call itself reports the invalid parameters
       return true;
     }
@@ -319,6 +318,17 @@ public sealed class EngineForkchoiceUpdatedV1<
             forkChoice.getHeadBlockHash() + " is an invalid block"));
   }
 
+  private static ForkchoiceStateV1 readForkchoiceState(final JsonRpcRequestContext requestContext) {
+    try {
+      return requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
+    } catch (final JsonRpcParameter.JsonRpcParameterException e) {
+      throw new InvalidRequestParametersException(
+          "Invalid forkchoice state parameter (index 0)",
+          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
+          e);
+    }
+  }
+
   /**
    * Reads and decodes this version's request parameters. Each version overrides this to call {@code
    * super.readRequestParameters(...)} and decorate the result with its own additional parameter(s),
@@ -326,15 +336,7 @@ public sealed class EngineForkchoiceUpdatedV1<
    */
   @SuppressWarnings("unchecked")
   protected FRP readRequestParameters(final JsonRpcRequestContext requestContext) {
-    final ForkchoiceStateV1 forkChoice;
-    try {
-      forkChoice = requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
-    } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      throw new InvalidRequestParametersException(
-          "Invalid forkchoice state parameter (index 0)",
-          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
-          e);
-    }
+    final ForkchoiceStateV1 forkChoice = readForkchoiceState(requestContext);
 
     logger().debug("Forkchoice parameters {}", forkChoice);
 

@@ -39,7 +39,7 @@ import io.vertx.core.Future;
  * existing Vertx instance (the same one backing {@code EngineQosTimer}), so calls are serialized
  * globally in arrival order regardless of which HTTP connection they arrive on. A call also waits
  * for the calls of the other series received before it, except a forkchoiceUpdated call that no
- * longer needs them (see {@link #needsEarlierNewPayloads}).
+ * longer depends on them (see {@link #dependsOnEarlierCalls}).
  */
 public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonRpcMethod {
 
@@ -78,7 +78,7 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
     final Future<JsonRpcResponse> response =
         switch (precedence) {
           case FORKCHOICE_UPDATED ->
-              sequencer.forkchoiceUpdated(() -> needsEarlierNewPayloads(request), call);
+              sequencer.forkchoiceUpdated(() -> dependsOnEarlierCalls(request), call);
           case NEW_PAYLOAD -> sequencer.newPayload(call);
         };
     response.onComplete(
@@ -113,14 +113,16 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
   }
 
   /**
-   * Returns whether a forkchoiceUpdated call still waits for the newPayload calls received before
-   * it. Asked on the forkchoiceUpdated thread once the forkchoiceUpdated calls received before it
-   * have finished, and again each time one of those newPayload calls finishes.
+   * Returns whether a call still depends on the calls of the other series received before it, and
+   * so waits for them. Only forkchoiceUpdated calls are asked, as a newPayload call always waits
+   * for the forkchoiceUpdated calls received before it. Asked on the forkchoiceUpdated thread once
+   * the forkchoiceUpdated calls received before it have finished, and again each time one of the
+   * newPayload calls received before it finishes.
    *
-   * @param request the forkchoiceUpdated request
-   * @return whether the call still waits for the newPayload calls received before it
+   * @param request the request
+   * @return whether the call still waits for the calls of the other series received before it
    */
-  protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext request) {
+  protected boolean dependsOnEarlierCalls(final JsonRpcRequestContext request) {
     return true;
   }
 

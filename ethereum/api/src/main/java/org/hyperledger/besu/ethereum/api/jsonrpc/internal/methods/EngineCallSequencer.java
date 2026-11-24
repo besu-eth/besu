@@ -17,9 +17,11 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 
 import java.util.Queue;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -36,7 +38,7 @@ import org.slf4j.LoggerFactory;
  * Runs the {@code engine_forkchoiceUpdated} calls on one thread and the {@code engine_newPayload}
  * calls on another, each in the order received. A newPayload call waits for the forkchoiceUpdated
  * calls received before it. A forkchoiceUpdated call waits for the newPayload calls received before
- * it until it no longer needs them, which it is asked again each time one of them finishes.
+ * it until it no longer depends on them, which it is asked again each time one of them finishes.
  *
  * <p>A forkchoiceUpdated call and the work a newPayload call queued for after its reply, which
  * stores its block, never run at the same time.
@@ -91,30 +93,27 @@ final class EngineCallSequencer implements Shareable {
   /**
    * Queues a forkchoiceUpdated call.
    *
-   * @param needsEarlierNewPayloads whether the call still waits for the newPayload calls received
+   * @param dependsOnEarlierCalls whether the call still depends on the newPayload calls received
    *     before it, asked once the forkchoiceUpdated calls received before it have finished and
    *     again each time one of those newPayload calls finishes
    * @param call the call
    * @return the call's response
    */
   synchronized Future<JsonRpcResponse> forkchoiceUpdated(
-      final BooleanSupplier needsEarlierNewPayloads, final Supplier<JsonRpcResponse> call) {
+      final BooleanSupplier dependsOnEarlierCalls, final Supplier<JsonRpcResponse> call) {
     final long earlierNewPayloads = newPayloadsReceived;
     final CompletableFuture<Void> done = new CompletableFuture<>();
     forkchoiceUpdatesDone = done;
-    // ordered=false: the single thread already runs the calls in the order they were queued, while
-    // ordered=true would order them per calling context only
-    return forkchoiceUpdatedExecutor
-        .<JsonRpcResponse>executeBlocking(
+    return submit(
+            forkchoiceUpdatedExecutor,
             () -> {
               try {
-                awaitNewPayloads(earlierNewPayloads, needsEarlierNewPayloads);
+                awaitNewPayloads(earlierNewPayloads, dependsOnEarlierCalls);
                 return withChainUpdates(call);
               } finally {
                 done.complete(null);
               }
-            },
-            false)
+            })
         // a call the executor rejects must not hold up the calls received after it
         .onFailure(e -> done.complete(null));
   }
@@ -130,8 +129,8 @@ final class EngineCallSequencer implements Shareable {
     final CompletableFuture<Void> earlierForkchoiceUpdates = forkchoiceUpdatesDone;
     final long position = ++newPayloadsReceived;
     final Promise<JsonRpcResponse> response = Promise.promise();
-    newPayloadExecutor
-        .<Void>executeBlocking(
+    submit(
+            newPayloadExecutor,
             () -> {
               try {
                 awaitForkchoiceUpdates(earlierForkchoiceUpdates);
@@ -146,8 +145,7 @@ final class EngineCallSequencer implements Shareable {
                 newPayloadFinished(position);
               }
               return null;
-            },
-            false)
+            })
         .onFailure(
             e -> {
               // a call the executor rejects must not hold up the calls received after it
@@ -166,14 +164,27 @@ final class EngineCallSequencer implements Shareable {
   void queueAfterReply(final Runnable work) {
     workAfterReply.add(work);
     // runs the work if no newPayload call does it first
-    newPayloadExecutor
-        .<Void>executeBlocking(
+    submit(
+            newPayloadExecutor,
             () -> {
               runWorkAfterReply();
               return null;
-            },
-            false)
+            })
         .onFailure(e -> LOG.warn("Work queued for after a newPayload reply could not run", e));
+  }
+
+  /**
+   * Runs a task on one of the single-threaded executors. A closed executor throws instead of
+   * returning a failed future, so the callers' failure handling would not run.
+   */
+  private static <T> Future<T> submit(final WorkerExecutor executor, final Callable<T> task) {
+    try {
+      // ordered=false: the single thread already runs the tasks in the order they were queued,
+      // while ordered=true would order them per calling context only
+      return executor.executeBlocking(task, false);
+    } catch (final RejectedExecutionException | IllegalStateException e) {
+      return Future.failedFuture(e);
+    }
   }
 
   private void runWorkAfterReply() {
@@ -213,16 +224,16 @@ final class EngineCallSequencer implements Shareable {
 
   /**
    * Waits until the first {@code count} newPayload calls have finished, or until the
-   * forkchoiceUpdated call no longer needs them. The wait is interruptible, as closing the
+   * forkchoiceUpdated call no longer depends on them. The wait is interruptible, as closing the
    * executors drops the queued calls without finishing them.
    */
-  private void awaitNewPayloads(final long count, final BooleanSupplier needsEarlierNewPayloads) {
+  private void awaitNewPayloads(final long count, final BooleanSupplier dependsOnEarlierCalls) {
     try {
       long finished;
       synchronized (newPayloadProgress) {
         finished = newPayloadsFinished;
       }
-      while (finished < count && needsEarlierNewPayloads.getAsBoolean()) {
+      while (finished < count && dependsOnEarlierCalls.getAsBoolean()) {
         synchronized (newPayloadProgress) {
           while (newPayloadsFinished == finished) {
             newPayloadProgress.wait();

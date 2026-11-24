@@ -208,8 +208,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   @Test
-  public void forkchoiceUpdatedThatDoesNotNeedEarlierNewPayloadsRunsWhileOneRuns()
-      throws Exception {
+  public void forkchoiceUpdatedThatDoesNotDependOnEarlierCallsRunsWhileOneRuns() throws Exception {
     final CountDownLatch newPayloadStarted = new CountDownLatch(1);
     final CountDownLatch releaseNewPayload = new CountDownLatch(1);
     final OrderedStubEngineMethod newPayload =
@@ -238,7 +237,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   @Test
-  public void forkchoiceUpdatedThatDoesNotNeedEarlierNewPayloadsKeepsItsOrder() throws Exception {
+  public void forkchoiceUpdatedThatDoesNotDependOnEarlierCallsKeepsItsOrder() throws Exception {
     final List<String> events = Collections.synchronizedList(new ArrayList<>());
     final CountDownLatch newPayloadStarted = new CountDownLatch(1);
     final CountDownLatch firstForkchoiceUpdatedStarted = new CountDownLatch(1);
@@ -346,7 +345,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
 
   private OrderedStubEngineMethod ordered(
       final EngineOrderPrecedence precedence,
-      final BooleanSupplier needsEarlierNewPayloads,
+      final BooleanSupplier dependsOnEarlierCalls,
       final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
     return new OrderedStubEngineMethod(
         protocolSchedule,
@@ -356,7 +355,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         ethPeers,
         transactionPool,
         precedence,
-        needsEarlierNewPayloads,
+        dependsOnEarlierCalls,
         body);
   }
 
@@ -442,7 +441,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   private static class OrderedStubEngineMethod extends OrderedExecutionJsonRpcMethod {
-    private final BooleanSupplier needsEarlierNewPayloads;
+    private final BooleanSupplier dependsOnEarlierCalls;
     private final Function<JsonRpcRequestContext, JsonRpcResponse> body;
 
     OrderedStubEngineMethod(
@@ -453,7 +452,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         final EthPeers ethPeers,
         final TransactionPool transactionPool,
         final EngineOrderPrecedence precedence,
-        final BooleanSupplier needsEarlierNewPayloads,
+        final BooleanSupplier dependsOnEarlierCalls,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
       super(
           new ConstructorArgumentsBuilder()
@@ -470,7 +469,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
           null,
           null,
           precedence);
-      this.needsEarlierNewPayloads = needsEarlierNewPayloads;
+      this.dependsOnEarlierCalls = dependsOnEarlierCalls;
       this.body = body;
     }
 
@@ -480,8 +479,8 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     }
 
     @Override
-    protected boolean needsEarlierNewPayloads(final JsonRpcRequestContext request) {
-      return needsEarlierNewPayloads.getAsBoolean();
+    protected boolean dependsOnEarlierCalls(final JsonRpcRequestContext request) {
+      return dependsOnEarlierCalls.getAsBoolean();
     }
 
     void queue(final Runnable work) {
