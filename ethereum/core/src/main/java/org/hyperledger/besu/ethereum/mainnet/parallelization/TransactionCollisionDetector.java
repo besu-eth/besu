@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.function.BiPredicate;
 
 import org.apache.tuweni.units.bigints.UInt256;
-import org.jspecify.annotations.Nullable;
 
 public class TransactionCollisionDetector {
 
@@ -38,46 +37,20 @@ public class TransactionCollisionDetector {
    * Checks whether the block changed state that the transaction read or wrote while it executed
    * speculatively against the parent state.
    *
-   * <p>The transaction collides when it touched the mining beneficiary, an account whose nonce,
-   * balance or code the block changed, or a slot of an account whose slot the block changed or
-   * whose storage the block cleared. A transaction chained on its sender's previous one executed on
-   * the state that one left instead, and collides when the block does not hold that state for
-   * something it touched.
+   * <p>The transaction collides when it touched an account whose nonce, balance or code the block
+   * changed, or a slot of an account whose slot the block changed or whose storage the block
+   * cleared. A change the transaction did not depend on is carried over instead, as {@code
+   * isBalanceChangeCarried} describes. A transaction chained on its sender's previous one executed
+   * on the state that one left instead, and collides when it touched the mining beneficiary or when
+   * the block does not hold that state for something it touched.
    *
    * @param transaction the transaction that executed speculatively, with a result that is not
    *     invalid
    * @param miningBeneficiary the mining beneficiary of the block
    * @param parallelizedTransactionContext the speculative result with the state it read and wrote
    * @param blockAccumulator the state changes of the earlier transactions of the block
-   * @return true if the speculative result must not be used
-   */
-  public boolean hasCollision(
-      final Transaction transaction,
-      final Address miningBeneficiary,
-      final ParallelizedTransactionContext parallelizedTransactionContext,
-      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
-    return hasCollision(
-        transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator, null);
-  }
-
-  /**
-   * Like {@link #hasCollision(Transaction, Address, ParallelizedTransactionContext,
-   * PathBasedWorldStateUpdateAccumulator)}, except that an account of which earlier transactions
-   * changed only the balance, while this transaction did not depend on that balance beyond it
-   * sufficing for what the transaction spent and did not see the account empty, is no collision.
-   * The same holds when earlier transactions also changed the nonce of an account without code
-   * where the transaction only depended on the nonce being non-zero. Such accounts are added to
-   * {@code creditedAccounts}: taking the result over must then carry the transaction's balance
-   * change onto the balance the block has reached and keep the block's nonce. A chained
-   * transaction's result is never carried over this way.
-   *
-   * @param transaction the transaction that executed speculatively, with a result that is not
-   *     invalid
-   * @param miningBeneficiary the mining beneficiary of the block
-   * @param parallelizedTransactionContext the speculative result with the state it read and wrote
-   * @param blockAccumulator the state changes of the earlier transactions of the block
-   * @param creditedAccounts receives the accounts whose balance change must be carried over, or
-   *     null to treat every balance change as a collision; left empty when the method returns true
+   * @param carriedAccounts receives the accounts whose change taking the result must carry over,
+   *     only to be read when the method returns false
    * @return true if the speculative result must not be used
    */
   public boolean hasCollision(
@@ -85,17 +58,17 @@ public class TransactionCollisionDetector {
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
-      final @Nullable List<Address> creditedAccounts) {
+      final List<Address> carriedAccounts) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
         parallelizedTransactionContext.chainPredecessorAccumulator();
-    // earlier transactions paid the beneficiary their priority fees, so a transaction that touched
-    // it can only keep its result by having paid it too, without depending on its balance, and a
-    // chained one carries no balance over
-    if ((creditedAccounts == null || chainPredecessor != null)
-        && isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)) {
-      return true;
+    if (chainPredecessor != null) {
+      // earlier transactions paid the beneficiary their priority fees, and a chained result carries
+      // no balance change over
+      return isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)
+          || hasCollisionWithChainedState(
+              transactionAccumulator, chainPredecessor, blockAccumulator);
     }
     // a run that touched the beneficiary only for its fee no longer holds it among its accounts,
     // so taking the result would drop the deletion of a beneficiary the block holds as empty. One
@@ -106,19 +79,11 @@ public class TransactionCollisionDetector {
         return true;
       }
     }
-    if (chainPredecessor != null) {
-      return hasCollisionWithChainedState(
-          transactionAccumulator, chainPredecessor, blockAccumulator);
-    }
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
       if (hasCollision(
-          transaction, address, transactionAccumulator, blockAccumulator, creditedAccounts)) {
-        // an account before it may have qualified already
-        if (creditedAccounts != null) {
-          creditedAccounts.clear();
-        }
+          transaction, address, transactionAccumulator, blockAccumulator, carriedAccounts)) {
         return true;
       }
     }
@@ -220,18 +185,17 @@ public class TransactionCollisionDetector {
       final Address address,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
-      final @Nullable List<Address> creditedAccounts) {
+      final List<Address> carriedAccounts) {
     final BonsaiValue<? extends BonsaiAccount> inBlock =
         blockAccumulator.getAccountsToUpdate().get(address);
     if (inBlock == null) {
       return false;
     }
     if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
-      if (creditedAccounts == null
-          || !isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
+      if (!isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
         return true;
       }
-      creditedAccounts.add(address);
+      carriedAccounts.add(address);
     }
     final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> slots =
         transactionAccumulator.getStorageToUpdate().get(address);

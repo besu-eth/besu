@@ -47,8 +47,6 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -137,7 +135,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -166,7 +165,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -195,7 +195,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -236,7 +237,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -276,7 +278,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertFalse(
         hasCollision,
@@ -317,7 +320,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertFalse(hasCollision, "Expected no collision for a transfer that touches no storage slots");
   }
@@ -363,7 +367,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(hasCollision, "Expected collision when one of many block slots overlaps");
   }
@@ -400,7 +405,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertFalse(
         hasCollision, "Expected no collision when the block only read the overlapping slot");
@@ -440,7 +446,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(
         hasCollision, "Expected collision when tx read a slot that the block already modified");
@@ -475,7 +482,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
   }
@@ -501,51 +509,12 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertFalse(
         hasCollision,
         "Expected no collision when tx touched no slot of the storage the block cleared");
-  }
-
-  @Test
-  void testCollisionWithMiningBeneficiaryAddress() {
-    final Address miningBeneficiary = Address.ZERO;
-    final Address address = Address.fromHexString("0x1");
-
-    final Transaction transaction = createTransaction(miningBeneficiary, address);
-
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            miningBeneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected collision with the mining beneficiary address as sender");
-  }
-
-  @Test
-  void testCollisionWithAnotherMiningBeneficiaryAddress() {
-    final Address miningBeneficiary = Address.ZERO;
-    final Address address = Address.fromHexString("0x1");
-    final BonsaiAccount miningBeneficiaryValue = createAccount(address);
-
-    final Transaction transaction = createTransaction(address, address);
-
-    // Simulate that the mining beneficiary is read in the next transaction
-    trxUpdater
-        .getAccountsToUpdate()
-        .put(miningBeneficiary, new BonsaiValue<>(miningBeneficiaryValue, miningBeneficiaryValue));
-
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            miningBeneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, true, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected collision with the read mining beneficiary address");
   }
 
   @Test
@@ -566,13 +535,13 @@ class TransactionCollisionDetectorTest {
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 2, 40)));
 
-    final List<Address> credited = new ArrayList<>();
+    final List<Address> carried = new ArrayList<>();
 
     assertFalse(
         hasCollisionCarryingCredits(
-            createTransaction(beneficiary, Address.fromHexString("0x2")), credited),
+            createTransaction(beneficiary, Address.fromHexString("0x2")), carried),
         "Expected no collision as the fees only raised the balance that paid for the gas");
-    assertThat(credited).containsExactly(beneficiary);
+    assertThat(carried).containsExactly(beneficiary);
   }
 
   @Test
@@ -616,17 +585,16 @@ class TransactionCollisionDetectorTest {
             beneficiary,
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 55)));
-    final List<Address> creditedAccounts = new ArrayList<>();
+    final List<Address> carriedAccounts = new ArrayList<>();
 
     assertFalse(
-        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), creditedAccounts),
+        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), carriedAccounts),
         "Expected the payment to the beneficiary to be carried over");
-    assertThat(creditedAccounts).containsExactly(beneficiary);
+    assertThat(carriedAccounts).containsExactly(beneficiary);
   }
 
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void testCollisionWithDeletedAddress(final boolean carryingCredits) {
+  @Test
+  void testCollisionWithDeletedAddress() {
     final Address address = Address.fromHexString("0x1");
     final BonsaiAccount accountValue = createAccount(address);
     trxUpdater.recordBalanceObservations();
@@ -640,13 +608,12 @@ class TransactionCollisionDetectorTest {
     trxUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, accountValue));
 
     assertTrue(
-        hasCollision(transaction, carryingCredits),
+        hasCollisionCarryingCredits(transaction, new ArrayList<>()),
         "Expected a collision with the deleted address");
   }
 
-  @ParameterizedTest
-  @ValueSource(booleans = {false, true})
-  void testCollisionWithAddressDeletedByTransaction(final boolean carryingCredits) {
+  @Test
+  void testCollisionWithAddressDeletedByTransaction() {
     final Address address = Address.fromHexString("0x1");
     final BonsaiAccount priorAccountValue = createAccount(address);
     final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
@@ -663,7 +630,7 @@ class TransactionCollisionDetectorTest {
     trxUpdater.commit();
 
     assertTrue(
-        hasCollision(transaction, carryingCredits),
+        hasCollisionCarryingCredits(transaction, new ArrayList<>()),
         "Expected a collision with the address the transaction deleted");
   }
 
@@ -689,7 +656,8 @@ class TransactionCollisionDetectorTest {
             transaction,
             Address.ZERO,
             new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+            bonsaiUpdater,
+            new ArrayList<>());
 
     assertFalse(hasCollision, "Expected no collision with the read address");
   }
@@ -739,7 +707,8 @@ class TransactionCollisionDetectorTest {
         transaction,
         Address.ZERO,
         new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO, predecessorUpdater),
-        bonsaiUpdater);
+        bonsaiUpdater,
+        new ArrayList<>());
   }
 
   @Test
@@ -1044,13 +1013,13 @@ class TransactionCollisionDetectorTest {
   }
 
   private boolean hasCollisionCarryingCredits(
-      final Transaction transaction, final List<Address> creditedAccounts) {
+      final Transaction transaction, final List<Address> carriedAccounts) {
     return collisionDetector.hasCollision(
         transaction,
         Address.ZERO,
         new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
         bonsaiUpdater,
-        creditedAccounts);
+        carriedAccounts);
   }
 
   private Transaction creditScenario(final long creditedBalance) {
@@ -1076,15 +1045,10 @@ class TransactionCollisionDetectorTest {
 
   @Test
   void creditToAnAccountWhoseBalanceChangedIsCarriedOver() {
-    final List<Address> credited = new ArrayList<>();
+    final List<Address> carried = new ArrayList<>();
 
-    assertFalse(hasCollisionCarryingCredits(creditScenario(55), credited));
-    assertThat(credited).containsExactly(Address.fromHexString("0x2"));
-  }
-
-  @Test
-  void creditIsACollisionWhenCreditsAreNotCarriedOver() {
-    assertTrue(hasStrictCollision(creditScenario(55)));
+    assertFalse(hasCollisionCarryingCredits(creditScenario(55), carried));
+    assertThat(carried).containsExactly(Address.fromHexString("0x2"));
   }
 
   @Test
@@ -1105,10 +1069,10 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = creditScenario(45);
     // the transaction found 50 where it spent 10
     trxUpdater.observeSufficientBalance(Address.fromHexString("0x2"), Wei.of(40));
-    final List<Address> credited = new ArrayList<>();
+    final List<Address> carried = new ArrayList<>();
 
-    assertFalse(hasCollisionCarryingCredits(transaction, credited));
-    assertThat(credited).containsExactly(Address.fromHexString("0x2"));
+    assertFalse(hasCollisionCarryingCredits(transaction, carried));
+    assertThat(carried).containsExactly(Address.fromHexString("0x2"));
   }
 
   @Test
@@ -1173,20 +1137,6 @@ class TransactionCollisionDetectorTest {
     assertTrue(hasCollisionCarryingCredits(createTransaction(sender, credited), new ArrayList<>()));
   }
 
-  @Test
-  void collisionLeavesNoCreditedAccounts() {
-    final Transaction transaction = creditScenario(80);
-    final Address credited = Address.fromHexString("0x2");
-    // the credit qualifies, but the transaction also read a slot of the account that an earlier
-    // transaction of the block wrote
-    putSlot(trxUpdater, credited, 1, UInt256.ONE, UInt256.ONE);
-    putSlot(bonsaiUpdater, credited, 1, UInt256.ONE, UInt256.valueOf(2));
-    final List<Address> creditedAccounts = new ArrayList<>();
-
-    assertTrue(hasCollisionCarryingCredits(transaction, creditedAccounts));
-    assertThat(creditedAccounts).isEmpty();
-  }
-
   private Transaction senderScenario(final long blockBalance) {
     final Address sender = Address.fromHexString("0x1");
     trxUpdater.recordBalanceObservations();
@@ -1205,10 +1155,10 @@ class TransactionCollisionDetectorTest {
 
   @Test
   void senderBalanceTheBlockRaisedIsCarriedOver() {
-    final List<Address> credited = new ArrayList<>();
+    final List<Address> carried = new ArrayList<>();
 
-    assertFalse(hasCollisionCarryingCredits(senderScenario(70), credited));
-    assertThat(credited).containsExactly(Address.fromHexString("0x1"));
+    assertFalse(hasCollisionCarryingCredits(senderScenario(70), carried));
+    assertThat(carried).containsExactly(Address.fromHexString("0x1"));
   }
 
   @Test
@@ -1222,11 +1172,6 @@ class TransactionCollisionDetectorTest {
     trxUpdater.observeBalance(Address.fromHexString("0x1"));
 
     assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
-  }
-
-  @Test
-  void senderBalanceIsACollisionWhenCreditsAreNotCarriedOver() {
-    assertTrue(hasStrictCollision(senderScenario(70)));
   }
 
   @Test
@@ -1272,12 +1217,12 @@ class TransactionCollisionDetectorTest {
   void nonceTheBlockChangedIsKeptForAnAccountTheTransactionPaid() {
     final Address paid = Address.fromHexString("0x2");
     nonceScenario(paid, 1, 1);
-    final List<Address> credited = new ArrayList<>();
+    final List<Address> carried = new ArrayList<>();
 
     assertFalse(
         hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), paid), credited));
-    assertThat(credited).containsExactly(paid);
+            createTransaction(Address.fromHexString("0x1"), paid), carried));
+    assertThat(carried).containsExactly(paid);
   }
 
   @Test
@@ -1346,19 +1291,5 @@ class TransactionCollisionDetectorTest {
             .build();
 
     assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
-  }
-
-  private boolean hasCollision(final Transaction transaction, final boolean carryingCredits) {
-    return carryingCredits
-        ? hasCollisionCarryingCredits(transaction, new ArrayList<>())
-        : hasStrictCollision(transaction);
-  }
-
-  private boolean hasStrictCollision(final Transaction transaction) {
-    return collisionDetector.hasCollision(
-        transaction,
-        Address.ZERO,
-        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-        bonsaiUpdater);
   }
 }

@@ -752,7 +752,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();
-      final List<Address> creditedAccounts = new ArrayList<>(0);
+      final List<Address> carriedAccounts = new ArrayList<>(0);
       // a reverted or halted execution is as repeatable as a successful one when nothing it read
       // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
       if (!transactionProcessingResult.isInvalid()
@@ -761,7 +761,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
               miningBeneficiary,
               parallelizedTransactionContext,
               blockAccumulator,
-              creditedAccounts)) {
+              carriedAccounts)) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
         // a result that touched the beneficiary before its reward already holds the reward
         if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
@@ -787,39 +787,39 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           }
         }
 
-        final Wei[] creditedBalances = new Wei[creditedAccounts.size()];
-        final long[] creditedNonces = new long[creditedBalances.length];
-        for (int i = 0; i < creditedBalances.length; i++) {
-          final Address credited = creditedAccounts.get(i);
+        final Wei[] carriedBalances = new Wei[carriedAccounts.size()];
+        final long[] carriedNonces = new long[carriedBalances.length];
+        for (int i = 0; i < carriedBalances.length; i++) {
+          final Address carried = carriedAccounts.get(i);
           final BonsaiValue<? extends BonsaiAccount> inTransaction =
-              transactionAccumulator.getAccountsToUpdate().get(credited);
+              transactionAccumulator.getAccountsToUpdate().get(carried);
           final BonsaiAccount inBlockAccount =
               ((BonsaiValue<? extends BonsaiAccount>)
-                      blockAccumulator.getAccountsToUpdate().get(credited))
+                      blockAccumulator.getAccountsToUpdate().get(carried))
                   .getUpdated();
           final Wei inBlock = inBlockAccount.getBalance();
           final Wei before = inTransaction.getPrior().getBalance();
           final Wei after = inTransaction.getUpdated().getBalance();
-          creditedBalances[i] =
+          carriedBalances[i] =
               after.compareTo(before) >= 0
                   ? inBlock.add(after.subtract(before))
                   : inBlock.subtract(before.subtract(after));
           // at most one of the block and the transaction changed the nonce
-          creditedNonces[i] =
+          carriedNonces[i] =
               inBlockAccount.getNonce()
                   + inTransaction.getUpdated().getNonce()
                   - inTransaction.getPrior().getNonce();
         }
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-        for (int i = 0; i < creditedBalances.length; i++) {
-          final Address credited = creditedAccounts.get(i);
-          final Wei postBalance = creditedBalances[i];
+        for (int i = 0; i < carriedBalances.length; i++) {
+          final Address carried = carriedAccounts.get(i);
+          final Wei postBalance = carriedBalances[i];
           final BonsaiAccount imported =
               ((BonsaiValue<? extends BonsaiAccount>)
-                      blockAccumulator.getAccountsToUpdate().get(credited))
+                      blockAccumulator.getAccountsToUpdate().get(carried))
                   .getUpdated();
           imported.setBalance(postBalance);
-          imported.setNonce(creditedNonces[i]);
+          imported.setNonce(carriedNonces[i]);
           transactionProcessingResult
               .getPartialBlockAccessView()
               .ifPresent(
@@ -827,7 +827,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                       partialBlockAccessView.accountChanges().stream()
                           .filter(
                               accountChanges ->
-                                  accountChanges.getAddress().equals(credited)
+                                  accountChanges.getAddress().equals(carried)
                                       && accountChanges.getPostBalance().isPresent())
                           .findFirst()
                           .ifPresent(accountChanges -> accountChanges.setPostBalance(postBalance)));
