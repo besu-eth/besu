@@ -20,7 +20,7 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod.Series;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod.EngineOrderPrecedence;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -112,7 +112,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final AtomicInteger maxActive = new AtomicInteger();
     final OrderedStubEngineMethod method =
         ordered(
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             req -> {
               maxActive.accumulateAndGet(active.incrementAndGet(), Math::max);
               sleep(50);
@@ -132,7 +132,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final AtomicReference<OrderedStubEngineMethod> method = new AtomicReference<>();
     method.set(
         ordered(
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             req -> {
               if (events.isEmpty()) {
                 method
@@ -164,7 +164,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final AtomicReference<OrderedStubEngineMethod> newPayload = new AtomicReference<>();
     newPayload.set(
         ordered(
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             req -> {
               newPayloadStarted.countDown();
               await(forkchoiceUpdatedReceived);
@@ -174,7 +174,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             }));
     final OrderedStubEngineMethod forkchoiceUpdated =
         ordered(
-            Series.FORKCHOICE_UPDATED,
+            EngineOrderPrecedence.FORKCHOICE_UPDATED,
             req -> {
               events.add("forkchoiceUpdated");
               return success(req);
@@ -202,7 +202,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   public void workQueuedOutsideANewPayloadRuns() throws Exception {
     final CountDownLatch workRan = new CountDownLatch(1);
 
-    ordered(Series.NEW_PAYLOAD, this::success).queue(workRan::countDown);
+    ordered(EngineOrderPrecedence.NEW_PAYLOAD, this::success).queue(workRan::countDown);
 
     assertThat(workRan.await(10, TimeUnit.SECONDS)).isTrue();
   }
@@ -214,14 +214,14 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final CountDownLatch releaseNewPayload = new CountDownLatch(1);
     final OrderedStubEngineMethod newPayload =
         ordered(
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             req -> {
               newPayloadStarted.countDown();
               await(releaseNewPayload);
               return success(req);
             });
     final OrderedStubEngineMethod forkchoiceUpdated =
-        ordered(Series.FORKCHOICE_UPDATED, () -> false, this::success);
+        ordered(EngineOrderPrecedence.FORKCHOICE_UPDATED, () -> false, this::success);
 
     final Future<JsonRpcResponse> newPayloadResponse = callers.submit(() -> call(newPayload));
     try {
@@ -245,7 +245,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final CountDownLatch releaseNewPayload = new CountDownLatch(1);
     final OrderedStubEngineMethod newPayload =
         ordered(
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             req -> {
               newPayloadStarted.countDown();
               await(releaseNewPayload);
@@ -254,7 +254,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             });
     final OrderedStubEngineMethod first =
         ordered(
-            Series.FORKCHOICE_UPDATED,
+            EngineOrderPrecedence.FORKCHOICE_UPDATED,
             () -> {
               firstForkchoiceUpdatedStarted.countDown();
               return true;
@@ -265,7 +265,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             });
     final OrderedStubEngineMethod second =
         ordered(
-            Series.FORKCHOICE_UPDATED,
+            EngineOrderPrecedence.FORKCHOICE_UPDATED,
             () -> false,
             req -> {
               events.add("second forkchoiceUpdated");
@@ -299,7 +299,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
     final CountDownLatch releaseForkchoiceUpdated = new CountDownLatch(1);
     final OrderedStubEngineMethod forkchoiceUpdated =
         ordered(
-            Series.FORKCHOICE_UPDATED,
+            EngineOrderPrecedence.FORKCHOICE_UPDATED,
             () -> false,
             req -> {
               forkchoiceUpdatedStarted.countDown();
@@ -309,7 +309,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
             });
     final OrderedStubEngineMethod newPayload =
         ordered(
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             req -> {
               events.add("newPayload");
               return success(req);
@@ -339,12 +339,13 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
   }
 
   private OrderedStubEngineMethod ordered(
-      final Series series, final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
-    return ordered(series, () -> true, body);
+      final EngineOrderPrecedence precedence,
+      final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
+    return ordered(precedence, () -> true, body);
   }
 
   private OrderedStubEngineMethod ordered(
-      final Series series,
+      final EngineOrderPrecedence precedence,
       final BooleanSupplier needsEarlierNewPayloads,
       final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
     return new OrderedStubEngineMethod(
@@ -354,7 +355,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         mergeCoordinator,
         ethPeers,
         transactionPool,
-        series,
+        precedence,
         needsEarlierNewPayloads,
         body);
   }
@@ -451,7 +452,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
         final MergeMiningCoordinator mergeCoordinator,
         final EthPeers ethPeers,
         final TransactionPool transactionPool,
-        final Series series,
+        final EngineOrderPrecedence precedence,
         final BooleanSupplier needsEarlierNewPayloads,
         final Function<JsonRpcRequestContext, JsonRpcResponse> body) {
       super(
@@ -468,7 +469,7 @@ public class ExecutionEngineJsonRpcMethodExecutionTest {
               .build(),
           null,
           null,
-          series);
+          precedence);
       this.needsEarlierNewPayloads = needsEarlierNewPayloads;
       this.body = body;
     }

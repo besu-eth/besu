@@ -92,7 +92,11 @@ public sealed class EngineNewPayloadV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(constructorArguments, minSupportedFork, firstUnsupportedFork, Series.NEW_PAYLOAD);
+    super(
+        constructorArguments,
+        minSupportedFork,
+        firstUnsupportedFork,
+        EngineOrderPrecedence.NEW_PAYLOAD);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
     this.ethPeers = constructorArguments.ethPeers();

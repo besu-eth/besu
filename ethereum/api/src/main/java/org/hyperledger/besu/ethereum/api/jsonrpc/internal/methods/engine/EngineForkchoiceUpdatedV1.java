@@ -91,7 +91,11 @@ public sealed class EngineForkchoiceUpdatedV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(constructorArguments, minSupportedFork, firstUnsupportedFork, Series.FORKCHOICE_UPDATED);
+    super(
+        constructorArguments,
+        minSupportedFork,
+        firstUnsupportedFork,
+        EngineOrderPrecedence.FORKCHOICE_UPDATED);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
   }

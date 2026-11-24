@@ -43,8 +43,11 @@ import io.vertx.core.Future;
  */
 public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonRpcMethod {
 
-  /** A method series whose calls run on a thread of their own. */
-  protected enum Series {
+  /**
+   * The method series a call belongs to, which decides the calls it runs in order with and the
+   * calls of the other series it waits for.
+   */
+  protected enum EngineOrderPrecedence {
     /** The {@code engine_forkchoiceUpdated} calls. */
     FORKCHOICE_UPDATED,
     /** The {@code engine_newPayload} calls. */
@@ -55,16 +58,16 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
   // response. Uses the same default (30s) as JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC.
   private static final long ENGINE_API_RESPONSE_TIMEOUT_MS = 30_000L;
 
-  private final Series series;
+  private final EngineOrderPrecedence precedence;
   private final EngineCallSequencer sequencer;
 
   protected OrderedExecutionJsonRpcMethod(
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork,
-      final Series series) {
+      final EngineOrderPrecedence precedence) {
     super(constructorArguments, minSupportedFork, firstUnsupportedFork);
-    this.series = series;
+    this.precedence = precedence;
     this.sequencer = EngineCallSequencer.of(syncVertx);
   }
 
@@ -73,7 +76,7 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
     final CompletableFuture<JsonRpcResponse> cf = new CompletableFuture<>();
     final Supplier<JsonRpcResponse> call = () -> computeResponseSafely(request);
     final Future<JsonRpcResponse> response =
-        switch (series) {
+        switch (precedence) {
           case FORKCHOICE_UPDATED ->
               sequencer.forkchoiceUpdated(() -> needsEarlierNewPayloads(request), call);
           case NEW_PAYLOAD -> sequencer.newPayload(call);
@@ -128,7 +131,9 @@ public abstract class OrderedExecutionJsonRpcMethod extends ExecutionEngineJsonR
    * @param work the work to run
    */
   protected final void queueAfterReply(final Runnable work) {
-    checkState(series == Series.NEW_PAYLOAD, "Only newPayload calls queue work after their reply");
+    checkState(
+        precedence == EngineOrderPrecedence.NEW_PAYLOAD,
+        "Only newPayload calls queue work after their reply");
     sequencer.queueAfterReply(work);
   }
 }

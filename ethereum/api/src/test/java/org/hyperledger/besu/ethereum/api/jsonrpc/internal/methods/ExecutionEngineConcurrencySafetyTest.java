@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod.Series;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.OrderedExecutionJsonRpcMethod.EngineOrderPrecedence;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -76,7 +76,7 @@ class ExecutionEngineConcurrencySafetyTest {
         final Vertx vertx,
         final ProtocolContext protocolContext,
         final String name,
-        final Series series,
+        final EngineOrderPrecedence precedence,
         final long workMillis,
         final AtomicInteger inFlightAcrossMethods,
         final AtomicInteger maxObservedConcurrencyAcrossMethods) {
@@ -93,7 +93,7 @@ class ExecutionEngineConcurrencySafetyTest {
               0),
           null,
           null,
-          series);
+          precedence);
       this.name = name;
       this.workMillis = workMillis;
       this.inFlightAcrossMethods = inFlightAcrossMethods;
@@ -151,7 +151,7 @@ class ExecutionEngineConcurrencySafetyTest {
             vertx,
             mockProtocolContext(),
             "engine_test",
-            Series.FORKCHOICE_UPDATED,
+            EngineOrderPrecedence.FORKCHOICE_UPDATED,
             50,
             new AtomicInteger(),
             new AtomicInteger());
@@ -184,7 +184,7 @@ class ExecutionEngineConcurrencySafetyTest {
             vertx,
             mockProtocolContext(),
             "engine_newPayload",
-            Series.NEW_PAYLOAD,
+            EngineOrderPrecedence.NEW_PAYLOAD,
             50,
             inFlightAcrossMethods,
             maxObservedConcurrencyAcrossMethods);
@@ -193,7 +193,7 @@ class ExecutionEngineConcurrencySafetyTest {
             vertx,
             mockProtocolContext(),
             "engine_forkchoiceUpdated",
-            Series.FORKCHOICE_UPDATED,
+            EngineOrderPrecedence.FORKCHOICE_UPDATED,
             50,
             inFlightAcrossMethods,
             maxObservedConcurrencyAcrossMethods);
