@@ -29,6 +29,7 @@ import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -365,6 +367,83 @@ class SortedStateIngestTest {
     assertStored(world);
   }
 
+  @Test
+  void givesUpTheStorageEverythingWaitsForBeforeTheRunsOfFilesOfTheirOwn() {
+    final Random random = new Random(10);
+    // a slow storage first, small storages behind it, and two large ones in several streams
+    final TreeMap<Bytes32, Bytes> accounts = new TreeMap<>();
+    for (int i = 0; i < 195; i++) {
+      accounts.put(Bytes32.random(random), Bytes.random(70, random));
+    }
+    final List<Bytes32> hashes = new ArrayList<>(accounts.keySet());
+    final Bytes32 slow = hashes.getFirst();
+    final List<Bytes32> large = hashes.subList(hashes.size() - 2, hashes.size());
+    final List<Bytes32> small = hashes.subList(1, hashes.size() - 2);
+    final TreeMap<Bytes32, TreeMap<Bytes32, Bytes32>> storages = new TreeMap<>();
+    for (final Bytes32 hash : hashes) {
+      final int count = hash.equals(slow) ? 2_000 : large.contains(hash) ? 64_000 : 1_000;
+      final TreeMap<Bytes32, Bytes32> slots = new TreeMap<>();
+      for (int s = 0; s < count; s++) {
+        slots.put(Bytes32.random(random), Bytes32.random(random));
+      }
+      storages.put(hash, slots);
+    }
+    final World world = new World(accounts, storages, World.rangeLimits());
+    ingest = start(16 * 1024 * 1024, world);
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    final TreeMap<Bytes32, Bytes32> slowSlots = storages.get(slow);
+    final List<Bytes32> slowKeys = new ArrayList<>(slowSlots.keySet());
+    final Object slowStream = new Object();
+    handOver(slow, slowStream, slowKeys.subList(0, 100), slowSlots);
+
+    // each round, a part of every stream of the large storages and twelve small storages
+    final int streams = 4;
+    final int rounds = 16;
+    final Map<Bytes32, List<Object>> largeStreams = new HashMap<>();
+    for (final Bytes32 hash : large) {
+      final List<Object> objects = new ArrayList<>();
+      for (int stream = 0; stream < streams; stream++) {
+        objects.add(new Object());
+      }
+      largeStreams.put(hash, objects);
+    }
+    for (int round = 0; round < rounds; round++) {
+      for (final Bytes32 hash : large) {
+        final List<Bytes32> keys = new ArrayList<>(storages.get(hash).keySet());
+        final int perStream = keys.size() / streams;
+        final int perRound = perStream / rounds;
+        for (int stream = 0; stream < streams; stream++) {
+          final int from = stream * perStream + round * perRound;
+          handOver(
+              hash,
+              largeStreams.get(hash).get(stream),
+              keys.subList(from, from + perRound),
+              storages.get(hash));
+        }
+      }
+      for (final Bytes32 hash : small.subList(round * 12, (round + 1) * 12)) {
+        handOverStorage(hash, storages.get(hash), random);
+      }
+    }
+    handOver(slow, slowStream, slowKeys.subList(100, slowKeys.size()), slowSlots);
+    for (final Bytes32 hash : List.of(slow, large.get(0), large.get(1))) {
+      ingest.storageComplete(hash);
+      pendingStorage.remove(hash);
+    }
+    ingest.flush();
+
+    assertStored(world);
+    // the runs of the large storages became files, none went through the regular write path
+    final long regularSlots =
+        large.stream()
+            .flatMap(hash -> storages.get(hash).keySet().stream().map(slot -> slotKey(hash, slot)))
+            .filter(key -> !storage.fileKeys.contains(Bytes.wrap(key)))
+            .count();
+    assertThat(regularSlots).isZero();
+  }
+
   private SortedStateIngest start(final long memoryLimit, final World world) {
     final SortedStateIngest started =
         new SortedStateIngest(
@@ -416,6 +495,14 @@ class SortedStateIngestTest {
       }
       Thread.onSpinWait();
     }
+  }
+
+  private void handOver(
+      final Bytes32 account,
+      final Object stream,
+      final List<Bytes32> slots,
+      final Map<Bytes32, Bytes32> values) {
+    ingest.storage(account, stream, slots, slots.stream().map(values::get).toList());
   }
 
   // a storage comes in pieces from several streams, as with the chunks of a large storage
@@ -530,6 +617,8 @@ class SortedStateIngestTest {
   // an in-memory storage whose sorted files insist on ascending keys, as the RocksDB ones do
   private static final class RecordingStorage extends SegmentedInMemoryKeyValueStorage {
     private final List<SegmentIdentifier> files = Collections.synchronizedList(new ArrayList<>());
+    // the keys stored through sorted files
+    private final Set<Bytes> fileKeys = ConcurrentHashMap.newKeySet();
     private final List<SegmentIdentifier> rolledBack =
         Collections.synchronizedList(new ArrayList<>());
     private final AtomicInteger started = new AtomicInteger();
@@ -571,6 +660,7 @@ class SortedStateIngestTest {
       final SegmentedKeyValueStorageTransaction tx = startTransaction();
       started.incrementAndGet();
       return new SortedWriter() {
+        private final List<Bytes> keys = new ArrayList<>();
         private byte[] last;
 
         @Override
@@ -579,6 +669,7 @@ class SortedStateIngestTest {
               .as("keys of a sorted file in ascending order")
               .isTrue();
           last = key;
+          keys.add(Bytes.wrap(key));
           tx.put(segment, key, value);
         }
 
@@ -592,6 +683,7 @@ class SortedStateIngestTest {
             throw error;
           }
           tx.commit();
+          fileKeys.addAll(keys);
           files.add(segment);
         }
 

@@ -53,8 +53,8 @@ import org.slf4j.LoggerFactory;
  * grows too large to wait gets files of its own, one per stream of requests, and the storage file
  * ends before it so that the files do not overlap. When too much waits altogether, the account that
  * is waited for is given up: what it still gets goes through the regular write path. The runs of a
- * storage with files of its own count as waiting until they are worth a file, and are the first to
- * go through the regular write path.
+ * storage with files of its own count as waiting until they are worth a file, and go through the
+ * regular write path first when they hold more than the storages waiting for their turn.
  *
  * <p>Before anything reads or overwrites the state, {@link #flush()} writes out what waits through
  * the regular write path and stores every file: a file stored after a write to one of its keys
@@ -444,10 +444,10 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
     if (waiting() <= memoryLimit) {
       return;
     }
-    if (ownRunBytes > 0) {
-      storages.values().stream()
-          .filter(account -> account.mode == Mode.OWN_FILES)
-          .forEach(this::writeRuns);
+    if (ownRunBytes > waitingStorage) {
+      // written out each time, the runs would seldom grow into files: they only go first when
+      // they hold more than the storages waiting for their turn
+      writeOwnRuns();
     }
     if (waiting() > memoryLimit && waitingAccounts > waitingStorage) {
       // the account file waits for a range while later ones complete
@@ -477,8 +477,17 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
       release(largest.next());
     }
     if (waiting() > memoryLimit) {
+      writeOwnRuns();
+    }
+    if (waiting() > memoryLimit) {
       writeWaitingRanges();
     }
+  }
+
+  private void writeOwnRuns() {
+    storages.values().stream()
+        .filter(account -> account.mode == Mode.OWN_FILES)
+        .forEach(this::writeRuns);
   }
 
   private long waiting() {
