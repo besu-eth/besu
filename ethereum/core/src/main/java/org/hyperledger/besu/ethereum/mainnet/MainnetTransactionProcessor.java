@@ -114,7 +114,10 @@ public class MainnetTransactionProcessor {
     this.transferLogEmitter = transferLogEmitter;
     this.topLevelSupport =
         new TopLevelTransactionSupport(
-            gasCalculator, messageCallProcessor, coinbaseFeePriceCalculator);
+            gasCalculator,
+            messageCallProcessor,
+            coinbaseFeePriceCalculator,
+            messageCallProcessor.followsCodeDelegation());
   }
 
   /**

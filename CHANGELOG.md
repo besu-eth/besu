@@ -32,6 +32,7 @@
 - JSON-RPC methods will reject a malformed address parameter with `Invalid params` (`-32602`). An address must be `0x` or `0X` followed by exactly 40 hex digits (20 bytes). Today a shorter value is left-padded with zeros, so a call can read or act on a different account than intended. This also applies to the account keys of state overrides in `eth_call`, `eth_estimateGas` and `eth_simulateV1`. Clients that send short or unprefixed addresses will need to send the full 20-byte address. [#11888](https://github.com/besu-eth/besu/pull/11888)
 
 ### Bug fixes
+- A call to an account whose code is an EIP-7702 delegation designator no longer runs the delegated code before Prague. [#12003](https://github.com/besu-eth/besu/pull/12003)
 - `admin_logsRemoveCache` now removes every log bloom cache segment intersecting the requested block range, including the final segment when the start block is not aligned to a cache segment boundary. [#11949](https://github.com/besu-eth/besu/pull/11949)
 - `debug_accountRange` and `debug_storageRangeAt` return `Method not enabled` (`-32604`) on Bonsai (PathBased) instead of a successful empty result. These methods only work with `--data-storage-format=FOREST`. [#11979](https://github.com/besu-eth/besu/issues/11979)
 - An eth/69 peer is disconnected when its Status message has an earliest block above its latest block or a zero best hash, or when a `BlockRangeUpdate` has a zero block hash. These values were previously accepted. [#11987](https://github.com/besu-eth/besu/pull/11987)

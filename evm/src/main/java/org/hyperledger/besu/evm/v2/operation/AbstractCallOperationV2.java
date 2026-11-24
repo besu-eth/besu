@@ -236,7 +236,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     // checks ensures OOG calls don't add the delegation target to the BAL.
     if (contract != null) {
       final Bytes contractCode = contract.getCode();
-      if (hasCodeDelegation(contractCode)) {
+      if (hasCodeDelegation(contractCode) && evm.followsCodeDelegation()) {
         frame
             .getEip7928AccessList()
             .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
@@ -405,7 +405,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       code = evm.getOrCreateCachedJumpDest(codeHash, account.getCode());
     }
 
-    if (!hasCodeDelegation(code.getBytes())) {
+    if (!hasCodeDelegation(code.getBytes()) || !evm.followsCodeDelegation()) {
       return code;
     }
 
