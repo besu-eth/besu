@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -23,6 +24,7 @@ import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.EvmSpec;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.math.BigInteger;
 import java.util.HashMap;
@@ -31,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -77,6 +80,31 @@ class BalanceObservationTest {
         .code(Bytes.fromHexString(code))
         .execute();
     return observed;
+  }
+
+  @Test
+  void updaterWithoutOverridesPassesObservationsToItsParent() {
+    final Set<Address> observed = new HashSet<>();
+    final SimpleWorld root =
+        new SimpleWorld() {
+          @Override
+          public void observeBalance(final Address address) {
+            observed.add(address);
+          }
+
+          @Override
+          public void observeSufficientBalance(final Address address, final Wei margin) {
+            margins.put(address, margin);
+          }
+        };
+    final WorldUpdater nested = root.updater().updater();
+
+    nested.observeBalance(OTHER);
+    nested.observeSufficientBalance(CONTRACT, Wei.of(3));
+
+    assertThat(nested.balanceObserver()).isSameAs(root);
+    assertThat(observed).containsExactly(OTHER);
+    assertThat(margins).containsExactly(entry(CONTRACT, Wei.of(3)));
   }
 
   @ParameterizedTest

@@ -31,9 +31,6 @@ public class SimpleWorld implements WorldUpdater {
   /** The Parent. */
   private final SimpleWorld parent;
 
-  /** Where balance observations go, or null where they end here. */
-  private final WorldUpdater balanceObserver;
-
   /** The Accounts. */
   private Map<Address, Optional<SimpleAccount>> accounts = new HashMap<>();
 
@@ -49,7 +46,6 @@ public class SimpleWorld implements WorldUpdater {
    */
   public SimpleWorld(final SimpleWorld parent) {
     this.parent = parent;
-    this.balanceObserver = parent == null ? null : parent.balanceObserver();
   }
 
   @Override
@@ -140,24 +136,5 @@ public class SimpleWorld implements WorldUpdater {
   @Override
   public Optional<WorldUpdater> parentUpdater() {
     return Optional.ofNullable(parent);
-  }
-
-  @Override
-  public WorldUpdater balanceObserver() {
-    return balanceObserver != null ? balanceObserver : this;
-  }
-
-  @Override
-  public void observeBalance(final Address address) {
-    if (balanceObserver != null) {
-      balanceObserver.observeBalance(address);
-    }
-  }
-
-  @Override
-  public void observeSufficientBalance(final Address address, final Wei margin) {
-    if (balanceObserver != null) {
-      balanceObserver.observeSufficientBalance(address, margin);
-    }
   }
 }

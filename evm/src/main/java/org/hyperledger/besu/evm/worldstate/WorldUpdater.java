@@ -160,12 +160,14 @@ public interface WorldUpdater extends MutableWorldView {
   /**
    * The updater that the balance observations reported to this updater reach, so that an updater
    * created on top of it can report to that one directly rather than through every updater in
-   * between. An updater that records the observations itself returns itself.
+   * between. An updater that records the observations itself returns itself. By default they go
+   * where those of the parent updater go, so that an updater does not drop them by not overriding
+   * this.
    *
    * @return the updater that receives the balance observations reported to this updater
    */
   default WorldUpdater balanceObserver() {
-    return this;
+    return parentUpdater().map(WorldUpdater::balanceObserver).orElse(this);
   }
 
   /**
@@ -177,7 +179,10 @@ public interface WorldUpdater extends MutableWorldView {
    * @param address the account whose balance the transaction depends on
    */
   default void observeBalance(final Address address) {
-    // default is to ignore
+    final WorldUpdater observer = balanceObserver();
+    if (observer != this) {
+      observer.observeBalance(address);
+    }
   }
 
   /**
@@ -188,7 +193,10 @@ public interface WorldUpdater extends MutableWorldView {
    * @param margin how much the balance exceeds what the transaction spends at this point
    */
   default void observeSufficientBalance(final Address address, final Wei margin) {
-    // default is to ignore
+    final WorldUpdater observer = balanceObserver();
+    if (observer != this) {
+      observer.observeSufficientBalance(address, margin);
+    }
   }
 
   /**
