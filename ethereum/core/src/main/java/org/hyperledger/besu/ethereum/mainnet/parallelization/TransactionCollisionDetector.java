@@ -64,11 +64,11 @@ public class TransactionCollisionDetector {
    * PathBasedWorldStateUpdateAccumulator)}, except that an account of which earlier transactions
    * changed only the balance, while this transaction did not depend on that balance beyond it
    * sufficing for what the transaction spent and did not see the account empty, is no collision.
-   * The same holds when earlier transactions also changed the nonce of an account where the
-   * transaction only depended on the nonce being non-zero. Such accounts are added to {@code
-   * creditedAccounts}: taking the result over must then carry the transaction's balance change onto
-   * the balance the block has reached and keep the block's nonce. A chained transaction's result is
-   * never carried over this way.
+   * The same holds when earlier transactions also changed the nonce of an account without code
+   * where the transaction only depended on the nonce being non-zero. Such accounts are added to
+   * {@code creditedAccounts}: taking the result over must then carry the transaction's balance
+   * change onto the balance the block has reached and keep the block's nonce. A chained
+   * transaction's result is never carried over this way.
    *
    * @param transaction the transaction that executed speculatively, with a result that is not
    *     invalid
@@ -257,9 +257,10 @@ public class TransactionCollisionDetector {
    * Whether earlier transactions changed only the balance of an account whose balance the
    * transaction did not read, and spent from only while it sufficed by a margin the block's balance
    * keeps, so the transaction ends the same on the balance the block has reached. The sender's
-   * balance qualifies when the block only raised it. A nonce the block changed qualifies when the
-   * transaction only depended on it being non-zero. Emptiness depends on the balance and decides
-   * call costs and state clearing, so an account empty on either side does not qualify.
+   * balance qualifies when the block only raised it. A nonce the block changed qualifies for an
+   * account without code when the transaction only depended on it being non-zero. Emptiness depends
+   * on the balance and decides call costs and state clearing, so an account empty on either side
+   * does not qualify.
    */
   private static boolean isBalanceChangeCarried(
       final Transaction transaction,
@@ -303,9 +304,11 @@ public class TransactionCollisionDetector {
 
   /**
    * Whether the transaction ends the same with the nonce the block has reached. The exact nonce is
-   * read for the sender, for an EIP-7702 authority, and to create a contract from the account,
-   * which changes it. Emptiness and the collision check of a created address only ask whether the
-   * nonce is zero, so it must be non-zero on both sides.
+   * read for the sender, for an EIP-7702 authority, and to create a contract from the account. A
+   * creation in a frame that reverts leaves the nonce unchanged although the created address
+   * depended on it, so an account with code, which can create, does not qualify. Emptiness and the
+   * collision check of a created address only ask whether the nonce is zero, so it must be non-zero
+   * on both sides.
    */
   private static boolean isNonceChangeCarried(
       final Transaction transaction,
@@ -314,6 +317,7 @@ public class TransactionCollisionDetector {
       final BonsaiValue<? extends BonsaiAccount> inBlock) {
     return inBlock.getPrior().getNonce() != 0
         && inBlock.getUpdated().getNonce() != 0
+        && !inBlock.getUpdated().hasCode()
         && !address.equals(transaction.getSender())
         && inTransaction.getPrior().getNonce() == inTransaction.getUpdated().getNonce()
         && transaction

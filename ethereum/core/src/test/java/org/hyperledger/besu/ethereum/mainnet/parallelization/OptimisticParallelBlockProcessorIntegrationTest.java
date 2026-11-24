@@ -25,11 +25,13 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_3;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_3_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CREATOR_CONTRACT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.EMPTY_ACCOUNT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.REVERTED_CREATION_CALLER;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.crypto.KeyPair;
@@ -449,6 +451,29 @@ class OptimisticParallelBlockProcessorIntegrationTest {
 
       assertThat(result.seqWorldState().get(EMPTY_ACCOUNT)).isNull();
       assertThat(result.parWorldState().get(EMPTY_ACCOUNT)).isNull();
+    }
+
+    @Test
+    @DisplayName(
+        "A transaction whose reverted creation read a contract's nonce is executed again when the"
+            + " block changed that nonce")
+    void revertedCreationReadingAChangedNonceIsExecutedAgain() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              // raises the creator's nonce without creating at the address its CREATE would use
+              createTransferTransaction(
+                  0, 0L, 1_000_000L, 0L, 5L, CREATOR_CONTRACT, ACCOUNT_GENESIS_2_KEYPAIR),
+              // the caller stores the address the creator created at and reverted
+              createTransferTransaction(
+                  0, 0L, 1_000_000L, 0L, 5L, REVERTED_CREATION_CALLER, ACCOUNT_GENESIS_1_KEYPAIR));
+
+      assertContractStorageMatches(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexStringStrict(REVERTED_CREATION_CALLER),
+          0);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
     }
 
     @Test

@@ -94,7 +94,7 @@ Many transactions touch an account whose balance an earlier transaction of the b
 
 **When a balance change is carried over.** An earlier transaction may have changed the balance of an account the run touched, but not its code. That is no collision when all of these hold:
 
-- If the block changed the account's nonce, the nonce was not zero before or after, and the run did not read its exact value. Calling or paying an account does not read the nonce. The exact value is read for the transaction's sender, for an EIP-7702 authority, and to create a contract from the account, which changes the nonce. Emptiness and the collision check of a contract created at the account's address only ask whether the nonce is zero.
+- If the block changed the account's nonce, the account has no code, the nonce was not zero before or after, and the run did not read its exact value. Calling or paying an account does not read the nonce. The exact value is read for the transaction's sender, for an EIP-7702 authority, and to create a contract from the account. A creation in a frame that reverts leaves the nonce as it was although the created address depended on it, so an account with code, which can create, does not qualify. Emptiness and the collision check of a contract created at the account's address only ask whether the nonce is zero.
 - The run did not observe the account's balance.
 - The account is not empty in the parent state, at the transaction's turn or after the run. Whether an account is empty decides call costs and state clearing.
 - If the account is the transaction's sender, the block only raised its balance. The upfront cost and every spending the run observed sufficed on the parent's balance, so they suffice on a higher one.

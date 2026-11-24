@@ -707,6 +707,19 @@ class TransactionCollisionDetectorTest {
         new BonsaiCodeCache());
   }
 
+  private BonsaiAccount createContract(final Address address, final long nonce) {
+    return new BonsaiAccount(
+        worldState,
+        address,
+        Hash.hash(address.getBytes()),
+        nonce,
+        Wei.of(50),
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
+        Hash.hash(Bytes.fromHexString("0x00")),
+        false,
+        new BonsaiCodeCache());
+  }
+
   private static void putSlot(
       final BonsaiWorldStateUpdateAccumulator accumulator,
       final Address address,
@@ -1235,6 +1248,23 @@ class TransactionCollisionDetectorTest {
         hasCollisionCarryingCredits(
             createTransaction(Address.fromHexString("0x1"), paid), credited));
     assertThat(credited).containsExactly(paid);
+  }
+
+  @Test
+  void nonceTheBlockChangedIsACollisionForAnAccountWithCode() {
+    // a creation in a frame that reverted read the contract's nonce and left it unchanged
+    final Address contract = Address.fromHexString("0x2");
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(contract, new BonsaiValue<>(createContract(contract, 1), createContract(contract, 2)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(contract, new BonsaiValue<>(createContract(contract, 1), createContract(contract, 1)));
+
+    assertTrue(
+        hasCollisionCarryingCredits(
+            createTransaction(Address.fromHexString("0x1"), contract), new ArrayList<>()));
   }
 
   @Test

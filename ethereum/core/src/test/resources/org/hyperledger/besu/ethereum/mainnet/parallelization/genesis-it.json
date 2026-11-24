@@ -263,6 +263,22 @@
       "codeDecompiled": "PUSH0 PUSH0 PUSH0 PUSH0 PUSH1 1 PUSH20 0xa4664c40aacebd82a2db79f0ea36c06bc6a19adb GAS CALL STOP",
       "storage": {}
     },
+    "0x0000000000000000000000000000000000007750": {
+      "comment": "Without calldata, CREATE2 with an empty init code, which raises its nonce without creating at the address CREATE would use. With calldata, CREATE with an empty init code, then REVERT with the created address.",
+      "balance": "0",
+      "nonce": "0x01",
+      "code": "0x36600b575f5f5f5ff550005b5f5f5ff05f5260205ffd",
+      "codeDecompiled": "CALLDATASIZE PUSH1 0x0b JUMPI PUSH0 PUSH0 PUSH0 PUSH0 CREATE2 POP STOP JUMPDEST PUSH0 PUSH0 PUSH0 CREATE PUSH0 MSTORE PUSH1 0x20 PUSH0 REVERT",
+      "storage": {}
+    },
+    "0x0000000000000000000000000000000000007751": {
+      "comment": "Calls 0x0000000000000000000000000000000000007750 with one byte of calldata and stores the data it reverted with in slot 0.",
+      "balance": "0",
+      "nonce": "0x01",
+      "code": "0x5f5f60015f5f7300000000000000000000000000000000000077505af15060205f5f3e5f515f5500",
+      "codeDecompiled": "PUSH0 PUSH0 PUSH1 1 PUSH0 PUSH0 PUSH20 0x0000000000000000000000000000000000007750 GAS CALL POP PUSH1 0x20 PUSH0 PUSH0 RETURNDATACOPY PUSH0 MLOAD PUSH0 SSTORE STOP",
+      "storage": {}
+    },
     "0x0000000000000000000000000000000000007740": {
       "comment": "An existing empty account, which state clearing deletes once a transaction touches it.",
       "balance": "0"
