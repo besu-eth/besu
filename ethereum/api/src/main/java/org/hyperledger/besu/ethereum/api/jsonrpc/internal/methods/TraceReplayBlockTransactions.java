@@ -129,75 +129,98 @@ public class TraceReplayBlockTransactions extends AbstractBlockParameterMethod {
     if (maybeBlock.isEmpty()) {
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.BLOCK_NOT_FOUND);
     }
-    return traceBlock(maybeBlock.get(), traceTypeParameter);
+    return traceBlockResult(request, maybeBlock.get(), traceTypeParameter);
   }
 
-  private ArrayNode traceBlock(final Block block, final TraceTypeParameter traceTypeParameter) {
+  private Object traceBlockResult(
+      final JsonRpcRequestContext request,
+      final Block block,
+      final TraceTypeParameter traceTypeParameter) {
+    // getAndMapWorldState returns empty both when the parent state is missing and when the tracer
+    // throws. The flag keeps a trace that started from being reported as pruned history.
+    final boolean[] started = {false};
+    final Optional<ArrayNode> traced = traceBlock(block, traceTypeParameter, started);
+    if (traced.isEmpty()) {
+      return new JsonRpcErrorResponse(
+          request.getRequest().getId(),
+          started[0]
+              ? RpcErrorType.INTERNAL_ERROR
+              : WorldStateUnavailable.error(
+                  getBlockchainQueries().getBlockchain(),
+                  getBlockchainQueries().getWorldStateArchive()));
+    }
+    return traced.get();
+  }
+
+  private Optional<ArrayNode> traceBlock(
+      final Block block, final TraceTypeParameter traceTypeParameter, final boolean[] started) {
 
     if (block == null) {
-      return emptyResult();
+      return Optional.of(emptyResult());
     }
 
     final Set<TraceTypeParameter.TraceType> traceTypes = traceTypeParameter.getTraceTypes();
 
     final BlockHeader header = block.getHeader();
     return Tracer.processTracing(
-            getBlockchainQueries(),
-            Optional.of(header),
-            traceableState -> {
-              ArrayNodeWrapper resultArrayNode = new ArrayNodeWrapper(MAPPER.createArrayNode());
+        getBlockchainQueries(),
+        Optional.of(header),
+        traceableState -> {
+          started[0] = true;
+          ArrayNodeWrapper resultArrayNode = new ArrayNodeWrapper(MAPPER.createArrayNode());
 
-              final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
-              final MainnetTransactionProcessor transactionProcessor =
-                  protocolSpec.getTransactionProcessor();
-              final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
+          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(header);
+          final MainnetTransactionProcessor transactionProcessor =
+              protocolSpec.getTransactionProcessor();
+          final ChainUpdater chainUpdater = new ChainUpdater(traceableState);
 
-              final TransactionSource transactionSource = new TransactionSource(block);
-              final DebugOperationTracer debugOperationTracer =
-                  new DebugOperationTracer(
-                      OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                          .traceStorage(false)
-                          .traceMemory(false)
-                          .traceStack(true)
-                          .build(),
-                      false);
-              final ExecuteTransactionStep executeTransactionStep =
-                  new ExecuteTransactionStep(
-                      chainUpdater,
-                      transactionProcessor,
-                      getBlockchainQueries().getBlockchain(),
-                      debugOperationTracer,
-                      protocolSpec,
-                      block);
+          final TransactionSource transactionSource = new TransactionSource(block);
+          final DebugOperationTracer debugOperationTracer =
+              new DebugOperationTracer(
+                  OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                      .traceStorage(false)
+                      .traceMemory(false)
+                      .traceStack(true)
+                      .build(),
+                  false);
+          final ExecuteTransactionStep executeTransactionStep =
+              new ExecuteTransactionStep(
+                  chainUpdater,
+                  transactionProcessor,
+                  getBlockchainQueries().getBlockchain(),
+                  debugOperationTracer,
+                  protocolSpec,
+                  block);
 
-              final Function<TransactionTrace, CompletableFuture<TraceReplayResult>>
-                  traceReplayTransactionStep =
-                      new TraceReplayTransactionStep(protocolSchedule, block, traceTypes);
+          final Function<TransactionTrace, CompletableFuture<TraceReplayResult>>
+              traceReplayTransactionStep =
+                  new TraceReplayTransactionStep(protocolSchedule, block, traceTypes);
 
-              final BuildArrayNodeCompleterStep buildArrayNodeStep =
-                  new BuildArrayNodeCompleterStep(resultArrayNode);
+          final BuildArrayNodeCompleterStep buildArrayNodeStep =
+              new BuildArrayNodeCompleterStep(resultArrayNode);
 
-              final Pipeline<TransactionTrace> traceBlockPipeline =
-                  createPipelineFrom(
-                          "getTransactions",
-                          transactionSource,
-                          4,
-                          outputCounter,
-                          false,
-                          "trace_replay_block_transactions")
-                      .thenProcess("executeTransaction", executeTransactionStep)
-                      .thenProcessAsyncOrdered(
-                          "traceReplayTransaction", traceReplayTransactionStep, 4)
-                      .andFinishWith("buildArrayNode", buildArrayNodeStep::accept);
-              try {
-                ethScheduler.startPipeline(traceBlockPipeline).get();
-              } catch (final InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-              }
-              resultArrayNode = buildArrayNodeStep.getResultArrayNode();
-              return Optional.of(resultArrayNode.getArrayNode());
-            })
-        .orElse(emptyResult());
+          final Pipeline<TransactionTrace> traceBlockPipeline =
+              createPipelineFrom(
+                      "getTransactions",
+                      transactionSource,
+                      4,
+                      outputCounter,
+                      false,
+                      "trace_replay_block_transactions")
+                  .thenProcess("executeTransaction", executeTransactionStep)
+                  .thenProcessAsyncOrdered("traceReplayTransaction", traceReplayTransactionStep, 4)
+                  .andFinishWith("buildArrayNode", buildArrayNodeStep::accept);
+          try {
+            ethScheduler.startPipeline(traceBlockPipeline).get();
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException(e);
+          } catch (final ExecutionException e) {
+            throw new RuntimeException(e);
+          }
+          resultArrayNode = buildArrayNodeStep.getResultArrayNode();
+          return Optional.of(resultArrayNode.getArrayNode());
+        });
   }
 
   private ArrayNode emptyResult() {
