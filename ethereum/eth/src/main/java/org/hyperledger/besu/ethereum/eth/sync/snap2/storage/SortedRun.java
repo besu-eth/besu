@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.LongConsumer;
 
 /**
  * A run of entries of one segment in ascending key order, written to a sorted file once it holds
@@ -34,6 +35,8 @@ final class SortedRun {
   private final SegmentIdentifier segment;
   private final long minFileBytes;
   private final SortedIngestStats stats;
+  // told how much more or less the run holds in memory until it is worth a file
+  private final LongConsumer bufferedChange;
   private final List<byte[]> keys = new ArrayList<>();
   private final List<byte[]> values = new ArrayList<>();
   // written after the run, so that a key handed over again keeps its later value
@@ -49,10 +52,20 @@ final class SortedRun {
       final SegmentIdentifier segment,
       final long minFileBytes,
       final SortedIngestStats stats) {
+    this(storage, segment, minFileBytes, stats, unused -> {});
+  }
+
+  SortedRun(
+      final SegmentedKeyValueStorage storage,
+      final SegmentIdentifier segment,
+      final long minFileBytes,
+      final SortedIngestStats stats,
+      final LongConsumer bufferedChange) {
     this.storage = storage;
     this.segment = segment;
     this.minFileBytes = minFileBytes;
     this.stats = stats;
+    this.bufferedChange = bufferedChange;
   }
 
   void put(final byte[] key, final byte[] value) {
@@ -71,6 +84,7 @@ final class SortedRun {
     keys.add(key);
     values.add(value);
     buffered += key.length + value.length;
+    bufferedChange.accept(key.length + value.length);
     if (buffered >= minFileBytes) {
       writer = storage.startSortedWriter(segment);
       for (int i = 0; i < keys.size(); i++) {
@@ -78,7 +92,7 @@ final class SortedRun {
       }
       keys.clear();
       values.clear();
-      buffered = 0;
+      releaseBuffered();
     }
   }
 
@@ -130,7 +144,7 @@ final class SortedRun {
     values.clear();
     laterKeys.clear();
     laterValues.clear();
-    buffered = 0;
+    releaseBuffered();
     return Optional.empty();
   }
 
@@ -143,6 +157,11 @@ final class SortedRun {
     values.clear();
     laterKeys.clear();
     laterValues.clear();
+    releaseBuffered();
+  }
+
+  private void releaseBuffered() {
+    bufferedChange.accept(-buffered);
     buffered = 0;
   }
 

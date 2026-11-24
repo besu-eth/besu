@@ -52,7 +52,9 @@ import org.slf4j.LoggerFactory;
  * storage file once its storage is complete and every account before it is written. A storage that
  * grows too large to wait gets files of its own, one per stream of requests, and the storage file
  * ends before it so that the files do not overlap. When too much waits altogether, the account that
- * is waited for is given up: what it still gets goes through the regular write path.
+ * is waited for is given up: what it still gets goes through the regular write path. The runs of a
+ * storage with files of its own count as waiting until they are worth a file, and are the first to
+ * go through the regular write path.
  *
  * <p>Before anything reads or overwrites the state, {@link #flush()} writes out what waits through
  * the regular write path and stores every file: a file stored after a write to one of its keys
@@ -103,7 +105,11 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
     }
 
     private SortedRun stream(final Object stream) {
-      return streams.computeIfAbsent(stream, unused -> newRun(storageSegment));
+      return streams.computeIfAbsent(
+          stream,
+          unused ->
+              new SortedRun(
+                  storage, storageSegment, MIN_FILE_BYTES, stats, change -> ownRunBytes += change));
     }
 
     private void endStreams() {
@@ -131,9 +137,11 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
   private Bytes32 lastPassed;
   private SortedRun accountRun;
   private SortedRun storageRun;
-  // bytes waiting in memory, of accounts and of slots
+  // bytes waiting in memory, of accounts and of slots, and held by the runs of storages with files
+  // of their own until they are worth a file
   private long waitingAccounts;
   private long waitingStorage;
+  private long ownRunBytes;
   private boolean closed;
   private volatile Throwable failure;
 
@@ -433,15 +441,20 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
 
   // gives up waiting until less waits than allowed
   private void limitMemory() {
-    if (waitingAccounts + waitingStorage <= memoryLimit) {
+    if (waiting() <= memoryLimit) {
       return;
     }
-    if (waitingAccounts > waitingStorage) {
+    if (ownRunBytes > 0) {
+      storages.values().stream()
+          .filter(account -> account.mode == Mode.OWN_FILES)
+          .forEach(this::writeRuns);
+    }
+    if (waiting() > memoryLimit && waitingAccounts > waitingStorage) {
       // the account file waits for a range while later ones complete
       writeWaitingRanges();
     }
     // the storage file waits for an account while later ones complete
-    while (waitingAccounts + waitingStorage > memoryLimit && !storageOrder.isEmpty()) {
+    while (waiting() > memoryLimit && !storageOrder.isEmpty()) {
       final Bytes32 accountHash = storageOrder.peekFirst();
       final AccountStorage account = storages.get(accountHash);
       if (account == null) {
@@ -449,7 +462,7 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
         given.mode = Mode.REGULAR;
         storages.put(accountHash, given);
       } else if (account.mode == Mode.WAIT) {
-        toOwnFiles(account);
+        release(account);
       }
       advanceStorage();
     }
@@ -460,11 +473,33 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
             .sorted(Comparator.comparingLong((AccountStorage account) -> account.bytes).reversed())
             .toList()
             .iterator();
-    while (waitingAccounts + waitingStorage > memoryLimit && largest.hasNext()) {
-      toOwnFiles(largest.next());
+    while (waiting() > memoryLimit && largest.hasNext()) {
+      release(largest.next());
     }
-    if (waitingAccounts + waitingStorage > memoryLimit) {
+    if (waiting() > memoryLimit) {
       writeWaitingRanges();
+    }
+  }
+
+  private long waiting() {
+    return waitingAccounts + waitingStorage + ownRunBytes;
+  }
+
+  // gives up waiting for the storage, and nothing of what it got stays in memory
+  private void release(final AccountStorage account) {
+    toOwnFiles(account);
+    writeRuns(account);
+  }
+
+  // the runs not worth a file yet go through the regular write path
+  private void writeRuns(final AccountStorage account) {
+    final Iterator<SortedRun> runs = account.streams.values().iterator();
+    while (runs.hasNext()) {
+      final SortedRun run = runs.next();
+      if (run.buffered() > 0) {
+        end(run);
+        runs.remove();
+      }
     }
   }
 

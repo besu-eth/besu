@@ -336,6 +336,35 @@ class SortedStateIngestTest {
     assertThat(slotsOf(removed)).isZero();
   }
 
+  @Test
+  void writesTheRunsOfAStorageWithFilesOfItsOwnOnceTooMuchWaits() {
+    final Random random = new Random(9);
+    // a storage in more streams than the memory holds, none of them worth a file
+    final World world = World.sized(random, 100, 1, 6_000);
+    final long memoryLimit = 256 * 1024;
+    ingest = start(memoryLimit, world);
+    final Bytes32 account = world.storage.firstKey();
+    final TreeMap<Bytes32, Bytes32> slots = world.storage.get(account);
+    final List<Bytes32> keys = new ArrayList<>(slots.keySet());
+    final int streams = 64;
+    for (int stream = 0; stream < streams; stream++) {
+      final List<Bytes32> chunk =
+          keys.subList(stream * keys.size() / streams, (stream + 1) * keys.size() / streams);
+      ingest.storage(account, new Object(), chunk, chunk.stream().map(slots::get).toList());
+    }
+
+    // what the runs held went through the regular write path before the storage completed
+    assertThat(slotsOf(account)).isPositive();
+
+    ingest.storageComplete(account);
+    pendingStorage.remove(account);
+    for (int range = 0; range < RANGES; range++) {
+      handOverRange(world, range, random);
+    }
+    ingest.flush();
+    assertStored(world);
+  }
+
   private SortedStateIngest start(final long memoryLimit, final World world) {
     final SortedStateIngest started =
         new SortedStateIngest(

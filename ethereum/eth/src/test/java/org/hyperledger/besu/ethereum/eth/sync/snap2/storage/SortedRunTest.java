@@ -20,7 +20,10 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 import org.apache.tuweni.bytes.Bytes;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -43,6 +46,34 @@ class SortedRunTest {
     assertThat(stats.outOfOrderEntries()).isEqualTo(2);
     assertThat(stored(1)).isEqualTo(Bytes.wrap(value(4)));
     assertThat(stored(2)).isEqualTo(Bytes.wrap(value(3)));
+  }
+
+  @Test
+  void reportsWhatItHoldsUntilItIsWorthAFile() {
+    final AtomicLong held = new AtomicLong();
+    // entries of 3 bytes, a file from 10
+    final SortedRun file = new SortedRun(storage, ACCOUNT_INFO_STATE, 10, stats, held::addAndGet);
+    for (int key = 1; key <= 3; key++) {
+      file.put(key(key), value(key));
+    }
+    assertThat(held).hasValue(9);
+    file.put(key(4), value(4));
+    assertThat(held).hasValue(0);
+    file.put(key(5), value(5));
+    assertThat(held).hasValue(0);
+    file.end().ifPresent(SortedWriter::commit);
+
+    final SortedRun small = new SortedRun(storage, ACCOUNT_INFO_STATE, 10, stats, held::addAndGet);
+    small.put(key(6), value(6));
+    assertThat(held).hasValue(3);
+    assertThat(small.end()).isEmpty();
+    assertThat(held).hasValue(0);
+
+    final SortedRun dropped =
+        new SortedRun(storage, ACCOUNT_INFO_STATE, 10, stats, held::addAndGet);
+    dropped.put(key(7), value(7));
+    dropped.discard();
+    assertThat(held).hasValue(0);
   }
 
   private Bytes stored(final int key) {
