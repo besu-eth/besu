@@ -25,6 +25,7 @@ import org.hyperledger.besu.evm.account.Account;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiPredicate;
 
@@ -232,13 +233,18 @@ public class TransactionCollisionDetector {
   }
 
   /**
-   * Whether earlier transactions changed only the balance of an account whose balance the
-   * transaction did not read, and spent from only while it sufficed by a margin the block's balance
-   * keeps, so the transaction ends the same on the balance the block has reached. The sender's
-   * balance qualifies when the block only raised it. A nonce the block changed qualifies for an
-   * account without code when the transaction only depended on it being non-zero. Emptiness depends
-   * on the balance and decides call costs and state clearing, so an account empty on either side
-   * does not qualify.
+   * Whether the run's change of an account the block changed can be carried over to the state the
+   * block has reached. It can when:
+   *
+   * <ul>
+   *   <li>the run recorded which balances it read, and did not read this one;
+   *   <li>the block did not change the account's code;
+   *   <li>the account is not empty in the parent state, at the transaction's turn or after the run,
+   *       as emptiness decides call costs and state clearing;
+   *   <li>if the block changed the nonce, the run only depended on it being non-zero, as {@code
+   *       isNonceChangeCarried} describes;
+   *   <li>everything the run spent from the balance still finds enough on the block's balance.
+   * </ul>
    */
   private static boolean isBalanceChangeCarried(
       final Transaction transaction,
@@ -251,33 +257,53 @@ public class TransactionCollisionDetector {
     }
     final BonsaiValue<? extends BonsaiAccount> inTransaction =
         transactionAccumulator.getAccountsToUpdate().get(address);
-    final BonsaiAccount blockPrior = inBlock.getPrior();
-    final BonsaiAccount blockUpdated = inBlock.getUpdated();
-    if (blockPrior == null
-        || blockUpdated == null
-        || inTransaction == null
-        || inTransaction.getPrior() == null
-        || inTransaction.getUpdated() == null
-        || !blockPrior.getCodeHash().equals(blockUpdated.getCodeHash())
-        || blockPrior.isEmpty()
-        || blockUpdated.isEmpty()
-        || inTransaction.getUpdated().isEmpty()
-        || (blockPrior.getNonce() != blockUpdated.getNonce()
+    if (!existsBeforeAndAfter(inBlock)
+        || !existsBeforeAndAfter(inTransaction)
+        || !inBlock.getPrior().getCodeHash().equals(inBlock.getUpdated().getCodeHash())
+        || isEmptyOnEitherSide(inBlock, inTransaction)
+        || (inBlock.getPrior().getNonce() != inBlock.getUpdated().getNonce()
             && !isNonceChangeCarried(transaction, inTransaction, address, inBlock))) {
       return false;
     }
+    return spendingStillSuffices(
+        transaction, transactionAccumulator, address, inBlock, inTransaction);
+  }
+
+  private static boolean existsBeforeAndAfter(final BonsaiValue<? extends BonsaiAccount> value) {
+    return value != null && value.getPrior() != null && value.getUpdated() != null;
+  }
+
+  private static boolean isEmptyOnEitherSide(
+      final BonsaiValue<? extends BonsaiAccount> inBlock,
+      final BonsaiValue<? extends BonsaiAccount> inTransaction) {
+    return inBlock.getPrior().isEmpty()
+        || inBlock.getUpdated().isEmpty()
+        || inTransaction.getUpdated().isEmpty();
+  }
+
+  /**
+   * Whether everything the run spent from the account's balance still finds enough on the balance
+   * the block has reached. The sender's upfront cost and every spending the run observed sufficed
+   * on the parent's balance, so they suffice when the block only raised it. Any other account's
+   * spendings each found the balance sufficient by at least the smallest margin; without spending,
+   * the run only added to the balance.
+   */
+  private static boolean spendingStillSuffices(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final Address address,
+      final BonsaiValue<? extends BonsaiAccount> inBlock,
+      final BonsaiValue<? extends BonsaiAccount> inTransaction) {
+    final Wei blockBalance = inBlock.getUpdated().getBalance();
     if (address.equals(transaction.getSender())) {
-      // the upfront cost and every spending the run observed sufficed on the parent's balance, so
-      // they suffice on a higher one
-      return blockUpdated.getBalance().compareTo(blockPrior.getBalance()) >= 0;
+      return blockBalance.compareTo(inBlock.getPrior().getBalance()) >= 0;
     }
-    final Wei startingBalance = inTransaction.getPrior().getBalance();
-    return transactionAccumulator
-        .getBalanceMargin(address)
-        // every spending found the balance sufficient by at least the margin
-        .map(margin -> blockUpdated.getBalance().add(margin).compareTo(startingBalance) >= 0)
-        // without spending, only a credit can be carried over
-        .orElseGet(() -> inTransaction.getUpdated().getBalance().compareTo(startingBalance) >= 0);
+    final Wei start = inTransaction.getPrior().getBalance();
+    final Optional<Wei> margin = transactionAccumulator.getBalanceMargin(address);
+    if (margin.isEmpty()) {
+      return inTransaction.getUpdated().getBalance().compareTo(start) >= 0;
+    }
+    return blockBalance.add(margin.get()).compareTo(start) >= 0;
   }
 
   private static CarriedAccount carry(
