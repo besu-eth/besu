@@ -72,7 +72,7 @@ class FrameTransactionPoolPolicyTest {
   private static final long NONCE = 7L;
   private static final Wei MAX_FEE = Wei.fromEth(1);
   // EIP-8141 MAX_VERIFY_GAS less the secp256k1 signature validation cost.
-  private static final long MAX_SELF_VERIFY_EXECUTION_GAS = 97_200L;
+  private static final long MAX_SELF_VERIFY_EXECUTION_GAS = 297_200L;
   private static final long HEAD_TIMESTAMP = 1_000L;
   private static final long MIN_DEADLINE = HEAD_TIMESTAMP + 24L;
   // The frame entry's cold access to the verifier, 3,000 since EIP-8038, plus the canonical
@@ -226,21 +226,24 @@ class FrameTransactionPoolPolicyTest {
   }
 
   // The expiry and self_verify execution limits plus the signature's 2,800 must not exceed
-  // MAX_VERIFY_GAS, 100,000.
+  // MAX_VERIFY_GAS, 300,000.
   static Stream<Arguments> prefixExecutionLimits() {
     return Stream.of(
         Arguments.of("expiry 5,000, self_verify 5,000", 5_000L, 5_000L, true),
-        Arguments.of("expiry 5,000, self_verify 92,200: at the cap", 5_000L, 92_200L, true),
-        Arguments.of("expiry 5,000, self_verify 92,201: 1 above", 5_000L, 92_201L, false),
-        Arguments.of("expiry 92,200, self_verify 5,000: at the cap", 92_200L, 5_000L, true),
-        Arguments.of("expiry 92,201, self_verify 5,000: 1 above", 92_201L, 5_000L, false),
+        Arguments.of("expiry 5,000, self_verify 292,200: at the cap", 5_000L, 292_200L, true),
+        Arguments.of("expiry 5,000, self_verify 292,201: 1 above", 5_000L, 292_201L, false),
+        Arguments.of("expiry 292,200, self_verify 5,000: at the cap", 292_200L, 5_000L, true),
+        Arguments.of("expiry 292,201, self_verify 5,000: 1 above", 292_201L, 5_000L, false),
         Arguments.of(
-            "expiry 3,051, self_verify 94,149: at the cap",
+            "expiry 3,051, self_verify 294,149: at the cap",
             MIN_EXPIRY_EXECUTION_GAS,
-            94_149L,
+            294_149L,
             true),
         Arguments.of(
-            "expiry 3,051, self_verify 94,150: 1 above", MIN_EXPIRY_EXECUTION_GAS, 94_150L, false),
+            "expiry 3,051, self_verify 294,150: 1 above",
+            MIN_EXPIRY_EXECUTION_GAS,
+            294_150L,
+            false),
         Arguments.of("expiry 2^64 - 1", -1L, 5_000L, false),
         Arguments.of("self_verify 2^64 - 1", 5_000L, -1L, false),
         Arguments.of("both 2^64 - 1", -1L, -1L, false),
