@@ -39,7 +39,7 @@ final class StacksV2 {
   // 2^24 a call chain reaches at most depth 493, so this keeps the deep stacks of four such chains
   // that ran at the same time on any threads. Past the cap a released stack is dropped, and a later
   // deep frame allocates its own, as without the shared stacks.
-  static final int SHARED_STACKS = 2 * 1024;
+  static final int SHARED_STACKS = 2048;
 
   static final int THREAD_DEEP_STACKS = 16;
 
