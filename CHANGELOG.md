@@ -85,6 +85,7 @@
 - DNS discovery now compares each linked ENR tree with its own previous sequence number, so a linked tree with a higher sequence number no longer stops the tree that links to it from being read, and each refresh reads a tree or subtree at most once and stops after 50,000 records or 5 minutes.
 
 ### Additions and Improvements
+- Cancelling EVM execution (block-building timeouts, parallel-import slots, mempool prewarming) now goes through a kill switch polled by the interpreter loops, replacing the tracer-based interrupt checks. Block building runs the fast untraced EVM loop when no plugin tracer is installed, cutting jump-heavy EVM v2 execution time during block building by more than half, and a cancelled transaction stops within milliseconds. [#12040](https://github.com/besu-eth/besu/pull/12040)
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
 - Upgrade Guava from 33.7.2-jre to 33.8.0-jre, resolving CVE-2026-118042 [#11860](https://github.com/besu-eth/besu/pull/11860)
 - Upgrade opentelemetry from 1.62.0 to 1.67.0, resolving CVE-2026-118259, along with the OpenTelemetry OkHttp instrumentation (2.25.0-alpha to 2.33.1-alpha) and semantic conventions (1.40.0 to 1.44.0) that match it. Plugins that use OpenTelemetry directly should align with these versions. Since 1.67.0, an `SdkTracerProvider` with no span processor creates no spans, so with `OTEL_TRACES_EXPORTER=none` Besu no longer creates spans. [#11859](https://github.com/besu-eth/besu/pull/11859)
