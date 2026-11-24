@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.MessageFrame.State;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.internal.EvmKillSwitch;
 import org.hyperledger.besu.evm.internal.JumpDestOnlyCodeCache;
 import org.hyperledger.besu.evm.internal.OverflowException;
 import org.hyperledger.besu.evm.internal.UnderflowException;
@@ -438,7 +439,11 @@ public class EVM {
               case 0x50 -> PopOperation.staticOperation(frame);
               case 0x56 -> JumpOperation.staticOperation(frame);
               case 0x57 -> JumpiOperation.staticOperation(frame);
-              case 0x5b -> JumpDestOperation.JUMPDEST_SUCCESS;
+              case 0x5b -> {
+                // cancellation poll on every jump target: free while the kill switch is disarmed
+                EvmKillSwitch.poll();
+                yield JumpDestOperation.JUMPDEST_SUCCESS;
+              }
               case 0x5f ->
                   enableShanghai
                       ? Push0Operation.staticOperation(frame)
@@ -523,6 +528,9 @@ public class EVM {
                       ? ExchangeOperation.staticOperation(frame, code, pc)
                       : InvalidOperation.invalidOperationResult(opcode);
               default -> { // unoptimized operations
+                // covers code without jumps: straight-line runs are bounded by the code size, and
+                // calls into further frames all dispatch here
+                EvmKillSwitch.poll();
                 frame.setCurrentOperation(currentOperation);
                 yield currentOperation.execute(frame, this);
               }
@@ -657,6 +665,9 @@ public class EVM {
           sp = frame.stackTopV2();
         }
         case 0x5b -> { // JUMPDEST
+          // cancellation poll on every jump target: free while the kill switch is disarmed; when
+          // it throws, the frame's pc, gas and stack top are stale, and the frame is discarded
+          EvmKillSwitch.poll();
           // rebuilt from base, so that only base, not sp as well, needs a register through the
           // switch
           sp = base ^ 0x5b;
@@ -741,6 +752,9 @@ public class EVM {
           pc = frame.getPC();
         }
         default -> {
+          // cancellation poll, covering code without jumps: straight-line runs are bounded by the
+          // code size, and calls into further frames all dispatch here
+          EvmKillSwitch.poll();
           // executeOperationV2 is too big to inline, so this is a real call, and no local may be
           // needed after it. That is why this case completes the operation itself, reads all three
           // back from the frame, and has its own catch blocks. Its bias is 0, so base is the stack
@@ -786,6 +800,8 @@ public class EVM {
     final byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     final Operation[] operationArray = operations.getOperations();
     while (frame.getState() == State.CODE_EXECUTING) {
+      // cancellation poll: free while the kill switch is disarmed
+      EvmKillSwitch.poll();
       final int pc = frame.getPC();
       final int opcode = pc < code.length ? code[pc] & 0xff : 0;
       frame.setCurrentOperation(pc < code.length ? operationArray[opcode] : endOfScriptStop);

@@ -801,7 +801,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
     }
     if (future != null) {
+      // the block importer re-executes this transaction sequentially, so the still-running
+      // speculative execution is useless for its result: cancel its future and stop its thread,
+      // freeing its CPU for the executions the importer still needs
       future.cancel(true);
+      interruptSlot(transactionLocation);
     }
     return Optional.empty();
   }

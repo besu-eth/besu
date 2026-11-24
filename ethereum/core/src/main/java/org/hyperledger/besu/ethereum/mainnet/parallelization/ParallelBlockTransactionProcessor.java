@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.internal.InterruptibleExecution;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
@@ -36,10 +37,29 @@ public abstract class ParallelBlockTransactionProcessor {
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
+  // Per-slot cancellation handle for the speculative execution, so a slot whose result is no
+  // longer needed can be interrupted. CompletableFuture.cancel(true) never interrupts the running
+  // task, so without this the speculative execution would run to its end. The scoped arm keeps the
+  // kill switch armed only for the few milliseconds the kill takes: while armed, every EVM thread
+  // in the process pays an interrupt-status read per poll, so a fixed armed period would tax the
+  // whole remainder of the block's execution.
+  private InterruptibleExecution[] executionSlots;
+
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     futures[txIndex] = null;
     return future;
+  }
+
+  /**
+   * Interrupts the thread of a still-running speculative transaction, if any, so the EVM kill
+   * switch stops it at its next poll. Call after cancelling the slot's future, so the task cannot
+   * complete normally with a half-executed result.
+   *
+   * @param txIndex the slot of the transaction whose execution is no longer needed
+   */
+  protected void interruptSlot(final int txIndex) {
+    executionSlots[txIndex].interrupt();
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -55,25 +75,30 @@ public abstract class ParallelBlockTransactionProcessor {
       final Optional<BlockHeader> maybeParentHeader) {
 
     futures = new CompletableFuture[transactions.size()];
+    executionSlots = new InterruptibleExecution[transactions.size()];
 
     for (int i = 0; i < transactions.size(); i++) {
       final int txIndex = i;
       final Transaction transaction = transactions.get(i);
+      final InterruptibleExecution executionSlot = new InterruptibleExecution();
+      executionSlots[i] = executionSlot;
 
       futures[i] =
           CompletableFuture.supplyAsync(
               () ->
-                  precomputeLogsBloom(
-                      runTransaction(
-                          protocolContext,
-                          blockHeader,
-                          txIndex,
-                          transaction,
-                          miningBeneficiary,
-                          blockHashLookup,
-                          blobGasPrice,
-                          blockAccessListBuilder,
-                          maybeParentHeader)),
+                  executionSlot.run(
+                      () ->
+                          precomputeLogsBloom(
+                              runTransaction(
+                                  protocolContext,
+                                  blockHeader,
+                                  txIndex,
+                                  transaction,
+                                  miningBeneficiary,
+                                  blockHashLookup,
+                                  blobGasPrice,
+                                  blockAccessListBuilder,
+                                  maybeParentHeader))),
               executor);
     }
   }
@@ -88,8 +113,8 @@ public abstract class ParallelBlockTransactionProcessor {
   }
 
   /**
-   * Cancels every still-pending speculative future and nulls its slot. Already-consumed slots are
-   * null, so on the success path this is a no-op.
+   * Cancels every still-pending speculative future, interrupts the threads still executing one, and
+   * nulls the slots. Already-consumed slots are null, so on the success path this is a no-op.
    */
   public void abort() {
     if (futures == null) {
@@ -99,6 +124,7 @@ public abstract class ParallelBlockTransactionProcessor {
       final CompletableFuture<ParallelizedTransactionContext> future = futures[i];
       if (future != null) {
         future.cancel(true);
+        interruptSlot(i);
         futures[i] = null;
       }
     }

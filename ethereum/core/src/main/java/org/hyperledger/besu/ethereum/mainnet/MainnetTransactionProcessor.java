@@ -40,6 +40,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.internal.AddressStorageSlotKey;
+import org.hyperledger.besu.evm.internal.EvmInterruptedException;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
@@ -715,9 +716,8 @@ public class MainnetTransactionProcessor {
       // need to throw to trigger the heal
       throw re;
     } catch (final RuntimeException re) {
-      final var cause = re.getCause();
       // in case of an interruption then just return without calling any other tracing method
-      if (cause != null && cause instanceof InterruptedException) {
+      if (re instanceof EvmInterruptedException || re.getCause() instanceof InterruptedException) {
         LOG.atDebug()
             .setMessage("Interrupted while processing the transaction with hash {}")
             .addArgument(transaction::getHash)
