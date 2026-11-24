@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.gascalculator.StorageTransition;
+import org.hyperledger.besu.evm.v2.worldstate.JournalAccountV2;
 
 import java.util.function.Supplier;
 
@@ -83,7 +84,11 @@ public class SStoreOperationV2 extends AbstractOperationV2 {
     }
 
     final Address address = account.getAddress();
-    final boolean slotIsWarm = frame.warmUpStorage(address, key);
+    // the journal of a transaction keeps its warm slots together with their values
+    final boolean slotIsWarm =
+        account instanceof JournalAccountV2 journalAccount
+            ? journalAccount.warmUpStorage(key)
+            : frame.warmUpStorage(address, key);
 
     // EIP-8038: the repriced access cost can exceed the EIP-2200 stipend, so the sentry above no
     // longer guarantees the access is affordable. Check before the current-value read below, which
