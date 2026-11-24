@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.cli.options;
 
+import static org.hyperledger.besu.evm.frame.MessageFrame.DEFAULT_MAX_STACK_SIZE;
+
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.util.List;
@@ -82,6 +85,29 @@ public class EvmOptions implements CLIOptions<EvmConfiguration> {
       hidden = true,
       arity = "1")
   private boolean enableEvmV2 = false;
+
+  /**
+   * Validates the options against the genesis config.
+   *
+   * @param commandLine the command line, for the error
+   * @param genesisConfigOptions the genesis config options
+   */
+  public void validate(
+      final CommandLine commandLine, final GenesisConfigOptions genesisConfigOptions) {
+    // EVM v2 supports only the default stack size, which system calls use too
+    if (enableEvmV2
+        && genesisConfigOptions.getEvmStackSize().orElse(DEFAULT_MAX_STACK_SIZE)
+            != DEFAULT_MAX_STACK_SIZE) {
+      throw new CommandLine.ParameterException(
+          commandLine,
+          EVM_V2
+              + " supports only an evmstacksize of "
+              + DEFAULT_MAX_STACK_SIZE
+              + ". Remove evmstacksize from the genesis file or run without "
+              + EVM_V2
+              + ".");
+    }
+  }
 
   @Override
   public EvmConfiguration toDomainObject() {
