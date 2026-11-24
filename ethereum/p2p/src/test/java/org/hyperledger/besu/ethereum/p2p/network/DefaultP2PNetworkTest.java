@@ -301,6 +301,22 @@ public final class DefaultP2PNetworkTest {
   }
 
   @Test
+  public void attemptPeerConnections_skipsPeerWhoseForkIdCheckThrows() {
+    final DiscoveryPeerV4 badPeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    final DiscoveryPeerV4 goodPeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
+    badPeer.setBonded();
+    goodPeer.setBonded();
+    when(discoveryAgent.streamDiscoveredPeers()).thenReturn(Stream.of(badPeer, goodPeer));
+    when(discoveryAgent.checkForkId(badPeer)).thenThrow(new IllegalArgumentException("bad ENR"));
+
+    final DefaultP2PNetwork network = network();
+    network.attemptPeerConnections();
+
+    verify(rlpxAgent, times(1)).connect(peerCaptor.capture(), eq(ConnectSource.MAINTAIN));
+    assertThat(peerCaptor.getValue()).isEqualTo(goodPeer);
+  }
+
+  @Test
   public void attemptPeerConnections_unbondedPeers() {
     final DiscoveryPeerV4 discoPeer = DiscoveryPeerV4.fromEnode(PeerTestHelper.enode());
     final Stream<DiscoveryPeerV4> peerStream = Stream.of(discoPeer);

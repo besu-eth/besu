@@ -16,6 +16,9 @@ package org.hyperledger.besu.evm.precompile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assumptions.assumeThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EvmSpecVersion;
@@ -23,9 +26,12 @@ import org.hyperledger.besu.evm.fluent.EvmSpec;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.bytes.MutableBytes;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 
 class MODEXPPrecompiledContractTest {
@@ -173,6 +179,73 @@ class MODEXPPrecompiledContractTest {
       final Long eip2565Gas) {
     BigIntegerModularExponentiationPrecompiledContract.disableNative();
     testComputation(inputString, precompiledResult);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void zeroModulusLengthReturnsEmptyOutputForAnyTrailingInput(final boolean nativeEnabled) {
+    setNative(nativeEnabled);
+    // A non-zero-offset view over a large zeroed buffer, as a CALL hands over EVM memory: the
+    // header reads as base, exponent and modulus lengths of zero.
+    final Bytes zeroLengths = MutableBytes.create(2 * 1024 * 1024).slice(1);
+    // base length 1, exponent and modulus lengths 0, then a base byte and trailing data
+    final Bytes baseOnly =
+        Bytes.concatenate(
+            Bytes32.leftPad(Bytes.of(1)),
+            Bytes.wrap(new byte[64]),
+            Bytes.fromHexString("0x03"),
+            Bytes.wrap(new byte[1024]));
+
+    for (final Bytes input : new Bytes[] {zeroLengths, baseOnly}) {
+      final PrecompiledContract.PrecompileContractResult result =
+          berlinContract.computePrecompile(input, messageFrame);
+      assertThat(result.isSuccessful()).isTrue();
+      assertThat(result.output()).isEqualTo(Bytes.EMPTY);
+    }
+  }
+
+  @ParameterizedTest
+  @MethodSource("parameters")
+  void trailingInputPastTheDeclaredOperandsIsIgnored(
+      final String inputString,
+      final String precompiledResult,
+      final Long eip198Gas,
+      final Long eip2565Gas) {
+    assumeThat(precompiledResult).isNotNull();
+    final Bytes expected = Bytes.fromHexString(precompiledResult);
+    final Bytes input =
+        Bytes.concatenate(Bytes.fromHexString(inputString), Bytes.repeat((byte) 0xff, 4096));
+    for (final boolean nativeEnabled : new boolean[] {true, false}) {
+      setNative(nativeEnabled);
+      assertThat(berlinContract.computePrecompile(input, messageFrame).output())
+          .isEqualTo(expected);
+    }
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {0, 1})
+  void nativeRouteNeverCopiesInputPastTheDeclaredOperands(final int modulusLength) {
+    assumeThat(BigIntegerModularExponentiationPrecompiledContract.maybeEnableNative()).isTrue();
+    // A non-zero-offset view over a large zeroed buffer, as a CALL hands over EVM memory, so
+    // toArrayUnsafe() would have to copy all of it. Base and exponent lengths are zero.
+    final MutableBytes memory = MutableBytes.create(2 * 1024 * 1024);
+    memory.set(1 + 95, (byte) modulusLength);
+    final Bytes input = spy(memory.slice(1));
+
+    final PrecompiledContract.PrecompileContractResult result =
+        berlinContract.computePrecompile(input, messageFrame);
+
+    assertThat(result.isSuccessful()).isTrue();
+    assertThat(result.output().size()).isEqualTo(modulusLength);
+    verify(input, never()).toArrayUnsafe();
+  }
+
+  private static void setNative(final boolean nativeEnabled) {
+    if (nativeEnabled) {
+      BigIntegerModularExponentiationPrecompiledContract.maybeEnableNative();
+    } else {
+      BigIntegerModularExponentiationPrecompiledContract.disableNative();
+    }
   }
 
   private void testComputation(final String inputString, final String precompiledResult) {

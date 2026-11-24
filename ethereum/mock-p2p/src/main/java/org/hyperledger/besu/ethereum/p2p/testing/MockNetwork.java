@@ -177,6 +177,9 @@ public final class MockNetwork {
     }
 
     @Override
+    public void addCapability(final Capability capability) {}
+
+    @Override
     public void subscribeConnect(final ConnectCallback callback) {
       connectCallbacks.subscribe(callback);
     }

@@ -23,6 +23,7 @@ import java.nio.ByteOrder;
 import java.security.SecureRandom;
 import java.util.Arrays;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
@@ -34,11 +35,23 @@ import org.apache.tuweni.bytes.Bytes32;
  * non-deterministic off chain so collisions can only be found out while executing EVM payloads
  * which costs gas.
  *
- * <p>Hashcode is based on multiply-shift universal hashing (Dietzfelbinger) which is efficient
- * enough and has good collision probability for hash tables ({@code <= 2^-32} probability of
- * collision). Even in the case of collisions Java HashMaps treeifies buckets, iff this class
- * implements {@link Comparable} directly, and search goes O(log n) instead of O(n) which limits
- * effects of collisions.
+ * <p>{@link #hashCode()} is the multilinear family over {@code Z_2^64}: {@code h = seed_base +
+ * SUM(lane_i * seed_i)} accumulated modulo {@code 2^64}, returning the top 32 bits. Each {@code
+ * lane_i} is a 32-bit chunk of the key and each {@code seed_i} a uniformly random 64-bit seed. The
+ * family is <em>exactly strongly universal</em> on its 32-bit output: for any two distinct keys and
+ * any two output values, {@code Pr[hashCode(x) == a and hashCode(y) == b] == 2^-64}. Two distinct
+ * keys therefore collide with probability exactly {@code 2^-32}, and share a bucket of a {@code
+ * 2^m} table with probability exactly {@code 2^-m} - the same as an ideal random function, whatever
+ * keys are chosen. Choosing them cleverly gains an attacker nothing over choosing them at random.
+ *
+ * <p><strong>The lanes must stay narrow, and this is exact rather than a rule of thumb.</strong>
+ * Let {@code t} be the number of trailing zero bits of the difference between two keys in some
+ * lane. Conditioned on the other seeds the accumulator difference is uniform on the multiples of
+ * {@code 2^t}, and the per-bucket overlap is a triangular kernel of half-width {@code 2^32}. A
+ * triangular kernel is a linear B-spline, so it sums to a constant over any lattice whose spacing
+ * divides its half-width. Hence the collision probability is exactly {@code 2^-32} while {@code t
+ * <= 32}, and degrades to exactly {@code 2^(t-64)} beyond it. A {@code w}-bit lane admits {@code t
+ * <= w-1}, so the guarantee holds while {@code w <= 33}; this code uses 32, with a bit to spare.
  */
 public class AddressStorageSlotKey implements Comparable<AddressStorageSlotKey> {
 
@@ -56,48 +69,47 @@ public class AddressStorageSlotKey implements Comparable<AddressStorageSlotKey> 
     this.slot = slot.toArrayUnsafe();
   }
 
-  private static final VarHandle LONG_VIEW =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle INT_VIEW =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
 
-  private static final long SEED_0;
-  private static final long SEED_1;
-  private static final long SEED_2;
-  private static final long SEED_3;
-  private static final long SEED_4;
-  private static final long SEED_5;
-  private static final long SEED_6;
+  /** Size of multiplier lanes */
+  private static final int LANES = 13;
+
+  /** randomly generated seeds. Last one is the base seed */
+  private static final long[] SEEDS = new long[LANES + 1];
 
   static {
     final SecureRandom random = SecureRandomProvider.createSecureRandom();
-    SEED_0 = random.nextLong() | 1L;
-    SEED_1 = random.nextLong() | 1L;
-    SEED_2 = random.nextLong() | 1L;
-    SEED_3 = random.nextLong() | 1L;
-    SEED_4 = random.nextLong() | 1L;
-    SEED_5 = random.nextLong() | 1L;
-    SEED_6 = random.nextLong() | 1L;
+    for (int i = 0; i < SEEDS.length; i++) {
+      SEEDS[i] = random.nextLong();
+    }
   }
 
-  private static long word(final byte[] bytes, final int offset) {
-    return (long) LONG_VIEW.get(bytes, offset);
+  private static long lane(final byte[] bytes, final int offset) {
+    return ((int) INT_VIEW.get(bytes, offset)) & 0xFFFF_FFFFL;
   }
 
   /**
-   * Dietzfelbinger based hash uses aligned byte reads as sizes are deterministic: Address is 20
-   * bytes and Slot is 32 bytes. In order to read aligned bytes for Address and not go out of bounds
-   * on the array we need to re-read bytes 12-16, inclusive - this does not invalidate the hashing
-   * algorithm.
+   * Sizes are fixed - the address is 20 bytes and the slot is 32 - both divide evenly into 32-bit
+   * lanes. The reads are little-endian over big-endian data, which is irrelevant for the hash.
    */
   @Override
   public int hashCode() {
     final long hash =
-        word(slot, 0) * SEED_0
-            + word(slot, 8) * SEED_1
-            + word(slot, 16) * SEED_2
-            + word(slot, 24) * SEED_3
-            + word(address, 0) * SEED_4
-            + word(address, 8) * SEED_5
-            + word(address, 12) * SEED_6;
+        SEEDS[LANES]
+            + lane(slot, 0) * SEEDS[0]
+            + lane(slot, 4) * SEEDS[1]
+            + lane(slot, 8) * SEEDS[2]
+            + lane(slot, 12) * SEEDS[3]
+            + lane(slot, 16) * SEEDS[4]
+            + lane(slot, 20) * SEEDS[5]
+            + lane(slot, 24) * SEEDS[6]
+            + lane(slot, 28) * SEEDS[7]
+            + lane(address, 0) * SEEDS[8]
+            + lane(address, 4) * SEEDS[9]
+            + lane(address, 8) * SEEDS[10]
+            + lane(address, 12) * SEEDS[11]
+            + lane(address, 16) * SEEDS[12];
     return (int) (hash >>> 32);
   }
 
@@ -121,5 +133,23 @@ public class AddressStorageSlotKey implements Comparable<AddressStorageSlotKey> 
     }
     int compare = Arrays.compare(address, other.address);
     return compare != 0 ? compare : Arrays.compare(slot, other.slot);
+  }
+
+  /**
+   * Return the address part of this key.
+   *
+   * @return the address
+   */
+  public Address address() {
+    return Address.wrap(Bytes.wrap(address));
+  }
+
+  /**
+   * Return the slot part of this key.
+   *
+   * @return the slot
+   */
+  public Bytes32 slot() {
+    return Bytes32.wrap(slot);
   }
 }

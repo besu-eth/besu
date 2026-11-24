@@ -2922,6 +2922,41 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void evmV2RejectsAGenesisStackSize() throws IOException {
+    parseCommand("--genesis-file", genesisWithEvmStackSize(2048).toString(), "--Xevm-v2=true");
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("--Xevm-v2 supports only an evmstacksize of 1024");
+  }
+
+  @Test
+  public void evmV2AcceptsTheDefaultGenesisStackSize() throws IOException {
+    parseCommand("--genesis-file", genesisWithEvmStackSize(1024).toString(), "--Xevm-v2=true");
+
+    verify(mockControllerBuilder).build();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void evmV1AcceptsAGenesisStackSize() throws IOException {
+    parseCommand("--genesis-file", genesisWithEvmStackSize(2048).toString());
+
+    verify(mockControllerBuilder).build();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  private Path genesisWithEvmStackSize(final int evmStackSize) throws IOException {
+    return createFakeGenesisFile(
+        new JsonObject()
+            .put(
+                "config",
+                new JsonObject()
+                    .put("chainId", GENESIS_CONFIG_TEST_CHAINID)
+                    .put("evmstacksize", evmStackSize)));
+  }
+
+  @Test
   public void kzgTrustedSetupFileLoadedWithCustomGenesisFile()
       throws IOException, URISyntaxException {
     final Path testSetupAbsolutePath =
