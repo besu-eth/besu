@@ -234,6 +234,10 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     return this;
   }
 
+  boolean isStarted() {
+    return isStarted.get();
+  }
+
   private void registerResponseConstructors() {
     snapMessages.registerResponseConstructor(
         SnapV1.GET_ACCOUNT_RANGE,
