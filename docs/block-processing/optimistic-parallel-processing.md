@@ -79,7 +79,7 @@ The timeline in [Same-sender chains](#same-sender-chains) is schematic. It keeps
 When block processing reaches a transaction, `getProcessingResult` does three things:
 
 1. If the transaction's run has not finished, block processing executes the transaction itself and the run is thrown away.
-2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account usually finds its balance changed, since every transaction with a priority fee pays the fee to it. A change to a balance alone is often no collision, as [Balance changes](#balance-changes) explains.
+2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account usually finds its balance changed, since every transaction with a priority fee pays the fee to it. A change to a balance, or to a balance and a nonce, is often no collision, as [Balance changes](#balance-changes) explains.
 3. Without a collision, block processing **takes** the result: it imports the run's changes into the block's accumulator and credits the transaction's fee to the coinbase account, which the run kept aside.
 
 A reverted or halted result is taken like a successful one when nothing it read has changed. An invalid result is never taken.
@@ -92,14 +92,15 @@ Many transactions touch an account whose balance an earlier transaction of the b
 
 **Balance observations.** The EVM reports which balances a transaction depends on. BALANCE, SELFBALANCE and SELFDESTRUCT report through `WorldUpdater.observeBalance`, and so does a value-carrying CALL, CREATE or PAY whose balance is too small. One whose balance is large enough reports by how much it was large enough (`observeSufficientBalance`). Each updater passes the reports on to its parent. Only a worker's accumulator records them (`recordBalanceObservations`), keeping the smallest margin per account.
 
-**When a balance change is carried over.** An earlier transaction may have changed only the balance of an account the run touched, not its nonce or code. That is no collision when all of these hold:
+**When a balance change is carried over.** An earlier transaction may have changed the balance of an account the run touched, but not its code. That is no collision when all of these hold:
 
+- If the block changed the account's nonce, the nonce was not zero before or after, and the run did not read its exact value. Calling or paying an account does not read the nonce. The exact value is read for the transaction's sender, for an EIP-7702 authority, and to create a contract from the account, which changes the nonce. Emptiness and the collision check of a contract created at the account's address only ask whether the nonce is zero.
 - The run did not observe the account's balance.
 - The account is not empty in the parent state, at the transaction's turn or after the run. Whether an account is empty decides call costs and state clearing.
 - If the account is the transaction's sender, the block only raised its balance. The upfront cost and every spending the run observed sufficed on the parent's balance, so they suffice on a higher one.
 - For any other account, the run only added to the balance. If it spent from it, the block's balance plus the smallest margin still covers the balance the run started from, so every spending would still find enough.
 
-When block processing takes such a result, it sets each of these balances to the block's balance plus the run's change, in the state and, when a block access list is being built, in its post balance.
+When block processing takes such a result, it sets each of these balances to the block's balance plus the run's change, in the state and, when a block access list is being built, in its post balance. Where the block changed the nonce, the block's nonce stays.
 
 **The coinbase account.** Every transaction with a priority fee pays the fee to the coinbase account, so a run that touched the coinbase account, such as a direct payment to the block's builder, usually finds a changed balance. The same rules apply to it as to any other account. Such a run already holds its own fee, so block processing does not credit the fee again. A zero fee still touches the coinbase account, and state clearing then deletes it if it is empty. A run that deleted the coinbase account always collides, because its result leaves out a coinbase account the transaction touched only for its fee, and the deletion with it.
 

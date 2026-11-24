@@ -22,6 +22,8 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_1_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_3;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_3_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.EMPTY_ACCOUNT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
@@ -203,6 +205,51 @@ class OptimisticParallelBlockProcessorIntegrationTest {
           executeAndCompare(Wei.of(5), transfer(0, ACCOUNT_4), payment, transfer(1, ACCOUNT_5));
 
       assertAccountsMatch(result.seqWorldState(), result.parWorldState(), sender);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("A payment to an account that sent a transaction earlier in the block is reused")
+    void paymentToAnAccountThatSentATransactionIsReused() {
+      final Address payee = Address.fromHexStringStrict(ACCOUNT_GENESIS_3);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createTransferTransaction(
+                  5,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_3_KEYPAIR),
+              transfer(0, ACCOUNT_GENESIS_3));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), payee);
+      assertThat(result.parWorldState().get(payee).getNonce()).isEqualTo(6);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "A payment to an account that sent its first transaction earlier in the block is executed"
+            + " again")
+    void paymentToAnAccountThatSentItsFirstTransactionIsExecutedAgain() {
+      final Address payee = Address.fromHexStringStrict(ACCOUNT_GENESIS_2);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_2_KEYPAIR),
+              transfer(0, ACCOUNT_GENESIS_2));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), payee);
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
     }
 

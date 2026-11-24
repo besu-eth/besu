@@ -788,30 +788,38 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         }
 
         final Wei[] creditedBalances = new Wei[creditedAccounts.size()];
+        final long[] creditedNonces = new long[creditedBalances.length];
         for (int i = 0; i < creditedBalances.length; i++) {
           final Address credited = creditedAccounts.get(i);
           final BonsaiValue<? extends BonsaiAccount> inTransaction =
               transactionAccumulator.getAccountsToUpdate().get(credited);
-          final Wei inBlock =
+          final BonsaiAccount inBlockAccount =
               ((BonsaiValue<? extends BonsaiAccount>)
                       blockAccumulator.getAccountsToUpdate().get(credited))
-                  .getUpdated()
-                  .getBalance();
+                  .getUpdated();
+          final Wei inBlock = inBlockAccount.getBalance();
           final Wei before = inTransaction.getPrior().getBalance();
           final Wei after = inTransaction.getUpdated().getBalance();
           creditedBalances[i] =
               after.compareTo(before) >= 0
                   ? inBlock.add(after.subtract(before))
                   : inBlock.subtract(before.subtract(after));
+          // at most one of the block and the transaction changed the nonce
+          creditedNonces[i] =
+              inBlockAccount.getNonce()
+                  + inTransaction.getUpdated().getNonce()
+                  - inTransaction.getPrior().getNonce();
         }
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
         for (int i = 0; i < creditedBalances.length; i++) {
           final Address credited = creditedAccounts.get(i);
           final Wei postBalance = creditedBalances[i];
-          ((BonsaiValue<? extends BonsaiAccount>)
-                  blockAccumulator.getAccountsToUpdate().get(credited))
-              .getUpdated()
-              .setBalance(postBalance);
+          final BonsaiAccount imported =
+              ((BonsaiValue<? extends BonsaiAccount>)
+                      blockAccumulator.getAccountsToUpdate().get(credited))
+                  .getUpdated();
+          imported.setBalance(postBalance);
+          imported.setNonce(creditedNonces[i]);
           transactionProcessingResult
               .getPartialBlockAccessView()
               .ifPresent(

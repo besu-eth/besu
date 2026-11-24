@@ -15,13 +15,17 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
@@ -1180,6 +1184,108 @@ class TransactionCollisionDetectorTest {
   @Test
   void senderBalanceIsACollisionWhenCreditsAreNotCarriedOver() {
     assertTrue(hasStrictCollision(senderScenario(70)));
+  }
+
+  @Test
+  void senderNonceTheBlockChangedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 40)));
+
+    assertTrue(
+        hasCollisionCarryingCredits(
+            createTransaction(sender, Address.fromHexString("0x3")), new ArrayList<>()));
+  }
+
+  /**
+   * Earlier transactions of the block raised the account's nonce from the given one and its
+   * balance. The transaction paid the account and left it with the given nonce.
+   */
+  private void nonceScenario(
+      final Address account, final long parentNonce, final long transactionNonce) {
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, parentNonce, 50),
+                createAccount(account, parentNonce + 1, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, parentNonce, 50),
+                createAccount(account, transactionNonce, 55)));
+  }
+
+  @Test
+  void nonceTheBlockChangedIsKeptForAnAccountTheTransactionPaid() {
+    final Address paid = Address.fromHexString("0x2");
+    nonceScenario(paid, 1, 1);
+    final List<Address> credited = new ArrayList<>();
+
+    assertFalse(
+        hasCollisionCarryingCredits(
+            createTransaction(Address.fromHexString("0x1"), paid), credited));
+    assertThat(credited).containsExactly(paid);
+  }
+
+  @Test
+  void nonceTheBlockRaisedFromZeroIsACollision() {
+    // a creation at the account's address would fail at the transaction's turn but not on the
+    // parent state
+    final Address paid = Address.fromHexString("0x2");
+    nonceScenario(paid, 0, 0);
+
+    assertTrue(
+        hasCollisionCarryingCredits(
+            createTransaction(Address.fromHexString("0x1"), paid), new ArrayList<>()));
+  }
+
+  @Test
+  void nonceTheBlockChangedIsACollisionWhenTheTransactionChangedItToo() {
+    final Address paid = Address.fromHexString("0x2");
+    nonceScenario(paid, 1, 2);
+
+    assertTrue(
+        hasCollisionCarryingCredits(
+            createTransaction(Address.fromHexString("0x1"), paid), new ArrayList<>()));
+  }
+
+  @Test
+  void nonceTheBlockChangedIsACollisionForAnAuthorityOfTheTransaction() {
+    final Address authority = Address.fromHexStringStrict(ACCOUNT_GENESIS_2);
+    nonceScenario(authority, 1, 1);
+    // signed for the nonce the block reached, so the run on the parent state skipped it
+    final Transaction transaction =
+        new Transaction.Builder()
+            .type(TransactionType.DELEGATE_CODE)
+            .nonce(1)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .maxFeePerGas(Wei.ONE)
+            .gasLimit(100_000)
+            .to(authority)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .chainId(BigInteger.ONE)
+            .codeDelegations(
+                List.of(
+                    CodeDelegation.builder()
+                        .chainId(BigInteger.ONE)
+                        .address(Address.fromHexString("0x9"))
+                        .nonce(2)
+                        .signAndBuild(ACCOUNT_GENESIS_2_KEYPAIR)))
+            .sender(Address.fromHexString("0x1"))
+            .build();
+
+    assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
   }
 
   private boolean hasCollision(final Transaction transaction, final boolean carryingCredits) {
