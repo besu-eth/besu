@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.blockcreation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockingDetails;
@@ -49,8 +51,12 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -67,6 +73,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -106,8 +113,8 @@ class MempoolPrewarmerTest {
   private final TransactionPool transactionPool = mock(TransactionPool.class);
   private final List<PendingTransaction> candidates = new CopyOnWriteArrayList<>();
   private final List<PendingTransactionAddedListener> poolListeners = new CopyOnWriteArrayList<>();
-  private final List<Map<PendingTransaction, TransactionSelectionResult>> selectionResults =
-      new CopyOnWriteArrayList<>();
+  private final List<Map<PendingTransaction, CompletableFuture<TransactionSelectionResult>>>
+      selectionResults = new CopyOnWriteArrayList<>();
   private final StubMetricsSystem metricsSystem = new StubMetricsSystem();
   // stubbing the pool again while a pass uses it from another thread confuses Mockito
   private final AtomicBoolean poolEnabled = new AtomicBoolean(true);
@@ -197,6 +204,48 @@ class MempoolPrewarmerTest {
     assertThat(metricsSystem.getCounterValue("mempool_prewarm_transactions_total", "invalid"))
         .isZero();
     assertThat(selectionResults).isNotEmpty().allSatisfy(results -> assertThat(results).isEmpty());
+  }
+
+  @Test
+  void runsTransactionsWithATracerThatAllowsTheJournal() {
+    final List<OperationTracer> tracers = new CopyOnWriteArrayList<>();
+    final ProtocolSchedule protocolSchedule = spy(fixture.getProtocolSchedule());
+    doAnswer(
+            invocation -> {
+              final ProtocolSpec spec = spy((ProtocolSpec) invocation.callRealMethod());
+              final MainnetTransactionProcessor transactionProcessor =
+                  spy(spec.getTransactionProcessor());
+              doAnswer(
+                      call -> {
+                        tracers.add(call.getArgument(4));
+                        return call.callRealMethod();
+                      })
+                  .when(transactionProcessor)
+                  .processTransaction(any(), any(), any(), any(), any(), any(), any(), any());
+              doReturn(transactionProcessor).when(spec).getTransactionProcessor();
+              return spec;
+            })
+        .when(protocolSchedule)
+        .getForNextBlockHeader(any(), anyLong());
+    prewarmer.close();
+    prewarmer =
+        new MempoolPrewarmer(
+            fixture.getProtocolContext(),
+            protocolSchedule,
+            transactionPool,
+            MiningConfiguration.newDefault(),
+            2,
+            4,
+            metricsSystem,
+            clock);
+    addCandidate(transfer(0));
+
+    prewarmer.start(head());
+    awaitExecuted(1);
+
+    assertThat(tracers)
+        .isNotEmpty()
+        .allSatisfy(tracer -> assertThat(tracer.allowsJournal()).isTrue());
   }
 
   @Test

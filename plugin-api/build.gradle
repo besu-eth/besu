@@ -60,40 +60,56 @@ def apiBaselineJar = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}") { transitive = false })
 def apiBaselineClasspath = configurations.detachedConfiguration(
   dependencies.create("org.hyperledger.besu:besu-plugin-api:${apiBaselineVersion}"))
+// The modules compared with the Plugin API, as project path -> released artifactId: the modules
+// split out of it, and datatypes, which it exposes as an api dependency. Both sides of
+// checkAPICompatibility are derived from this map, so a module cannot be compared on one side only:
+// japicmp only compares archives, so a class missing from oldArchives counts as new and its changes
+// pass as additions. A module not yet in a released baseline maps to null, so it is compared on the
+// new side only; the release PR that bumps apiBaselineVersion replaces each null with the artifactId.
+def apiModules = [
+  ':plugin-api:core': 'besu-plugin-api-core',
+  ':metrics:plugin-api': 'besu-plugin-api-metrics',
+  ':ethereum:permissioning:plugin-api': 'besu-plugin-api-permissioning',
+  ':crypto:plugin-api': 'besu-plugin-api-security',
+  ':services:kvstore:plugin-api': 'besu-plugin-api-storage',
+  ':ethereum:core:plugin-api-worldstate': 'besu-plugin-api-worldstate',
+  ':ethereum:p2p:plugin-api': 'besu-plugin-api-p2p',
+  ':ethereum:eth:plugin-api-txpool': 'besu-plugin-api-txpool',
+  ':ethereum:eth:plugin-api-sync': 'besu-plugin-api-sync',
+  ':ethereum:api:plugin-api': 'besu-plugin-api-rpc',
+  ':ethereum:core:plugin-api-chain': 'besu-plugin-api-chain',
+  ':ethereum:core:plugin-api-worldstate-backend': 'besu-plugin-api-worldstate-backend',
+  ':ethereum:core:plugin-api-execution': 'besu-plugin-api-execution',
+  ':ethereum:blockcreation:plugin-api': 'besu-plugin-api-blockproduction',
+  ':ethereum:core:plugin-api-validation': 'besu-plugin-api-validation',
+  ':datatypes': 'besu-datatypes'
+]
+def apiBaselineModuleJars = configurations.detachedConfiguration(
+  *apiModules.values().findAll { it != null }.collect {
+    dependencies.create("org.hyperledger.besu:${it}:${apiBaselineVersion}") { transitive = false }
+  })
 // Detached configurations are invisible to the root build's source artifact tasks unless listed here.
 ext.verificationMetadataConfigurations = [
   apiBaselineJar,
-  apiBaselineClasspath
+  apiBaselineClasspath,
+  apiBaselineModuleJars
 ]
 
 tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) {
-  description = "Checks that the Plugin API remains binary and source compatible with the last released version, allowing only additions"
+  description = "Checks that the Plugin API, including the datatypes it exposes, remains binary and source compatible with the last released version, allowing only additions"
   group = 'verification'
 
-  oldArchives.from(apiBaselineJar)
+  oldArchives.from(apiBaselineJar, apiBaselineModuleJars)
   oldClasspath.from(apiBaselineClasspath)
-  // When the Plugin API is split into modules, each new jar is added here so the union is checked
+  // A module compared with the Plugin API is added to apiModules, not here
   newArchives.from(
     tasks.named('jar'),
-    project(':plugin-api:core').tasks.named('jar'),
-    project(':metrics:plugin-api').tasks.named('jar'),
-    project(':ethereum:permissioning:plugin-api').tasks.named('jar'),
-    project(':crypto:plugin-api').tasks.named('jar'),
-    project(':services:kvstore:plugin-api').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-worldstate').tasks.named('jar'),
-    project(':ethereum:p2p:plugin-api').tasks.named('jar'),
-    project(':ethereum:eth:plugin-api-txpool').tasks.named('jar'),
-    project(':ethereum:eth:plugin-api-sync').tasks.named('jar'),
-    project(':ethereum:api:plugin-api').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-chain').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-worldstate-backend').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-execution').tasks.named('jar'),
-    project(':ethereum:blockcreation:plugin-api').tasks.named('jar'),
-    project(':ethereum:core:plugin-api-validation').tasks.named('jar'))
+    *apiModules.keySet().collect { project(it).tasks.named('jar') })
   newClasspath.from(sourceSets.main.runtimeClasspath)
 
   packageIncludes = [
-    'org.hyperledger.besu.plugin*'
+    'org.hyperledger.besu.plugin*',
+    'org.hyperledger.besu.datatypes*'
   ]
   onlyModified = true
   failOnModification = true
@@ -102,7 +118,7 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   accessModifier = 'protected'
   // Track compiler-generated bridge methods, whose removal is a real binary break
   includeSynthetic = true
-  // Baseline signatures reference types outside the API jar (evm, datatypes, tuweni, ...)
+  // Baseline signatures reference types outside the compared jars (evm, tuweni, ...)
   ignoreMissingClasses = true
 
   // An intentional breaking change is recorded here in the same PR, as the narrowest

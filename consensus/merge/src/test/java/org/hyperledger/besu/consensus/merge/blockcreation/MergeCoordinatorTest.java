@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
@@ -204,7 +205,8 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
           TestClock.system(ZoneId.systemDefault()),
           metricsSystem,
           MergeCoordinatorTest::mockBlockHeader,
-          transactionEventNotifier.newEmitter());
+          transactionEventNotifier.newEmitter(),
+          new DeterministicEthScheduler());
 
   private TransactionPool transactionPool;
 
@@ -1507,7 +1509,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     final MiningConfiguration mockMiningConfiguration = mock(MiningConfiguration.class);
     when(mockMiningConfiguration.getTargetGasLimit()).thenReturn(OptionalLong.empty());
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.valueOf(chainId)));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(chainId));
     doNothing().when(backwardSyncContext).subscribeBadChainListener(any());
 
     MergeCoordinator testTargetGasLimitCoordinator =

@@ -88,8 +88,8 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
 
   private final Set<MetricCategory> enabledCategories;
   private final boolean timersEnabled;
-  private final Map<String, LabelledMetric<Counter>> cachedCounters = new ConcurrentHashMap<>();
-  private final Map<String, LabelledMetric<OperationTimer>> cachedTimers =
+  private final Map<MetricKey, LabelledMetric<Counter>> cachedCounters = new ConcurrentHashMap<>();
+  private final Map<MetricKey, LabelledMetric<OperationTimer>> cachedTimers =
       new ConcurrentHashMap<>();
   private final Map<MetricKey, OpenTelemetryLabelledSuppliedMetric> cachedSuppliedGauges =
       new ConcurrentHashMap<>();
@@ -212,7 +212,7 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
       final String... labelNames) {
     LOG.trace("Creating a counter {}", name);
     return cachedCounters.computeIfAbsent(
-        name,
+        new MetricKey(category, name),
         (k) -> {
           if (isCategoryEnabled(category)) {
             final Meter meter = sdkMeterProvider.get(category.getName());
@@ -252,7 +252,7 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
       final String... labelNames) {
     LOG.trace("Creating a timer {}", name);
     return cachedTimers.computeIfAbsent(
-        name,
+        new MetricKey(category, name),
         (k) -> {
           if (timersEnabled && isCategoryEnabled(category)) {
             final Meter meter = sdkMeterProvider.get(category.getName());

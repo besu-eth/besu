@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator.BlockOptions;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
@@ -61,7 +62,6 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
-import java.math.BigInteger;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -1749,7 +1749,7 @@ public class DefaultBlockchainTest {
         SyncBlockBody.readWrappedBodyFrom(
             new BytesValueRLPInput(output.encoded(), false),
             false,
-            new DefaultProtocolSchedule(Optional.of(BigInteger.ONE)));
+            new DefaultProtocolSchedule(ChainId.of(1)));
     return new SyncBlockWithReceipts(
         new SyncBlock(block.getHeader(), body), receipts.stream().map(this::asSent).toList());
   }

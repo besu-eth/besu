@@ -16,9 +16,9 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
-import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -246,7 +246,8 @@ class PendingDelegations {
                             // a tuple nonce can not overflow
                             codeDelegation.nonce() >= 0
                                 && codeDelegation.nonce() != Long.MAX_VALUE
-                                && isChainIdApplicable(codeDelegation.chainId(), transaction))
+                                && isChainIdApplicable(
+                                    ChainId.fromCodeDelegation(codeDelegation), transaction))
                     .forEach(
                         codeDelegation ->
                             codeDelegation
@@ -260,8 +261,7 @@ class PendingDelegations {
   }
 
   private static boolean isChainIdApplicable(
-      final BigInteger tupleChainId, final Transaction transaction) {
-    return tupleChainId.signum() == 0
-        || transaction.getChainId().map(tupleChainId::equals).orElse(false);
+      final ChainId tupleChainId, final Transaction transaction) {
+    return tupleChainId.isZero() || tupleChainId.equals(transaction.getChainIdentifier());
   }
 }

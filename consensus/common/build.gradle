@@ -15,6 +15,25 @@
 
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.consensus.common')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
+tasks.named('compileTestSupportJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = rootProject.calculateArtifactId(project)
   manifest {
@@ -29,6 +48,7 @@ jar {
 }
 
 dependencies {
+  errorprone 'com.uber.nullaway:nullaway'
   api project(':plugin-api')
 
   implementation project(':config')

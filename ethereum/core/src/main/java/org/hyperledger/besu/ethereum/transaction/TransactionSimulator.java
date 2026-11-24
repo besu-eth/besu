@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.transaction;
 
-import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
@@ -32,6 +31,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -53,7 +53,6 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -487,13 +486,6 @@ public class TransactionSimulator {
           if (isUnpricedBlobCall(callParams)) {
             return Wei.ZERO;
           }
-          if (transactionValidationParams.isAllowExceedingBalance()
-              && !transactionValidationParams.isPreserveCallerGasPricing()
-              && callParams.getMaxFeePerBlobGas().isEmpty()) {
-            // An unpriced call without blob fields never sees a blob base fee of 0, which is
-            // spec-illegal for an ordinary call.
-            return MIN_BLOB_GASPRICE;
-          }
           return protocolSpec
               .getFeeMarket()
               .blobGasPricePerGas(
@@ -754,19 +746,19 @@ public class TransactionSimulator {
 
     transactionBuilder.guessType();
 
+    final ChainId callChainId = ChainId.fromOptional(callParams.getChainId());
+    final ChainId scheduleChainId = protocolSchedule.getChainId();
     if (transactionBuilder.getTransactionType().requiresChainId()) {
-      callParams
-          .getChainId()
-          .ifPresentOrElse(
-              transactionBuilder::chainId,
-              () ->
-                  // needed to make some transactions valid
-                  transactionBuilder.chainId(protocolSchedule.getChainId().orElse(BigInteger.ONE)));
-    } else if (callParams.getChainId().isPresent()
-        && !callParams.getChainId().equals(protocolSchedule.getChainId())) {
+      if (callChainId.isPresent()) {
+        transactionBuilder.chainId(callChainId);
+      } else {
+        // needed to make some transactions valid
+        transactionBuilder.chainId(scheduleChainId.isPresent() ? scheduleChainId : ChainId.of(1));
+      }
+    } else if (callChainId.isPresent() && !callChainId.equals(scheduleChainId)) {
       // a legacy call keeps a chainId for another chain, so that the transaction validator rejects
       // it, as it rejects a typed call for another chain
-      transactionBuilder.chainId(callParams.getChainId().get());
+      transactionBuilder.chainId(callChainId);
     }
 
     final Transaction transaction = transactionBuilder.build();
@@ -854,7 +846,7 @@ public class TransactionSimulator {
   }
 
   private boolean shouldSetBlobGasPrice(final CallParameter callParams) {
-    if (protocolSchedule.getChainId().isEmpty()) {
+    if (protocolSchedule.getChainId().isAbsent()) {
       return false;
     }
     return callParams.getBlobVersionedHashes().isPresent();

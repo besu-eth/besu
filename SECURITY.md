@@ -5,7 +5,11 @@
 If you believe you have found a security vulnerability in Besu, please report it privately.
 **Do not open a public issue.**
 
-### Preferred method — GitHub private vulnerability reporting
+### Reporting channels
+
+Please note that the Besu project and LFDT do not currently have budget available to provide rewards for reporting security issues.
+
+### Preferred method — GitHub private vulnerability reporting (GHSA)
 
 Use the **[Report a vulnerability](https://github.com/besu-eth/besu/security/advisories/new)** button
 in the Security tab of this repository. This opens a private draft advisory visible only to
@@ -14,11 +18,14 @@ between you and the team throughout the disclosure process.
 
 GitHub's private vulnerability reporting is the recommended approach for most reports.
 
+### Ethereum Bug Bounty Program
+[Ethereum Bug Bounty Program](https://ethereum.org/bug-bounty/) — visible to EF security team, who pass it onto relevant EL/CL client teams. Use this for issues that affect multiple clients on Ethereum mainnet.
+
 ### Alternative — email
 
 For highly sensitive reports where you prefer not to use GitHub, you can contact the team by email:
 
-- **[security-besu@lists.hyperledger.org](mailto:security-besu@lists.hyperledger.org)** — reaches a
+- **[security-besu@lists.lfdecentralizedtrust.org](mailto:security-besu@lists.lfdecentralizedtrust.org)** — reaches a
   subset of Besu maintainers and LF Decentralized Trust staff. Use this for reports that are
   particularly sensitive.
 - **[security@hyperledger.org](mailto:security@hyperledger.org)** — reaches security staff across all
@@ -35,6 +42,3 @@ reproduction steps, affected versions, and any known active exploitation.
 - Release — the fix ships in a Besu release. We will notify you before the release if possible.
 - Disclosure — after a fixed version has been available for a reasonable period, we publish a GitHub Security Advisory (GHSA) with the vulnerability details, affected versions, fix version, and reporter credit (with your consent).
 - We do not publish vulnerability details before a fix is available in a released version.
-
-For more detail on how the security team handles reports, see our
-[Security Policy](https://github.com/besu-eth/besu/wiki/Security-Policy).

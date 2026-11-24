@@ -22,6 +22,8 @@ import org.hyperledger.besu.consensus.common.EpochManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import org.jspecify.annotations.Nullable;
+
 class ForkingVoteTallyCache extends VoteTallyCache {
 
   private final BftValidatorOverrides validatorOverrides;
@@ -38,7 +40,7 @@ class ForkingVoteTallyCache extends VoteTallyCache {
   }
 
   @Override
-  protected VoteTally getValidatorsAfter(final BlockHeader header) {
+  protected @Nullable VoteTally getValidatorsAfter(final BlockHeader header) {
     final long nextBlockNumber = header.getNumber() + 1L;
 
     return validatorOverrides

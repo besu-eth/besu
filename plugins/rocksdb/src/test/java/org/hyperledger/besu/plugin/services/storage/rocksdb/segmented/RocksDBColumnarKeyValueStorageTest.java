@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,6 +35,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentBulkLoad;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -44,10 +47,16 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.stream.IntStream;
@@ -59,6 +68,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.FlushOptions;
+import org.rocksdb.MutableColumnFamilyOptions;
+import org.rocksdb.RocksDBException;
+import org.rocksdb.SstFileMetaData;
+import org.rocksdb.Status;
 
 public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValueStorageTest {
 
@@ -1017,5 +1031,1159 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   @Override
   protected KeyValueStorage createStore() throws Exception {
     return new SegmentedKeyValueStorageAdapter(TestSegment.FOO, createSegmentedStore());
+  }
+
+  @Test
+  public void bulkLoadHoldsBackCompactionUntilItIsClosed() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    // more files than the number in level 0 at which RocksDB stops all writes
+    final int overlappingFiles = 50;
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isTrue();
+      assertThat(isAutoCompactionDisabled(store, TestSegment.BAR)).isFalse();
+      for (int i = 0; i < overlappingFiles; i++) {
+        final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+        writer.put(bytesOf(1), bytesOf(i));
+        writer.put(bytesOf(100), bytesOf(i));
+        writer.commit();
+      }
+
+      // every file but the first holds keys of the files before it, and none was merged away
+      assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isEqualTo(overlappingFiles - 1);
+
+      // the files in level 0 do not stop a regular write
+      final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+      tx.put(TestSegment.FOO, bytesOf(50), bytesOf(5));
+      assertThat(CompletableFuture.runAsync(tx::commit)).succeedsWithin(Duration.ofSeconds(30));
+    }
+
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+    // the limits on level 0 stay lifted until RocksDB has merged the files down
+    assertThat(store.level0Drain.whenDrained(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isLessThan(LEVEL0_SLOWDOWN_TRIGGER);
+    assertThat(level0SlowdownTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_SLOWDOWN_TRIGGER);
+    assertThat(level0StopTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_STOP_TRIGGER);
+    assertThat(softPendingCompactionLimit(store, TestSegment.FOO))
+        .isEqualTo(SOFT_PENDING_COMPACTION_LIMIT);
+    assertThat(hardPendingCompactionLimit(store, TestSegment.FOO))
+        .isEqualTo(HARD_PENDING_COMPACTION_LIMIT);
+    assertThat(store.get(TestSegment.FOO, bytesOf(1))).contains(bytesOf(overlappingFiles - 1));
+    assertThat(store.get(TestSegment.FOO, bytesOf(50))).contains(bytesOf(5));
+    assertThat(store.get(TestSegment.FOO, bytesOf(100))).contains(bytesOf(overlappingFiles - 1));
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadLetsOneSegmentGoBeforeTheOthers() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final int overlappingFiles = 50;
+    final long readahead = store.getDB().getDBOptions().compactionReadaheadSize();
+    final int backgroundJobs = store.getDB().getDBOptions().maxBackgroundJobs();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO, TestSegment.BAR));
+
+    try (bulkLoad) {
+      for (int i = 0; i < overlappingFiles; i++) {
+        final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+        writer.put(bytesOf(1), bytesOf(i));
+        writer.put(bytesOf(100), bytesOf(i));
+        writer.commit();
+      }
+      assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isEqualTo(overlappingFiles - 1);
+
+      assertThat(bulkLoad.end(TestSegment.FOO)).succeedsWithin(Duration.ofSeconds(30));
+
+      assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isLessThan(LEVEL0_SLOWDOWN_TRIGGER);
+      assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+      assertThat(level0SlowdownTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_SLOWDOWN_TRIGGER);
+      assertThat(level0StopTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_STOP_TRIGGER);
+      assertThat(softPendingCompactionLimit(store, TestSegment.FOO))
+          .isEqualTo(SOFT_PENDING_COMPACTION_LIMIT);
+      assertThat(store.getDB().getDBOptions().compactionReadaheadSize()).isEqualTo(readahead);
+      assertThat(store.getDB().getDBOptions().maxBackgroundJobs()).isEqualTo(backgroundJobs);
+      assertThat(isAutoCompactionDisabled(store, TestSegment.BAR)).isTrue();
+      // a second end finds nothing to do
+      assertThat(bulkLoad.end(TestSegment.FOO)).isCompleted();
+    }
+
+    assertThat(isAutoCompactionDisabled(store, TestSegment.BAR)).isFalse();
+    assertThat(store.get(TestSegment.FOO, bytesOf(1))).contains(bytesOf(overlappingFiles - 1));
+    assertThat(store.get(TestSegment.FOO, bytesOf(100))).contains(bytesOf(overlappingFiles - 1));
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadLetsASegmentWithFewFilesGoAtOnce() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+      tx.put(TestSegment.FOO, bytesOf(1), bytesOf(1));
+      tx.commit();
+
+      assertThat(bulkLoad.end(TestSegment.FOO)).isCompleted();
+      assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+      // not part of the load
+      assertThatThrownBy(() -> bulkLoad.end(TestSegment.BAR))
+          .isInstanceOf(IllegalArgumentException.class);
+    }
+    assertThat(store.get(TestSegment.FOO, bytesOf(1))).contains(bytesOf(1));
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadLeavesTheFilesAboveTheBottomLevelWhenClosed() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      for (final int first : List.of(10, 20, 30)) {
+        final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+        writer.put(bytesOf(first), bytesOf(first));
+        writer.put(bytesOf(first + 5), bytesOf(first));
+        writer.commit();
+      }
+      // holds a key inside the range of the first file, so it cannot join it in the bottom level
+      final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+      writer.put(bytesOf(12), bytesOf(1));
+      writer.commit();
+    }
+    assertThat(store.level0Drain.whenDrained(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+    // the small files of the bottom level are merged, but a compaction of the whole segment would
+    // have merged the file above into the bottom level too
+    assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+    assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isEqualTo(1);
+    assertThat(level0SlowdownTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_SLOWDOWN_TRIGGER);
+    assertThat(store.get(TestSegment.FOO, bytesOf(12))).contains(bytesOf(1));
+    assertThat(store.get(TestSegment.FOO, bytesOf(15))).contains(bytesOf(10));
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadMergesTheSmallFilesOfTheBottomLevelWhenClosed() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final int files = 30;
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      writeSmallFiles(store, files);
+      assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(files);
+      assertThat(store.smallFileMerge.markedSegments()).containsExactly(TestSegment.FOO.getName());
+    }
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+
+    assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+    assertThat(store.smallFileMerge.markedSegments()).isEmpty();
+    for (int i = 0; i < files; i++) {
+      assertThat(store.get(TestSegment.FOO, key(2 * i))).contains(bytesOf(i));
+      assertThat(store.get(TestSegment.FOO, key(2 * i + 1))).contains(bytesOf(i));
+    }
+
+    store.close();
+  }
+
+  @Test
+  public void storageClosedRightAfterABulkLoadStopsTheMergeOfItsSmallFiles() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    writeSmallFiles(store, 200);
+
+    bulkLoad.close();
+    store.close();
+
+    // the merge stops at its next step, without an error
+
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(store.isClosed()).isTrue();
+  }
+
+  @Test
+  public void bulkLoadMergesTheSmallFilesOfASegmentLetGoBeforeOnceClosed() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final int files = 30;
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      writeSmallFiles(store, files);
+      assertThat(bulkLoad.end(TestSegment.FOO)).succeedsWithin(Duration.ofSeconds(30));
+
+      // read while the load goes on
+      assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO)).isCompleted();
+      assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(files);
+    }
+
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadInterruptedMergesItsSmallFilesWhenTheDatabaseOpens(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    writeSmallFiles(store, 30);
+    // stopped in the middle of the load
+    store.close();
+    bulkLoad.close();
+
+    final RocksDBColumnarKeyValueStorage reopened = openStore(path);
+    assertThat(reopened.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(reopened, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+
+    reopened.close();
+  }
+
+  @Test
+  public void segmentLetGoBeforeTheStopMergesItsSmallFilesWhenTheDatabaseOpens(
+      @TempDir final Path path) throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    writeSmallFiles(store, 30);
+    assertThat(bulkLoad.end(TestSegment.FOO)).succeedsWithin(Duration.ofSeconds(30));
+    // stopped before the load was closed
+    store.close();
+    bulkLoad.close();
+
+    final RocksDBColumnarKeyValueStorage reopened = openStore(path);
+    assertThat(reopened.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(reopened, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+
+    reopened.close();
+  }
+
+  @Test
+  public void mergeOfSmallFilesInterruptedIsDoneWhenTheDatabaseOpens(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    writeSmallFiles(store, 30);
+    // stopped once level 0 was merged down, before the small files were
+    store.smallFileMerge.excludingMerges(
+        TestSegment.FOO,
+        () -> {
+          bulkLoad.close();
+          assertThat(store.level0Drain.whenDrained(TestSegment.FOO))
+              .succeedsWithin(Duration.ofSeconds(30));
+          store.close();
+        });
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+
+    final RocksDBColumnarKeyValueStorage reopened = openStore(path);
+    assertThat(reopened.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(reopened, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+    assertThat(reopened.smallFileMerge.markedSegments()).isEmpty();
+
+    reopened.close();
+  }
+
+  @Test
+  public void mergeStoppedByABulkLoadKeepsItsMarkerForTheNextOpen(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad first = store.startBulkLoad(List.of(TestSegment.FOO));
+    writeSmallFiles(store, 30);
+    assertThat(first.end(TestSegment.FOO)).succeedsWithin(Duration.ofSeconds(30));
+    final ReentrantLock fooInUse = store.smallFileMerge.handlesInUse(TestSegment.FOO);
+    final CompletableFuture<SegmentBulkLoad> second;
+    // the second load starts first, then the merge the first one hands over finds FOO in it
+    fooInUse.lock();
+    try {
+      second = CompletableFuture.supplyAsync(() -> store.startBulkLoad(List.of(TestSegment.FOO)));
+      awaitQueued(fooInUse, 1);
+      first.close();
+      awaitQueued(fooInUse, 2);
+    } finally {
+      fooInUse.unlock();
+    }
+    assertThat(second).succeedsWithin(Duration.ofSeconds(30));
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    // stopped in the middle of the second load
+    store.close();
+    second.join().close();
+
+    final RocksDBColumnarKeyValueStorage reopened = openStore(path);
+    assertThat(reopened.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(reopened, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+
+    reopened.close();
+  }
+
+  @Test
+  public void bulkLoadStartedWhileTheStorageClosesFails() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final ReentrantLock fooInUse = store.smallFileMerge.handlesInUse(TestSegment.FOO);
+    final CompletableFuture<SegmentBulkLoad> started;
+    final CompletableFuture<Void> closed;
+    // the load waits for a merge under way to write its marker, and the storage closes meanwhile
+    fooInUse.lock();
+    try {
+      started = CompletableFuture.supplyAsync(() -> store.startBulkLoad(List.of(TestSegment.FOO)));
+      awaitQueued(fooInUse);
+      closed = CompletableFuture.runAsync(store::close);
+      final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+      while (!store.isClosed() && System.nanoTime() < deadline) {
+        Thread.sleep(10);
+      }
+    } finally {
+      fooInUse.unlock();
+    }
+
+    assertThat(started)
+        .failsWithin(Duration.ofSeconds(30))
+        .withThrowableThat()
+        .withRootCauseInstanceOf(IllegalStateException.class)
+        .withMessageContaining("Storage has been closed");
+    assertThat(closed).succeedsWithin(Duration.ofSeconds(30));
+  }
+
+  @Test
+  public void mergesOfOneSegmentRunOneAfterTheOther() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final CompletableFuture<Void> firstDrained = new CompletableFuture<>();
+
+    store.smallFileMerge.mergeWhenDrained(TestSegment.FOO, firstDrained);
+    store.smallFileMerge.mergeWhenDrained(TestSegment.FOO, CompletableFuture.completedFuture(null));
+
+    final CompletableFuture<Void> merged = store.smallFileMerge.whenMerged(TestSegment.FOO);
+    assertThat(merged).isNotDone();
+    firstDrained.complete(null);
+    assertThat(merged).succeedsWithin(Duration.ofSeconds(30));
+
+    store.close();
+  }
+
+  @Test
+  public void smallFilesOfASegmentInABulkLoadAreLeftUntilItIsClosed() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final int files = 30;
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      writeSmallFiles(store, files);
+      // from a load before it
+      store.smallFileMerge.mergeWhenDrained(
+          TestSegment.FOO, CompletableFuture.completedFuture(null));
+
+      assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+          .succeedsWithin(Duration.ofSeconds(30));
+      assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(files);
+    }
+
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isEqualTo(1);
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadWaitsForTheMergeUnderWayOfItsSegment() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final AtomicReference<SegmentBulkLoad> bulkLoad = new AtomicReference<>();
+
+    final CompletableFuture<Void> started =
+        whileAMergeIsUnderWay(
+            store, () -> bulkLoad.set(store.startBulkLoad(List.of(TestSegment.FOO))));
+
+    assertThat(started).succeedsWithin(Duration.ofSeconds(30));
+    bulkLoad.get().close();
+    store.close();
+  }
+
+  @Test
+  public void aSegmentWithFilesOnlyInLevel0IsNotMerged() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    // fewer than RocksDB compacts on its own
+    final int level0Files = 3;
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    try (bulkLoad) {
+      for (int i = 0; i < level0Files; i++) {
+        final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+        tx.put(TestSegment.FOO, bytesOf(10 * i), bytesOf(i));
+        tx.commit();
+        flush(store, TestSegment.FOO);
+      }
+    }
+
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isEqualTo(level0Files);
+
+    store.close();
+  }
+
+  @Test
+  public void segmentClearedWhileItsSmallFilesAreMergedComesBackEmpty() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    // the merges use the column family that clear() drops
+    for (int round = 0; round < 10; round++) {
+      final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+      writeSmallFiles(store, 50);
+      bulkLoad.close();
+      store.clear(TestSegment.FOO);
+    }
+
+    assertThat(store.smallFileMerge.whenMerged(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(store, TestSegment.FOO, BULK_LOAD_BOTTOM_LEVEL)).isZero();
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesOf(1), bytesOf(1));
+    tx.commit();
+    assertThat(store.get(TestSegment.FOO, bytesOf(1))).contains(bytesOf(1));
+
+    store.close();
+  }
+
+  @Test
+  public void segmentClearedWaitsForTheMergesUnderWay() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    final CompletableFuture<Void> cleared =
+        whileAMergeIsUnderWay(store, () -> store.clear(TestSegment.FOO));
+
+    assertThat(cleared).succeedsWithin(Duration.ofSeconds(30));
+    store.close();
+  }
+
+  @Test
+  public void segmentClearedWaitsOnlyForTheMergesOfThatSegment() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final ReentrantLock fooInUse = store.smallFileMerge.handlesInUse(TestSegment.FOO);
+
+    fooInUse.lock();
+    try {
+      assertThat(CompletableFuture.runAsync(() -> store.clear(TestSegment.BAR)))
+          .succeedsWithin(Duration.ofSeconds(30));
+      final CompletableFuture<Void> clearedFoo =
+          CompletableFuture.runAsync(() -> store.clear(TestSegment.FOO));
+      awaitQueued(fooInUse);
+      // the work on the other column families goes on meanwhile
+      assertThat(store.columnFamilyWork.tryLock()).isTrue();
+      store.columnFamilyWork.unlock();
+      assertThat(clearedFoo).isNotDone();
+    } finally {
+      fooInUse.unlock();
+    }
+
+    store.close();
+  }
+
+  @Test
+  public void mergeBetweenTwoStepsQueuesBehindAClear() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final ReentrantLock fooInUse = store.smallFileMerge.handlesInUse(TestSegment.FOO);
+
+    final CompletableFuture<Void> cleared;
+    fooInUse.lock();
+    try {
+      cleared = CompletableFuture.runAsync(() -> store.clear(TestSegment.FOO));
+      awaitQueued(fooInUse);
+    } finally {
+      fooInUse.unlock();
+    }
+    // the next step of the merge
+    fooInUse.lock();
+    try {
+      assertThat(cleared).succeedsWithin(Duration.ofSeconds(30));
+    } finally {
+      fooInUse.unlock();
+    }
+
+    store.close();
+  }
+
+  @Test
+  public void storageClosedWaitsForTheMergesUnderWay() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    final CompletableFuture<Void> closed = whileAMergeIsUnderWay(store, store::close);
+
+    assertThat(closed).succeedsWithin(Duration.ofSeconds(30));
+    assertThat(store.isClosed()).isTrue();
+  }
+
+  // runs the work while a merge of small files holds the FOO column family, and checks that it
+  // waits
+  private static CompletableFuture<Void> whileAMergeIsUnderWay(
+      final RocksDBColumnarKeyValueStorage store, final Runnable work) throws InterruptedException {
+    final ReentrantLock handlesInUse = store.smallFileMerge.handlesInUse(TestSegment.FOO);
+    handlesInUse.lock();
+    try {
+      final CompletableFuture<Void> done = CompletableFuture.runAsync(work);
+      awaitQueued(handlesInUse);
+      assertThat(done).isNotDone();
+      return done;
+    } finally {
+      handlesInUse.unlock();
+    }
+  }
+
+  private static void awaitQueued(final ReentrantLock lock) throws InterruptedException {
+    awaitQueued(lock, 1);
+  }
+
+  private static void awaitQueued(final ReentrantLock lock, final int threads)
+      throws InterruptedException {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+    while (lock.getQueueLength() < threads && System.nanoTime() < deadline) {
+      Thread.sleep(10);
+    }
+  }
+
+  @Test
+  public void runsOfSmallFilesAreMergedTogether() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(
+            List.of(file(0, 6), file(1, 6), file(2, 6), file(3, 64), file(4, 10), file(5, 10)),
+            TARGET);
+
+    assertThat(merges).hasSize(2);
+    assertThat(names(merges.get(0))).containsExactly("0", "1", "2");
+    assertThat(names(merges.get(1))).containsExactly("4", "5");
+  }
+
+  @Test
+  public void aSmallFileOnItsOwnIsMergedWithItsSmallerNeighbour() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(
+            List.of(file(0, 64), file(1, 6), file(2, 40), file(3, 64)), TARGET);
+
+    assertThat(merges).hasSize(1);
+    assertThat(names(merges.getFirst())).containsExactly("1", "2");
+  }
+
+  @Test
+  public void smallFilesTooFewForAQuarterOfTheTargetTakeANeighbourAlong() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(List.of(file(0, 5), file(1, 5), file(2, 64)), TARGET);
+
+    assertThat(merges).hasSize(1);
+    assertThat(names(merges.getFirst())).containsExactly("0", "1", "2");
+  }
+
+  @Test
+  public void aSmallFileWhoseNeighbourIsTakenJoinsThatMerge() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(List.of(file(0, 6), file(1, 64), file(2, 6)), TARGET);
+
+    assertThat(merges).hasSize(1);
+    assertThat(names(merges.getFirst())).containsExactly("0", "1", "2");
+  }
+
+  @Test
+  public void aSmallFileRightAfterAMergeJoinsItRatherThanTakeItsOtherNeighbour() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(
+            List.of(file(0, 6), file(1, 40), file(2, 6), file(3, 40)), TARGET);
+
+    assertThat(merges).hasSize(1);
+    assertThat(names(merges.getFirst())).containsExactly("0", "1", "2");
+  }
+
+  @Test
+  public void aSmallFileBetweenFilesLargerThanTheTargetStaysAsItIs() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(List.of(file(0, 128), file(1, 1), file(2, 128)), TARGET);
+
+    assertThat(merges).isEmpty();
+  }
+
+  @Test
+  public void filesBeingCompactedAreLeftAlone() {
+    final List<RocksDBSmallFileMerge.Merge> merges =
+        RocksDBSmallFileMerge.plan(
+            List.of(file(0, 64), file(1, 6, true), file(2, 6), file(3, 64)), TARGET);
+
+    assertThat(merges).hasSize(1);
+    assertThat(names(merges.getFirst())).containsExactly("2", "3");
+  }
+
+  @Test
+  public void aLongRunOfSmallFilesIsMergedInPieces() {
+    final List<SstFileMetaData> files = new ArrayList<>();
+    for (int i = 0; i < 200; i++) {
+      files.add(file(i, 6));
+    }
+
+    final List<RocksDBSmallFileMerge.Merge> merges = RocksDBSmallFileMerge.plan(files, TARGET);
+
+    assertThat(merges).hasSize(3);
+    assertThat(merges.stream().mapToInt(merge -> merge.files().size()).sum()).isEqualTo(200);
+    assertThat(merges.getLast().files()).hasSize(200 - 2 * 86);
+  }
+
+  @Test
+  public void onlyAnotherCompactionTurnsAMergeDown() {
+    assertThat(RocksDBSmallFileMerge.isTurnedDown(failure(Status.Code.Aborted))).isTrue();
+    assertThat(RocksDBSmallFileMerge.isTurnedDown(failure(Status.Code.InvalidArgument))).isTrue();
+    assertThat(RocksDBSmallFileMerge.isTurnedDown(failure(Status.Code.IOError))).isFalse();
+    assertThat(RocksDBSmallFileMerge.isTurnedDown(failure(Status.Code.Corruption))).isFalse();
+    assertThat(RocksDBSmallFileMerge.isTurnedDown(new RocksDBException("no status"))).isFalse();
+  }
+
+  private static RocksDBException failure(final Status.Code code) {
+    return new RocksDBException(code.name(), new Status(code, Status.SubCode.None, code.name()));
+  }
+
+  @Test
+  public void theFilesWrittenAreEvenAndNoneIsSmall() {
+    final long small = TARGET / 4;
+    for (final long total : List.of(17L << 20, 70L << 20, 100L << 20, 200L << 20, 512L << 20)) {
+      final long limit = RocksDBSmallFileMerge.outputFileBytes(total, TARGET, small);
+      final long count = (total + limit - 1) / limit;
+      final long last = total - (count - 1) * limit;
+      assertThat(last).as("last file of %d MB", total >> 20).isGreaterThanOrEqualTo(small);
+      // a few percent more output than input still makes no extra file
+      assertThat((count * limit) - total).isGreaterThan(total / 25);
+    }
+  }
+
+  private static final long TARGET = 64L << 20;
+
+  private static SstFileMetaData file(final int number, final long megabytes) {
+    return file(number, megabytes, false);
+  }
+
+  private static SstFileMetaData file(
+      final int number, final long megabytes, final boolean beingCompacted) {
+    final byte[] key = {(byte) (number >> 8), (byte) number};
+    return new SstFileMetaData(
+        Integer.toString(number),
+        "",
+        megabytes << 20,
+        0,
+        0,
+        key,
+        key,
+        0,
+        beingCompacted,
+        0,
+        0,
+        null) {};
+  }
+
+  private static List<String> names(final RocksDBSmallFileMerge.Merge merge) {
+    return merge.files().stream().map(SstFileMetaData::fileName).toList();
+  }
+
+  private void writeSmallFiles(final RocksDBColumnarKeyValueStorage store, final int files) {
+    for (int i = 0; i < files; i++) {
+      final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+      writer.put(key(2 * i), bytesOf(i % 256));
+      writer.put(key(2 * i + 1), bytesOf(i % 256));
+      writer.commit();
+    }
+  }
+
+  private byte[] key(final int number) {
+    return bytesOf(number >> 8, number & 0xff);
+  }
+
+  @Test
+  public void storageClosedWhileLevel0IsMergedDownStopsTheWatch() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    for (int i = 0; i < 50; i++) {
+      final SortedWriter writer = store.startSortedWriter(TestSegment.FOO);
+      writer.put(bytesOf(1), bytesOf(i));
+      writer.put(bytesOf(100), bytesOf(i));
+      writer.commit();
+    }
+
+    final CompletableFuture<Void> drained;
+    // no poll of the watch comes in between
+    store.columnFamilyWork.lock();
+    try {
+      bulkLoad.close();
+      drained = store.level0Drain.whenDrained(TestSegment.FOO);
+      store.close();
+    } finally {
+      store.columnFamilyWork.unlock();
+    }
+
+    // the watch stopped when the storage closed, with level 0 not merged down yet
+    assertThat(drained).failsWithin(Duration.ofSeconds(30));
+  }
+
+  @Test
+  public void bulkLoadCanBeClosedTwice() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    bulkLoad.close();
+    bulkLoad.close();
+
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadKeepsLargeValuesInBlobFilesUntilItIsClosed() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final byte[] large = new byte[1024];
+    Arrays.fill(large, (byte) 7);
+    final SegmentBulkLoad bulkLoad =
+        store.startBulkLoad(List.of(TestSegment.FOO), List.of(TestSegment.BAR));
+
+    try (bulkLoad) {
+      assertThat(blobFilesEnabled(store, TestSegment.BAR)).isTrue();
+      assertThat(blobFilesEnabled(store, TestSegment.FOO)).isFalse();
+      // only held back segments stop compacting
+      assertThat(isAutoCompactionDisabled(store, TestSegment.BAR)).isFalse();
+      final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+      tx.put(TestSegment.BAR, bytesOf(1), large);
+      tx.commit();
+      flush(store, TestSegment.BAR);
+      assertThat(blobFiles(store, TestSegment.BAR)).isEqualTo(1);
+      // compressed
+      assertThat(blobFileBytes(store, TestSegment.BAR)).isLessThan(large.length);
+    }
+
+    assertThat(blobFilesEnabled(store, TestSegment.BAR)).isFalse();
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.BAR, bytesOf(2), large);
+    tx.commit();
+    flush(store, TestSegment.BAR);
+    assertThat(blobFiles(store, TestSegment.BAR)).isEqualTo(1);
+    assertThat(store.get(TestSegment.BAR, bytesOf(1))).contains(large);
+    assertThat(store.get(TestSegment.BAR, bytesOf(2))).contains(large);
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadLetsASegmentWithSeparateValuesGoBeforeTheOthers() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad =
+        store.startBulkLoad(List.of(TestSegment.FOO), List.of(TestSegment.BAR));
+
+    try (bulkLoad) {
+      assertThat(bulkLoad.end(TestSegment.BAR)).isCompleted();
+
+      assertThat(blobFilesEnabled(store, TestSegment.BAR)).isFalse();
+      assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isTrue();
+    }
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadRefusesASegmentBothHeldBackAndWithSeparateValues() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    assertThatThrownBy(
+            () -> store.startBulkLoad(List.of(TestSegment.FOO), List.of(TestSegment.FOO)))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadClosedAfterTheStorageDoesNothing() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    store.close();
+
+    bulkLoad.close();
+  }
+
+  @Test
+  public void bulkLoadEndedAfterTheStorageClosedFails() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad =
+        store.startBulkLoad(List.of(TestSegment.FOO), List.of(TestSegment.BAR));
+    overlappingFiles(store, TestSegment.FOO, 50);
+    store.close();
+
+    // instead of reaching into the closed database
+    assertThat(bulkLoad.end(TestSegment.FOO)).isCompletedExceptionally();
+    assertThat(bulkLoad.end(TestSegment.BAR)).isCompletedExceptionally();
+    bulkLoad.close();
+  }
+
+  @Test
+  public void bulkLoadThatCannotStartChangesNoSegment() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    // not opened
+    assertThatThrownBy(
+            () -> store.startBulkLoad(List.of(TestSegment.FOO, TestSegment.EXPERIMENTAL)))
+        .hasMessageContaining("Column handle not found");
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadEndedAgainWaitsForTheSameMerge() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    overlappingFiles(store, TestSegment.FOO, 50);
+
+    final CompletableFuture<Void> first;
+    final CompletableFuture<Void> again;
+    final CompletableFuture<Void> afterClose;
+    // no poll of the watch comes in between
+    store.columnFamilyWork.lock();
+    try {
+      first = bulkLoad.end(TestSegment.FOO);
+      again = bulkLoad.end(TestSegment.FOO);
+      bulkLoad.close();
+      afterClose = bulkLoad.end(TestSegment.FOO);
+    } finally {
+      store.columnFamilyWork.unlock();
+    }
+
+    assertThat(first).isNotDone();
+    // the other waits go on
+    first.cancel(false);
+    assertThat(again).succeedsWithin(Duration.ofSeconds(30));
+    assertThat(afterClose).succeedsWithin(Duration.ofSeconds(30));
+
+    store.close();
+  }
+
+  @Test
+  public void segmentClearedWhileLevel0IsMergedDownGetsItsLimitsBack() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    // the watch polls the column family that clear() drops
+    for (int round = 0; round < 30; round++) {
+      final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+      overlappingFiles(store, TestSegment.FOO, 25);
+      bulkLoad.close();
+      // the new column family takes over the lifted limits
+      store.clear(TestSegment.FOO);
+    }
+
+    assertThat(store.level0Drain.whenDrained(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+    assertThat(level0StopTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_STOP_TRIGGER);
+    assertThat(store.getDB().getDBOptions().compactionReadaheadSize())
+        .isEqualTo(store.configuredCompactionReadahead);
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadInterruptedIsMergedDownWhenTheDatabaseOpens(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    overlappingFiles(store, TestSegment.FOO, 50);
+    // stopped in the middle of the load
+    store.close();
+    bulkLoad.close();
+
+    assertMergedDownWhenReopened(path);
+  }
+
+  @Test
+  public void mergeInterruptedIsMergedDownWhenTheDatabaseOpens(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    overlappingFiles(store, TestSegment.FOO, 50);
+    // stopped before the watch put the limits back
+    store.columnFamilyWork.lock();
+    try {
+      bulkLoad.close();
+      store.close();
+    } finally {
+      store.columnFamilyWork.unlock();
+    }
+
+    assertMergedDownWhenReopened(path);
+  }
+
+  @Test
+  public void bulkLoadInterruptedStaysInterruptedWhenTheNextStartFails(@TempDir final Path path)
+      throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+    overlappingFiles(store, TestSegment.FOO, 50);
+    // a rewrite of a segment the next start does not open, which fails it once the database is open
+    store
+        .getDB()
+        .put(
+            store.getDB().getDefaultColumnFamily(),
+            ("rewrite:" + TestSegment.EXPERIMENTAL.getName()).getBytes(StandardCharsets.UTF_8),
+            new byte[0]);
+    store.close();
+    bulkLoad.close();
+
+    assertThatThrownBy(() -> openStore(path)).hasMessageContaining("cannot be finished");
+
+    assertThat(RocksDBLevel0Drain.interruptedBulkLoads(path, List.of(TestSegment.FOO)))
+        .containsExactly(TestSegment.FOO);
+  }
+
+  @Test
+  public void bulkLoadRefusesASegmentAlreadyInOne() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO));
+
+    assertThatThrownBy(() -> store.startBulkLoad(List.of(TestSegment.BAR, TestSegment.FOO)))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> store.startBulkLoad(List.of(), List.of(TestSegment.FOO)))
+        .isInstanceOf(IllegalStateException.class);
+    // nothing changed by the refused loads
+    assertThat(isAutoCompactionDisabled(store, TestSegment.BAR)).isFalse();
+
+    assertThat(bulkLoad.end(TestSegment.FOO)).succeedsWithin(Duration.ofSeconds(30));
+    // its load has ended
+    store.startBulkLoad(List.of(TestSegment.FOO, TestSegment.BAR)).close();
+    bulkLoad.close();
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadThatFailsToStartPutsBackTheSegmentsItChanged() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final RocksDBColumnarKeyValueStorage failing = spy(store);
+    // the other segments are changed as usual
+    lenient()
+        .doThrow(new StorageException("options refused"))
+        .when(failing)
+        .setOptions(eq(TestSegment.BAR), any());
+
+    assertThatThrownBy(
+            () -> failing.startBulkLoad(List.of(TestSegment.FOO), List.of(TestSegment.BAR)))
+        .hasMessage("options refused");
+
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+    // no segment is left in a load
+    store.startBulkLoad(List.of(TestSegment.FOO, TestSegment.BAR)).close();
+
+    store.close();
+  }
+
+  @Test
+  public void bulkLoadEndedFromTheMergeOfAnotherSegmentIsMergedDown() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+    final SegmentBulkLoad bulkLoad = store.startBulkLoad(List.of(TestSegment.FOO, TestSegment.BAR));
+    overlappingFiles(store, TestSegment.FOO, 50);
+    overlappingFiles(store, TestSegment.BAR, 50);
+
+    final CompletableFuture<Void> both;
+    // no poll of the watch comes in between, so the watch runs the second end
+    store.columnFamilyWork.lock();
+    try {
+      both = bulkLoad.end(TestSegment.FOO).thenCompose(unused -> bulkLoad.end(TestSegment.BAR));
+    } finally {
+      store.columnFamilyWork.unlock();
+    }
+
+    assertThat(both).succeedsWithin(Duration.ofSeconds(30));
+    assertThat(level0StopTrigger(store, TestSegment.BAR)).isEqualTo(LEVEL0_STOP_TRIGGER);
+    assertThat(store.getDB().getDBOptions().compactionReadaheadSize())
+        .isEqualTo(store.configuredCompactionReadahead);
+    bulkLoad.close();
+    store.close();
+  }
+
+  @Test
+  public void columnFamilyOptionsAreOnlySetUnderTheLock() throws Exception {
+    final RocksDBColumnarKeyValueStorage store =
+        (RocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    assertThatThrownBy(
+            () ->
+                store.setOptions(
+                    TestSegment.FOO,
+                    MutableColumnFamilyOptions.builder().setDisableAutoCompactions(true)))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+
+    store.close();
+  }
+
+  private void assertMergedDownWhenReopened(final Path path) throws Exception {
+    final RocksDBColumnarKeyValueStorage store = openStore(path);
+    // RocksDB starts merging as it opens, so it opens with the options of a merge
+    assertThat(rocksDbLog(path))
+        .anyMatch(line -> line.endsWith("Options.compaction_readahead_size: 262144"))
+        .anyMatch(line -> line.endsWith("Options.level0_stop_writes_trigger: 2147483647"));
+    assertThat(store.level0Drain.whenDrained(TestSegment.FOO))
+        .succeedsWithin(Duration.ofSeconds(30));
+    assertThat(filesAtLevel(store, TestSegment.FOO, 0)).isLessThan(LEVEL0_SLOWDOWN_TRIGGER);
+    assertThat(isAutoCompactionDisabled(store, TestSegment.FOO)).isFalse();
+    assertThat(level0StopTrigger(store, TestSegment.FOO)).isEqualTo(LEVEL0_STOP_TRIGGER);
+    assertThat(store.getDB().getDBOptions().compactionReadaheadSize())
+        .isEqualTo(store.configuredCompactionReadahead);
+    assertThat(store.getDB().getDBOptions().maxBackgroundJobs())
+        .isEqualTo(store.configuredBackgroundJobs);
+    assertThat(store.get(TestSegment.FOO, bytesOf(1))).contains(bytesOf(49));
+    store.close();
+
+    // nothing left to merge
+    openStore(path).close();
+    assertThat(rocksDbLog(path))
+        .noneMatch(line -> line.endsWith("Options.compaction_readahead_size: 262144"))
+        .noneMatch(line -> line.endsWith("Options.level0_stop_writes_trigger: 2147483647"));
+  }
+
+  private RocksDBColumnarKeyValueStorage openStore(final Path path) {
+    return (RocksDBColumnarKeyValueStorage)
+        createSegmentedStore(
+            path, List.of(TestSegment.DEFAULT, TestSegment.FOO, TestSegment.BAR), List.of());
+  }
+
+  // the log of the last time RocksDB opened the database
+  private static List<String> rocksDbLog(final Path path) throws IOException {
+    return Files.readAllLines(path.resolve("LOG"));
+  }
+
+  // every file but the first holds keys of the files before it, so all but the first go to level 0
+  private void overlappingFiles(
+      final RocksDBColumnarKeyValueStorage store,
+      final SegmentIdentifier segment,
+      final int files) {
+    for (int i = 0; i < files; i++) {
+      final SortedWriter writer = store.startSortedWriter(segment);
+      writer.put(bytesOf(1), bytesOf(i));
+      writer.put(bytesOf(100), bytesOf(i));
+      writer.commit();
+    }
+  }
+
+  private static final int BULK_LOAD_BOTTOM_LEVEL = 6;
+
+  // the limits of RocksDB, which the storage does not change
+  private static final int LEVEL0_SLOWDOWN_TRIGGER = 20;
+  private static final int LEVEL0_STOP_TRIGGER = 36;
+  private static final long SOFT_PENDING_COMPACTION_LIMIT = 64L << 30;
+  private static final long HARD_PENDING_COMPACTION_LIMIT = 256L << 30;
+
+  private static long filesAtLevel(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment, final int level)
+      throws RocksDBException {
+    return Long.parseLong(
+        store
+            .getDB()
+            .getProperty(store.safeColumnHandle(segment), "rocksdb.num-files-at-level" + level));
+  }
+
+  private static boolean isAutoCompactionDisabled(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return store.getDB().getOptions(store.safeColumnHandle(segment)).disableAutoCompactions();
+  }
+
+  private static boolean blobFilesEnabled(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return store.getDB().getOptions(store.safeColumnHandle(segment)).enableBlobFiles();
+  }
+
+  private static long blobFiles(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return Long.parseLong(
+        store.getDB().getProperty(store.safeColumnHandle(segment), "rocksdb.num-blob-files"));
+  }
+
+  private static long blobFileBytes(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return Long.parseLong(
+        store.getDB().getProperty(store.safeColumnHandle(segment), "rocksdb.total-blob-file-size"));
+  }
+
+  private static void flush(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    try (final FlushOptions options = new FlushOptions().setWaitForFlush(true)) {
+      store.getDB().flush(options, store.safeColumnHandle(segment));
+    }
+  }
+
+  private static int level0SlowdownTrigger(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return store.getDB().getOptions(store.safeColumnHandle(segment)).level0SlowdownWritesTrigger();
+  }
+
+  private static int level0StopTrigger(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return store.getDB().getOptions(store.safeColumnHandle(segment)).level0StopWritesTrigger();
+  }
+
+  private static long softPendingCompactionLimit(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return store
+        .getDB()
+        .getOptions(store.safeColumnHandle(segment))
+        .softPendingCompactionBytesLimit();
+  }
+
+  private static long hardPendingCompactionLimit(
+      final RocksDBColumnarKeyValueStorage store, final SegmentIdentifier segment)
+      throws RocksDBException {
+    return store
+        .getDB()
+        .getOptions(store.safeColumnHandle(segment))
+        .hardPendingCompactionBytesLimit();
   }
 }

@@ -171,7 +171,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     final MiningConfiguration.Unstable unstable = miningConfiguration.getUnstable();
     final Optional<MempoolPrewarmer> mempoolPrewarmer =
-        unstable.isMempoolPrewarmEnabled()
+        miningConfiguration.isMempoolPrewarmEnabled()
             ? Optional.of(
                 new MempoolPrewarmer(
                     protocolContext,
