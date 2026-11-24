@@ -75,6 +75,9 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced a cached block in a reorg while the log bloom cache was being generated. [#11932](https://github.com/besu-eth/besu/pull/11932)
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
+- The `JOURNALED` world updater mode (`--Xevm-worldstate-update-mode`) now commits storage clears, undoes them when a frame reverts, keeps an account that is created again after being deleted in the same transaction, and drops an account created in a frame that reverts. [#11811](https://github.com/besu-eth/besu/pull/11811)
+- Report exceptional halts on root precompile calls in Parity traces instead of showing a successful call frame. `vmTrace` no longer shows an op for a root creation that fails before its first opcode, such as on an address collision, since no opcode ran. [#11347](https://github.com/besu-eth/besu/pull/11347)
+- `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` return empty struct logs for a transaction sent directly to a precompile instead of a synthetic entry with an empty `op`. [#11347](https://github.com/besu-eth/besu/pull/11347)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
@@ -86,6 +89,7 @@
 - Add `trace_replayTransaction` to the `TRACE` API. It replays one mined transaction on top of the transactions before it in its block and returns the same result as `trace_replayBlockTransactions` for that transaction. [#11406](https://github.com/besu-eth/besu/pull/11406)
 - Update the Docker base images (Ubuntu 24.04, Eclipse Temurin 25.0.5), resolving CVE-2026-85091, and disable apt download retries during the image build to mitigate CVE-2026-109518 until the base ships a fixed apt. [#11874](https://github.com/besu-eth/besu/pull/11874)
 - Update the Docker base images (Ubuntu 24.04), resolving 8 OS package CVEs including CVE-2026-109518 (apt), and re-enable apt download retries during the image build. [#11964](https://github.com/besu-eth/besu/pull/11964)
+- Update the Docker base images (Eclipse Temurin 25.0.5.1), resolving CVE-2026-114938 [#12022](https://github.com/besu-eth/besu/pull/12022)
 - EVM v2 runs untraced execution, such as block import, in a faster loop of its own. [#11687](https://github.com/besu-eth/besu/pull/11687)
 - RLP decoding no longer allocates a lambda for every item it reads. [#11826](https://github.com/besu-eth/besu/pull/11826)
 - The fee oracle for `eth_gasPrice` and `eth_maxPriorityFeePerGas` keeps the fees of up to 1024 recent blocks between chain heads, and precomputes new heads only while it is called. [#11825](https://github.com/besu-eth/besu/pull/11825)
