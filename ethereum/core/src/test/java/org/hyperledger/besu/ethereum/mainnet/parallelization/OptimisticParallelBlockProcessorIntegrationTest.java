@@ -31,16 +31,23 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockExecutionContext;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.WorldView;
+import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -62,6 +69,73 @@ class OptimisticParallelBlockProcessorIntegrationTest {
 
   private static String getVariant() {
     return "Optimistic (Collision Detection)";
+  }
+
+  @Nested
+  @DisplayName("Block import tracer")
+  class BlockImportTracing extends AbstractParallelBlockProcessorIntegrationTest {
+
+    @Override
+    protected String getVariantName() {
+      return getVariant();
+    }
+
+    @Override
+    protected BalConfiguration getBalConfiguration() {
+      return OPTIMISTIC_CONFIG;
+    }
+
+    @Test
+    @DisplayName("An enabled block import tracer sees every transaction of the block")
+    void blockImportTracerSeesEveryTransaction() {
+      final Transaction first =
+          createTransferTransaction(
+              0,
+              1_000_000_000_000_000_000L,
+              300_000L,
+              0L,
+              5L,
+              ACCOUNT_4,
+              ACCOUNT_GENESIS_1_KEYPAIR);
+      final Transaction second =
+          createTransferTransaction(
+              0,
+              1_000_000_000_000_000_000L,
+              300_000L,
+              0L,
+              5L,
+              ACCOUNT_5,
+              ACCOUNT_GENESIS_2_KEYPAIR);
+      final Hash stateRoot = discoverStateRoot(Wei.of(5), first, second);
+      final ExecutionContextTestFixture ctx = createFreshContext();
+      final List<Hash> traced = new ArrayList<>();
+      ctx.getProtocolContext()
+          .getPluginServiceManager()
+          .addService(
+              BlockImportTracerProvider.class,
+              header ->
+                  new BlockAwareOperationTracer() {
+                    @Override
+                    public void traceStartTransaction(
+                        final WorldView worldView,
+                        final org.hyperledger.besu.datatypes.Transaction transaction) {
+                      traced.add(transaction.getHash());
+                    }
+                  });
+
+      final BlockProcessingResult result =
+          createParallelProcessor(ctx)
+              .processBlock(
+                  BlockExecutionContext.builder()
+                      .protocolContext(ctx.getProtocolContext())
+                      .worldState(ctx.getStateArchive().getWorldState())
+                      .block(createBlock(ctx, stateRoot, Wei.of(5), first, second))
+                      .blockAccessList(Optional.empty())
+                      .build());
+
+      assertThat(result.isSuccessful()).isTrue();
+      assertThat(traced).containsExactly(first.getHash(), second.getHash());
+    }
   }
 
   @Nested
