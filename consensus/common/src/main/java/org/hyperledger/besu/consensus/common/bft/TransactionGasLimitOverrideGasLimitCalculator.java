@@ -19,12 +19,13 @@ import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import java.util.Objects;
 
 /**
- * A delegating gas limit calculator that can lower the per-transaction gas limit cap for BFT.
+ * BFT {@code pertxgaslimit} / {@code transactiongaslimit} override of the per-transaction gas caps.
  *
- * <p>The fork's {@link #transactionIntrinsicGasLimitCap()} is always taken from the delegate, so
- * Amsterdam's EIP-8037 intrinsic-gas cap stays in force. An override of {@code 0} (or {@link
- * Long#MAX_VALUE}) leaves {@link #transactionGasLimitCap()} on the delegate as well; any other
- * override is clamped to the delegate when the fork has a consensus-level cap.
+ * <p>A configured value of {@code 0} means "no BFT override": both {@link
+ * #transactionGasLimitCap()} and {@link #transactionIntrinsicGasLimitCap()} stay on the fork (Osaka
+ * EIP-7825 / Amsterdam EIP-8037). A positive value {@code N} sets both caps to {@code N}, so
+ * operators can raise the limit above those Ethereum defaults (for example the QBFT soak {@code
+ * pertxgaslimit} of 40M above Osaka's 2^24) or lower it.
  */
 public final class TransactionGasLimitOverrideGasLimitCalculator implements GasLimitCalculator {
 
@@ -35,7 +36,7 @@ public final class TransactionGasLimitOverrideGasLimitCalculator implements GasL
    * Instantiates a new TransactionGasLimitOverrideGasLimitCalculator.
    *
    * @param delegate the delegate gas limit calculator
-   * @param transactionGasLimitCap the transaction gas limit cap to apply
+   * @param transactionGasLimitCap the BFT per-transaction gas limit; {@code 0} keeps the fork caps
    */
   public TransactionGasLimitOverrideGasLimitCalculator(
       final GasLimitCalculator delegate, final long transactionGasLimitCap) {
@@ -67,22 +68,19 @@ public final class TransactionGasLimitOverrideGasLimitCalculator implements GasL
 
   @Override
   public long transactionGasLimitCap() {
-    final long delegateCap = delegate.transactionGasLimitCap();
-    // 0 (and the historical Long.MAX_VALUE sentinel for "unlimited") means "do not
-    // override" — keep the fork's consensus-level cap (e.g. Amsterdam 2^32-1, Osaka 2^24).
-    if (transactionGasLimitCap == 0L || transactionGasLimitCap == Long.MAX_VALUE) {
-      return delegateCap;
-    }
-    // Never raise a configured override above a consensus-level cap on the fork.
-    if (delegateCap != Long.MAX_VALUE) {
-      return Math.min(transactionGasLimitCap, delegateCap);
+    if (transactionGasLimitCap == 0L) {
+      return delegate.transactionGasLimitCap();
     }
     return transactionGasLimitCap;
   }
 
   @Override
   public long transactionIntrinsicGasLimitCap() {
-    return delegate.transactionIntrinsicGasLimitCap();
+    if (transactionGasLimitCap == 0L) {
+      return delegate.transactionIntrinsicGasLimitCap();
+    }
+    // Same N for tx.gas and intrinsic/storage budget (matthew1001 / #11492 review).
+    return transactionGasLimitCap;
   }
 
   @Override

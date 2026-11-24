@@ -30,16 +30,39 @@ public class TransactionGasLimitOverrideGasLimitCalculatorTest {
   private final GasLimitCalculator delegate = mock(GasLimitCalculator.class);
 
   @Test
-  public void transactionGasLimitCapReturnsOverrideWhenBelowDelegateCap() {
-    when(delegate.transactionGasLimitCap()).thenReturn(Long.MAX_VALUE);
+  public void positiveOverrideSetsTxGasCapEvenAboveOsakaDelegate() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final long override = 40_000_000L;
     final TransactionGasLimitOverrideGasLimitCalculator calculator =
-        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 12345L);
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, override);
 
-    assertThat(calculator.transactionGasLimitCap()).isEqualTo(12345L);
+    assertThat(calculator.transactionGasLimitCap()).isEqualTo(override);
   }
 
   @Test
-  public void transactionGasLimitCapZeroFallsBackToDelegate() {
+  public void positiveOverrideSetsIntrinsicCapToSameValue() {
+    when(delegate.transactionIntrinsicGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final long override = 40_000_000L;
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, override);
+
+    assertThat(calculator.transactionIntrinsicGasLimitCap()).isEqualTo(override);
+  }
+
+  @Test
+  public void positiveOverrideCanLowerBelowAmsterdamDelegateCap() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 1_000_000L);
+
+    assertThat(calculator.transactionGasLimitCap()).isEqualTo(1_000_000L);
+  }
+
+  @Test
+  public void zeroFallsBackToDelegateTxGasCap() {
     when(delegate.transactionGasLimitCap())
         .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
     final TransactionGasLimitOverrideGasLimitCalculator calculator =
@@ -50,51 +73,14 @@ public class TransactionGasLimitOverrideGasLimitCalculatorTest {
   }
 
   @Test
-  public void transactionGasLimitCapMaxValueSentinelFallsBackToDelegate() {
-    when(delegate.transactionGasLimitCap())
-        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
-    final TransactionGasLimitOverrideGasLimitCalculator calculator =
-        new TransactionGasLimitOverrideGasLimitCalculator(delegate, Long.MAX_VALUE);
-
-    assertThat(calculator.transactionGasLimitCap())
-        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
-  }
-
-  @Test
-  public void transactionGasLimitCapClampsOverrideToAmsterdamDelegateCap() {
-    when(delegate.transactionGasLimitCap())
-        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
-    final TransactionGasLimitOverrideGasLimitCalculator calculator =
-        new TransactionGasLimitOverrideGasLimitCalculator(
-            delegate,
-            AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP + 1);
-
-    assertThat(calculator.transactionGasLimitCap())
-        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
-  }
-
-  @Test
-  public void transactionGasLimitCapClampsOverrideToOsakaDelegateCap() {
-    when(delegate.transactionGasLimitCap())
-        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
-    final TransactionGasLimitOverrideGasLimitCalculator calculator =
-        new TransactionGasLimitOverrideGasLimitCalculator(
-            delegate, OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP + 1);
-
-    assertThat(calculator.transactionGasLimitCap())
-        .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
-  }
-
-  @Test
-  public void transactionIntrinsicGasLimitCapDelegates() {
+  public void zeroFallsBackToDelegateIntrinsicCap() {
     when(delegate.transactionIntrinsicGasLimitCap())
         .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
     final TransactionGasLimitOverrideGasLimitCalculator calculator =
-        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 12345L);
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 0L);
 
     assertThat(calculator.transactionIntrinsicGasLimitCap())
         .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
-    verify(delegate).transactionIntrinsicGasLimitCap();
   }
 
   @Test

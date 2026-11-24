@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.AmsterdamTargetingGasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionValidator;
+import org.hyperledger.besu.ethereum.mainnet.OsakaTargetingGasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -48,8 +49,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Covers #11492: a BFT {@code transactiongaslimit} override must not drop Amsterdam's EIP-8037
- * caps.
+ * Covers #11492 / matthew1001 review: {@code 0} keeps fork caps; a positive BFT override raises
+ * both the {@code tx.gas} and intrinsic/storage caps.
  */
 public class BftAmsterdamTransactionGasLimitOverrideValidationTest {
 
@@ -79,10 +80,6 @@ public class BftAmsterdamTransactionGasLimitOverrideValidationTest {
     assertThat(result.isValid()).isFalse();
     assertThat(result.getInvalidReason())
         .isEqualTo(TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT);
-    assertThat(result.getErrorMessage())
-        .isEqualTo(
-            "Transaction gas limit must be at most "
-                + AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
   }
 
   @Test
@@ -101,10 +98,38 @@ public class BftAmsterdamTransactionGasLimitOverrideValidationTest {
   }
 
   @Test
-  void explicitOverrideStillEnforcesAmsterdamIntrinsicGasCap() {
-    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(16_777_217L);
-    final MainnetTransactionValidator validator = amsterdamValidatorWithBftOverride(1_000_000L);
-    final Transaction transaction = eip1559Transaction(1_000_000L);
+  void positiveOverrideRaisesTxGasCapAboveOsakaDefault() {
+    final long override = 40_000_000L;
+    final MainnetTransactionValidator validator = amsterdamValidatorWithBftOverride(override);
+    final Transaction transaction =
+        eip1559Transaction(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP + 1);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        validator.validate(
+            transaction, Optional.of(Wei.of(150000L)), Optional.empty(), processingBlockParams);
+
+    assertThat(result.isValid()).isTrue();
+  }
+
+  @Test
+  void positiveOverrideRaisesIntrinsicCapAboveOsakaDefault() {
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(20_000_000L);
+    final long override = 40_000_000L;
+    final MainnetTransactionValidator validator = amsterdamValidatorWithBftOverride(override);
+    final Transaction transaction = eip1559Transaction(30_000_000L);
+
+    final ValidationResult<TransactionInvalidReason> result =
+        validator.validate(
+            transaction, Optional.of(Wei.of(150000L)), Optional.empty(), processingBlockParams);
+
+    assertThat(result.isValid()).isTrue();
+  }
+
+  @Test
+  void positiveOverrideStillRejectsAboveConfiguredCap() {
+    final long override = 40_000_000L;
+    final MainnetTransactionValidator validator = amsterdamValidatorWithBftOverride(override);
+    final Transaction transaction = eip1559Transaction(override + 1);
 
     final ValidationResult<TransactionInvalidReason> result =
         validator.validate(
@@ -112,7 +137,7 @@ public class BftAmsterdamTransactionGasLimitOverrideValidationTest {
 
     assertThat(result.isValid()).isFalse();
     assertThat(result.getInvalidReason())
-        .isEqualTo(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT);
+        .isEqualTo(TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT);
   }
 
   private MainnetTransactionValidator amsterdamValidatorWithBftOverride(final long bftOverride) {

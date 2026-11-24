@@ -192,9 +192,9 @@ public abstract class BaseBftProtocolScheduleBuilder {
               + ")");
     }
 
-    // 0 means "no BFT override": the wrapper falls back to the fork's consensus cap
-    // (Amsterdam 2^32-1, Osaka 2^24, earlier forks Long.MAX_VALUE). Passing Long.MAX_VALUE
-    // here used to disable the tx.gas cap on Amsterdam via the validator's "no cap" sentinel.
+    // Pass the raw configured cap. 0 = keep fork caps; N > 0 overrides both tx.gas and
+    // intrinsic/storage caps to N (can raise above Osaka/Amsterdam defaults). Do not rewrite 0
+    // to Long.MAX_VALUE — that used to disable Amsterdam EIP-8037 via the "no cap" sentinel.
     final ProtocolSpecBuilder.GasLimitCalculatorBuilder delegateBuilder =
         builder.getGasLimitCalculatorBuilder();
     return (feeMarket, gasCalculator, blobSchedule) -> {
