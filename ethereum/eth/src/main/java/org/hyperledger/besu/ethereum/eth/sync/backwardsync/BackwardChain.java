@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +41,7 @@ public class BackwardChain {
 
   private static final String FIRST_STORED_ANCESTOR_KEY = "firstStoredAncestor";
   private static final String LAST_STORED_PIVOT_KEY = "lastStoredPivot";
+  static final int MAX_TRUSTED_BALS = 128;
 
   private final GenericKeyValueStorageFacade<Hash, BlockHeader> headers;
   private final GenericKeyValueStorageFacade<Hash, Block> blocks;
@@ -50,15 +50,31 @@ public class BackwardChain {
   private Optional<BlockHeader> firstStoredAncestor;
   private Optional<BlockHeader> lastStoredPivot;
   private final Queue<Hash> hashesToAppend = new ArrayDeque<>();
-  // BALs received with trusted blocks (engine newPayload), kept in memory until the block is
-  // processed: best-effort, a missing BAL is reconstructed during execution
-  private final Map<Hash, BlockAccessList> trustedBlockAccessLists = new HashMap<>();
+  // newPayload BALs until import, oldest dropped first; a missing one is rebuilt
+  private final Map<Hash, BlockAccessList> trustedBlockAccessLists;
 
   public BackwardChain(
       final GenericKeyValueStorageFacade<Hash, BlockHeader> headersStorage,
       final GenericKeyValueStorageFacade<Hash, Block> blocksStorage,
       final GenericKeyValueStorageFacade<Hash, Hash> chainStorage,
       final GenericKeyValueStorageFacade<String, BlockHeader> sessionDataStorage) {
+    this(headersStorage, blocksStorage, chainStorage, sessionDataStorage, MAX_TRUSTED_BALS);
+  }
+
+  @VisibleForTesting
+  BackwardChain(
+      final GenericKeyValueStorageFacade<Hash, BlockHeader> headersStorage,
+      final GenericKeyValueStorageFacade<Hash, Block> blocksStorage,
+      final GenericKeyValueStorageFacade<Hash, Hash> chainStorage,
+      final GenericKeyValueStorageFacade<String, BlockHeader> sessionDataStorage,
+      final int maxTrustedBals) {
+    this.trustedBlockAccessLists =
+        new LinkedHashMap<>() {
+          @Override
+          protected boolean removeEldestEntry(final Map.Entry<Hash, BlockAccessList> eldest) {
+            return size() > maxTrustedBals;
+          }
+        };
     this.headers = headersStorage;
     this.blocks = blocksStorage;
     this.chainStorage = chainStorage;

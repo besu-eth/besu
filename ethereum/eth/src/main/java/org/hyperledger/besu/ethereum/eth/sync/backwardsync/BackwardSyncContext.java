@@ -52,6 +52,8 @@ public class BackwardSyncContext {
   private static final long MILLIS_DELAY_BETWEEN_PROGRESS_LOG = 10_000L;
   private static final long DEFAULT_MILLIS_BETWEEN_RETRIES = 5000;
   private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_CHAIN_SIZE;
+  // newPayload BALs further ahead of our head than this are dropped
+  static final long MAX_TRUSTED_BAL_DISTANCE = 128;
 
   protected final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
@@ -172,7 +174,12 @@ public class BackwardSyncContext {
   public synchronized CompletableFuture<Void> syncBackwardsUntil(
       final Block newPivot, final Optional<BlockAccessList> blockAccessList) {
     if (!isTrusted(newPivot.getHash())) {
-      backwardChain.appendTrustedBlock(newPivot, blockAccessList);
+      // a block far ahead runs without its BAL rather than holding it in memory
+      final long distance =
+          newPivot.getHeader().getNumber()
+              - getProtocolContext().getBlockchain().getChainHeadBlockNumber();
+      backwardChain.appendTrustedBlock(
+          newPivot, blockAccessList.filter(bal -> distance <= MAX_TRUSTED_BAL_DISTANCE));
     }
 
     final Status status = getOrStartSyncSession();

@@ -19,10 +19,12 @@ import static org.hyperledger.besu.ethereum.eth.sync.backwardsync.ChainForTestCr
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
@@ -179,5 +181,33 @@ public class InMemoryBackwardChainTest {
     pivot = backwardChain.getPivot();
     assertThat(pivot).isPresent();
     assertThat(pivot.orElseThrow()).isEqualTo(blocks.get(7));
+  }
+
+  @Test
+  public void shouldDropOldestTrustedBalsBeyondTheCap() {
+    final BlockAccessList bal = new BlockDataGenerator().blockAccessList(5);
+    final BackwardChain chain =
+        new BackwardChain(headersStorage, blocksStorage, chainStorage, sessionDataStorage, 3);
+
+    for (int i = 0; i < 10; i++) {
+      chain.appendTrustedBlock(blocks.get(i), Optional.of(bal));
+    }
+
+    for (int i = 0; i < 10; i++) {
+      assertThat(chain.getTrustedBlockAccessList(blocks.get(i).getHash()).isPresent())
+          .isEqualTo(i >= 7);
+    }
+  }
+
+  @Test
+  public void clearShouldDropTrustedBals() {
+    final BlockAccessList bal = new BlockDataGenerator().blockAccessList(2);
+    final BackwardChain chain = createChainFromBlock(blocks.get(0));
+    chain.appendTrustedBlock(blocks.get(1), Optional.of(bal));
+    assertThat(chain.getTrustedBlockAccessList(blocks.get(1).getHash())).contains(bal);
+
+    chain.clear();
+
+    assertThat(chain.getTrustedBlockAccessList(blocks.get(1).getHash())).isEmpty();
   }
 }
