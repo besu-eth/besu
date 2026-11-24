@@ -48,6 +48,8 @@ public final class ParallelBlockProcessorTestSupport {
   public static final String PARALLEL_TEST_CONTRACT = "0x00000000000000000000000000000000000eeeee";
   public static final Address EMPTY_ACCOUNT =
       Address.fromHexStringStrict("0x0000000000000000000000000000000000007740");
+  public static final Address ABSENT_ACCOUNT =
+      Address.fromHexStringStrict("0x0000000000000000000000000000000000007799");
   public static final String CREATOR_CONTRACT = "0x0000000000000000000000000000000000007750";
   public static final String REVERTED_CREATION_CALLER =
       "0x0000000000000000000000000000000000007751";

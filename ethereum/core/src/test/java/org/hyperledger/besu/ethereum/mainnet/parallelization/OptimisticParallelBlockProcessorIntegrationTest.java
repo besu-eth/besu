@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ABSENT_ACCOUNT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_4;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_5;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_6;
@@ -436,6 +437,32 @@ class OptimisticParallelBlockProcessorIntegrationTest {
                   MINING_BENEFICIARY_KEYPAIR));
 
       assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "Zero-fee transactions keep their results when the coinbase account does not exist")
+    void zeroFeeTransactionsAreReusedWithAnAbsentCoinbaseAccount() {
+      assertThat(createFreshContext().getStateArchive().getWorldState().get(ABSENT_ACCOUNT))
+          .isNull();
+
+      // each zero fee credit creates the coinbase account, and state clearing deletes it again
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              ABSENT_ACCOUNT,
+              transfer(0, ACCOUNT_4),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_5,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertThat(result.parWorldState().get(ABSENT_ACCOUNT)).isNull();
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
     }
 

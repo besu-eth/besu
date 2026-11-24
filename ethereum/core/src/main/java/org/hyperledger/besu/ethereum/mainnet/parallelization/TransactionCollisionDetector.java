@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.evm.account.Account;
 
 import java.util.List;
 import java.util.Map;
@@ -97,9 +98,13 @@ public class TransactionCollisionDetector {
       return true;
     }
     // a run that touched the beneficiary only for its fee no longer holds it among its accounts,
-    // so taking the result would drop the deletion of an empty beneficiary
+    // so taking the result would drop the deletion of a beneficiary the block holds as empty. One
+    // the block does not hold is created and deleted again, and a non-empty one stays as it is.
     if (transactionAccumulator.getDeletedAccountAddresses().contains(miningBeneficiary)) {
-      return true;
+      final Account beneficiary = blockAccumulator.get(miningBeneficiary);
+      if (beneficiary != null && beneficiary.isEmpty()) {
+        return true;
+      }
     }
     if (chainPredecessor != null) {
       return hasCollisionWithChainedState(

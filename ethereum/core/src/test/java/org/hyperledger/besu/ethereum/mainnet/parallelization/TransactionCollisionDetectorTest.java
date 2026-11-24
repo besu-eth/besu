@@ -776,6 +776,11 @@ class TransactionCollisionDetectorTest {
     // the worker drops a beneficiary the transaction touched only for its fee
     trxUpdater.getAccountsToUpdate().remove(beneficiary);
     trxUpdater.getStorageToClear().remove(beneficiary);
+    // the block still holds the beneficiary as an existing empty account
+    final BonsaiAccount emptyBeneficiary = createAccount(beneficiary, 0, 0);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(beneficiary, new BonsaiValue<>(emptyBeneficiary, emptyBeneficiary));
 
     assertTrue(
         collisionDetector.hasCollision(
@@ -785,6 +790,31 @@ class TransactionCollisionDetectorTest {
             bonsaiUpdater,
             new ArrayList<>()),
         "Expected a collision as taking the result would not delete the beneficiary");
+  }
+
+  @Test
+  void runThatDeletedAMiningBeneficiaryTheBlockDoesNotHoldHasNoCollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x9");
+    trxUpdater.recordBalanceObservations();
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 1, 90)));
+    // the fee credit created the beneficiary, and state clearing deleted it again
+    trxUpdater.deleteAccount(beneficiary);
+    trxUpdater.commit();
+    trxUpdater.getAccountsToUpdate().remove(beneficiary);
+    trxUpdater.getStorageToClear().remove(beneficiary);
+
+    assertFalse(
+        collisionDetector.hasCollision(
+            createTransaction(sender, Address.fromHexString("0x2")),
+            beneficiary,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater,
+            new ArrayList<>()),
+        "Expected no collision as the block does not hold the beneficiary either");
   }
 
   @Test
