@@ -545,7 +545,7 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
-  void miningBeneficiaryAsSenderCollidesEvenCarryingCredits() {
+  void miningBeneficiaryAsSenderIsCarriedOverWhenTheBlockOnlyRaisedItsBalance() {
     final Address beneficiary = Address.ZERO;
     trxUpdater.recordBalanceObservations();
     // earlier transactions paid their fees to the beneficiary
@@ -562,10 +562,13 @@ class TransactionCollisionDetectorTest {
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 2, 40)));
 
-    assertTrue(
+    final List<Address> credited = new ArrayList<>();
+
+    assertFalse(
         hasCollisionCarryingCredits(
-            createTransaction(beneficiary, Address.fromHexString("0x2")), new ArrayList<>()),
-        "Expected a collision as the sender's balance paid for the gas");
+            createTransaction(beneficiary, Address.fromHexString("0x2")), credited),
+        "Expected no collision as the fees only raised the balance that paid for the gas");
+    assertThat(credited).containsExactly(beneficiary);
   }
 
   @Test
@@ -1137,20 +1140,46 @@ class TransactionCollisionDetectorTest {
     assertThat(creditedAccounts).isEmpty();
   }
 
-  @Test
-  void balanceChangeOfTheSenderIsACollision() {
+  private Transaction senderScenario(final long blockBalance) {
     final Address sender = Address.fromHexString("0x1");
     trxUpdater.recordBalanceObservations();
+    // an earlier transaction of the block changed the sender's balance
     bonsaiUpdater
         .getAccountsToUpdate()
-        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 1, 70)));
+        .put(
+            sender,
+            new BonsaiValue<>(
+                createAccount(sender, 1, 50), createAccount(sender, 1, blockBalance)));
     trxUpdater
         .getAccountsToUpdate()
         .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 40)));
+    return createTransaction(sender, Address.fromHexString("0x3"));
+  }
 
-    assertTrue(
-        hasCollisionCarryingCredits(
-            createTransaction(sender, Address.fromHexString("0x3")), new ArrayList<>()));
+  @Test
+  void senderBalanceTheBlockRaisedIsCarriedOver() {
+    final List<Address> credited = new ArrayList<>();
+
+    assertFalse(hasCollisionCarryingCredits(senderScenario(70), credited));
+    assertThat(credited).containsExactly(Address.fromHexString("0x1"));
+  }
+
+  @Test
+  void senderBalanceTheBlockLoweredIsACollision() {
+    assertTrue(hasCollisionCarryingCredits(senderScenario(45), new ArrayList<>()));
+  }
+
+  @Test
+  void senderBalanceTheRunObservedIsACollision() {
+    final Transaction transaction = senderScenario(70);
+    trxUpdater.observeBalance(Address.fromHexString("0x1"));
+
+    assertTrue(hasCollisionCarryingCredits(transaction, new ArrayList<>()));
+  }
+
+  @Test
+  void senderBalanceIsACollisionWhenCreditsAreNotCarriedOver() {
+    assertTrue(hasStrictCollision(senderScenario(70)));
   }
 
   private boolean hasCollision(final Transaction transaction, final boolean carryingCredits) {

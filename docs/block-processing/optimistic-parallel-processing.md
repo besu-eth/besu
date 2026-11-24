@@ -94,10 +94,10 @@ Many transactions touch an account whose balance an earlier transaction of the b
 
 **When a balance change is carried over.** An earlier transaction may have changed only the balance of an account the run touched, not its nonce or code. That is no collision when all of these hold:
 
-- The account is not the transaction's sender, whose balance pays for the gas.
 - The run did not observe the account's balance.
 - The account is not empty in the parent state, at the transaction's turn or after the run. Whether an account is empty decides call costs and state clearing.
-- The run only added to the balance. If it spent from it, the block's balance plus the smallest margin still covers the balance the run started from, so every spending would still find enough.
+- If the account is the transaction's sender, the block only raised its balance. The upfront cost and every spending the run observed sufficed on the parent's balance, so they suffice on a higher one.
+- For any other account, the run only added to the balance. If it spent from it, the block's balance plus the smallest margin still covers the balance the run started from, so every spending would still find enough.
 
 When block processing takes such a result, it sets each of these balances to the block's balance plus the run's change, in the state and, when a block access list is being built, in its post balance.
 
@@ -129,9 +129,10 @@ In the figure:
 4. Once E is recovered, a late chain runs tx 5 on the result of tx 4's run. Block processing gets to tx 5 before the chain ends, so it executes tx 5 itself and the chain is thrown away. A transaction further into the block leaves a late chain more time.
 5. Tx 3's deposit adds to WETH's balance, which tx 2 changed. The deposit does not read that balance, so block processing takes its result and adds the deposit to the balance tx 2 left.
 6. The batch call's run is long. Block processing reaches the call before the run ends, throws the run away and executes the call from the start. That alone takes more than a third of the block.
-7. Tx 7, 10, 11 and 12 collide, on pool P, the sender's balance, pool P and pool S. Block processing executes them. Tx 10's sender pays for its gas from the balance tx 1 raised, so that change is not carried over.
+7. Tx 7, 11 and 12 collide, on pool P, pool P and pool S. Block processing executes them.
+8. Tx 1 raised the balance of tx 10's sender. Tx 10's run paid for its gas from the parent's balance, which was lower, so block processing takes its result and carries its payment over to the balance tx 1 left.
 
-Without chains, block processing executes tx 9 as well, 8 of the 13 transactions instead of 7. The dashed line marks where that block ends.
+Without chains, block processing executes tx 9 as well, 7 of the 13 transactions instead of 6. The dashed line marks where that block ends.
 
 ## Threads
 

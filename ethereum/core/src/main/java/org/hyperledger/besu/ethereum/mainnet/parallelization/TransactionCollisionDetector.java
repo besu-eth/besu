@@ -254,9 +254,9 @@ public class TransactionCollisionDetector {
   /**
    * Whether earlier transactions changed only the balance of an account whose balance the
    * transaction did not read, and spent from only while it sufficed by a margin the block's balance
-   * keeps, so the transaction ends the same on the balance the block has reached. Emptiness depends
-   * on the balance and decides call costs and state clearing, so an account empty on either side
-   * does not qualify.
+   * keeps, so the transaction ends the same on the balance the block has reached. The sender's
+   * balance qualifies when the block only raised it. Emptiness depends on the balance and decides
+   * call costs and state clearing, so an account empty on either side does not qualify.
    */
   private static boolean isBalanceChangeCarried(
       final Transaction transaction,
@@ -264,10 +264,7 @@ public class TransactionCollisionDetector {
       final Address address,
       final BonsaiValue<? extends BonsaiAccount> inBlock) {
     final Set<Address> observedBalances = transactionAccumulator.getObservedBalances();
-    // the sender's balance pays for the gas
-    if (observedBalances == null
-        || observedBalances.contains(address)
-        || address.equals(transaction.getSender())) {
+    if (observedBalances == null || observedBalances.contains(address)) {
       return false;
     }
     final BonsaiValue<? extends BonsaiAccount> inTransaction =
@@ -285,6 +282,11 @@ public class TransactionCollisionDetector {
         || blockUpdated.isEmpty()
         || inTransaction.getUpdated().isEmpty()) {
       return false;
+    }
+    if (address.equals(transaction.getSender())) {
+      // the upfront cost and every spending the run observed sufficed on the parent's balance, so
+      // they suffice on a higher one
+      return blockUpdated.getBalance().compareTo(blockPrior.getBalance()) >= 0;
     }
     final Wei startingBalance = inTransaction.getPrior().getBalance();
     return transactionAccumulator

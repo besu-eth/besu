@@ -26,6 +26,7 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.EMPTY_ACCOUNT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -332,6 +333,58 @@ class OptimisticParallelBlockProcessorIntegrationTest {
                   10L,
                   MINING_BENEFICIARY.toHexString(),
                   ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A transaction whose sender an earlier one paid is reused")
+    void transactionWhoseSenderWasPaidIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, ACCOUNT_GENESIS_2),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexStringStrict(ACCOUNT_GENESIS_2));
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexStringStrict(ACCOUNT_4));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A transaction of the mining beneficiary after paid priority fees is reused")
+    void transactionOfTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_1_KEYPAIR),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  3L,
+                  10L,
+                  ACCOUNT_5,
+                  MINING_BENEFICIARY_KEYPAIR));
 
       assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
