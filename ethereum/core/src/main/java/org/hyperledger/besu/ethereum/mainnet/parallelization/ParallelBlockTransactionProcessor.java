@@ -42,8 +42,10 @@ public abstract class ParallelBlockTransactionProcessor {
   // task, so without this the speculative execution would run to its end. The scoped arm keeps the
   // kill switch armed only for the few milliseconds the kill takes: while armed, every EVM thread
   // in the process pays an interrupt-status read per poll, so a fixed armed period would tax the
-  // whole remainder of the block's execution.
-  private InterruptibleExecution[] executionSlots;
+  // whole remainder of the block's execution. A slot is null when its transaction does not run on
+  // a thread of its own: the optimistic processor's chained runs share one task per chain, which
+  // only abort() interrupts, through the chain's own handle.
+  protected InterruptibleExecution[] executionSlots;
 
   protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
@@ -54,12 +56,20 @@ public abstract class ParallelBlockTransactionProcessor {
   /**
    * Interrupts the thread of a still-running speculative transaction, if any, so the EVM kill
    * switch stops it at its next poll. Call after cancelling the slot's future, so the task cannot
-   * complete normally with a half-executed result.
+   * complete normally with a half-executed result. A transaction without a slot of its own, such as
+   * a chained run, is left to its chain's own cancellation checks.
    *
    * @param txIndex the slot of the transaction whose execution is no longer needed
    */
   protected void interruptSlot(final int txIndex) {
-    executionSlots[txIndex].interrupt();
+    final InterruptibleExecution[] slots = executionSlots;
+    if (slots == null) {
+      return;
+    }
+    final InterruptibleExecution slot = slots[txIndex];
+    if (slot != null) {
+      slot.interrupt();
+    }
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
