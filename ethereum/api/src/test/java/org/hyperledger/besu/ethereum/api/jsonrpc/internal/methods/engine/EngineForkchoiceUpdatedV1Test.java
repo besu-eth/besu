@@ -620,6 +620,30 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldReturnSyncingWithoutPayloadWhileHeadIsStillBeingMovedTo() {
+    final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
+    final BlockHeader mockHeader =
+        setupValidForkchoiceUpdate(bhb -> bhb.number(10L).parentHash(mockParent.getHash()));
+
+    when(mergeCoordinator.updateForkChoice(mockHeader, mockParent.getHash(), mockParent.getHash()))
+        .thenReturn(ForkchoiceResult.withSyncing());
+
+    final ForkchoiceUpdatedResultV1 resp =
+        fromSuccessResp(
+            resp(
+                new ForkchoiceStateV1(
+                    mockHeader.getBlockHash(),
+                    mockParent.getBlockHash(),
+                    mockParent.getBlockHash()),
+                Optional.of(validPayloadAttributesForBlock(mockHeader))));
+
+    assertThat(resp.getPayloadStatus().getStatus()).isEqualTo(SYNCING);
+    assertThat(resp.getPayloadId()).isNull();
+    verify(mergeCoordinator, never()).preparePayload(any());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldReturnValidWithoutFinalizedWithPayload() {
     final BlockHeader mockHeader =
         blockHeaderBuilder.timestamp(getMinSupportedTimestamp()).buildHeader();

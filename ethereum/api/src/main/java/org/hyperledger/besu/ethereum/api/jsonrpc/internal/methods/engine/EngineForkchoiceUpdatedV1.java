@@ -457,6 +457,9 @@ public sealed class EngineForkchoiceUpdatedV1<
       return new JsonRpcErrorResponse(
           requestId, RpcErrorType.INTERNAL_ERROR, result.getErrorMessage().orElse(null));
     }
+    if (result.getStatus() == ForkchoiceResult.Status.SYNCING) {
+      return syncingResponse(requestId, forkChoice);
+    }
     logFCU(INVALID, forkChoice);
     final Optional<Hash> latestValid = result.getLatestValid();
     if (result.getStatus() == ForkchoiceResult.Status.INVALID) {

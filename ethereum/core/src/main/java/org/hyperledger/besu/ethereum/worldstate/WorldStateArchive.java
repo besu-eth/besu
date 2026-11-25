@@ -90,6 +90,18 @@ public interface WorldStateArchive extends Closeable {
   }
 
   /**
+   * Whether moving the head world state to a block takes more than one batch of state changes,
+   * which is too long to wait for within a single engine API call. Does not take the head world
+   * state lock, so a move already in progress does not block the caller.
+   *
+   * @param blockHeader the block the head world state would be moved to
+   * @return true if the move takes more than one batch
+   */
+  default boolean requiresBatchedHeadRoll(final BlockHeader blockHeader) {
+    return false;
+  }
+
+  /**
    * Resetting the archive cache and adding the new pivot as the only entry
    *
    * @param blockHeader new pivot block header

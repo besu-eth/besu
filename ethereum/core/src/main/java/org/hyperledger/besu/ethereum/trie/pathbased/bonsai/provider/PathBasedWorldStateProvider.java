@@ -42,12 +42,14 @@ import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -68,6 +70,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   // would leave its data out of step with its block hash marker. Fair, so that a fork choice
   // waiting for it is not overtaken by backward sync importing the next block
   private final ReentrantLock headWorldStateLock = new ReentrantLock(true);
+  // bounds the changes a roll holds in memory before persisting
+  private static final int DEFAULT_TRIE_LOGS_PER_ROLL_BATCH = 512;
+  private int trieLogsPerRollBatch = DEFAULT_TRIE_LOGS_PER_ROLL_BATCH;
   protected final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage;
   protected EvmConfiguration evmConfiguration;
   // Configuration that will be shared by all instances of world state at their creation
@@ -185,6 +190,22 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     }
   }
 
+  @Override
+  public boolean requiresBatchedHeadRoll(final BlockHeader blockHeader) {
+    try {
+      // a move in progress only makes this estimate stale, so it is safe without the lock
+      return planRoll(headWorldState.blockHash(), blockHeader, trieLogsPerRollBatch).isEmpty();
+    } catch (final RuntimeException e) {
+      // a roll that cannot be planned fails, and is reported, when it is attempted
+      return false;
+    }
+  }
+
+  @VisibleForTesting
+  public void setTrieLogsPerRollBatch(final int trieLogsPerRollBatch) {
+    this.trieLogsPerRollBatch = trieLogsPerRollBatch;
+  }
+
   /**
    * Gets the full world state based on the provided query parameters.
    *
@@ -227,7 +248,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     // a failure here keeps the chain head from moving, so it must be visible at the default level
     return withHeadWorldStateLock(
         () ->
-            rollFullWorldStateToBlockHash(headWorldState, blockHash, Level.WARN)
+            rollFullWorldStateToBlockHash(headWorldState, blockHash, Long.MAX_VALUE, Level.WARN)
                 .map(MutableWorldState.class::cast));
   }
 
@@ -268,7 +289,11 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
             worldState ->
-                rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash(), Level.DEBUG))
+                rollFullWorldStateToBlockHash(
+                    worldState,
+                    blockHeader.getBlockHash(),
+                    trieLogManager.getMaxLayersToLoad(),
+                    Level.DEBUG))
         .map(
             worldState -> {
               // the BAL overlay is attached only once the world state has been rolled to the
@@ -293,105 +318,166 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             () -> new IllegalStateException("Missing trie log for block hash " + blockHash));
   }
 
+  /**
+   * Rolls a world state to a block with trie logs, persisting it after every {@link
+   * #trieLogsPerRollBatch} trie logs so a deep roll does not hold all of its changes in memory.
+   * Every batch ends at a block, so an interrupted roll leaves the world state at that block.
+   *
+   * @param maxTrieLogs the roll is refused, returning empty, if it needs more trie logs than this
+   */
   protected Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState,
       final Hash blockHash,
+      final long maxTrieLogs,
       final Level rollingFailureLogLevel) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
-    } else {
-      try {
-
-        final Optional<BlockHeader> maybePersistedHeader =
-            blockchain.getBlockHeader(mutableState.blockHash()).map(BlockHeader.class::cast);
-
-        final List<TrieLog> rollBacks = new ArrayList<>();
-        final List<TrieLog> rollForwards = new ArrayList<>();
-        if (maybePersistedHeader.isEmpty()) {
-          trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
-        } else {
-          BlockHeader targetHeader = headerOrThrow(blockHash);
-          BlockHeader persistedHeader = maybePersistedHeader.get();
-          // roll back from persisted to even with target
-          Hash persistedBlockHash = persistedHeader.getBlockHash();
-          while (persistedHeader.getNumber() > targetHeader.getNumber()) {
-            LOG.debug("Rollback {}", persistedBlockHash);
-            rollBacks.add(trieLogOrThrow(persistedBlockHash));
-            persistedHeader = headerOrThrow(persistedHeader.getParentHash());
-            persistedBlockHash = persistedHeader.getBlockHash();
-          }
-          // roll forward to target
-          Hash targetBlockHash = targetHeader.getBlockHash();
-          while (persistedHeader.getNumber() < targetHeader.getNumber()) {
-            LOG.debug("Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogOrThrow(targetBlockHash));
-            targetHeader = headerOrThrow(targetHeader.getParentHash());
-            targetBlockHash = targetHeader.getBlockHash();
-          }
-
-          // roll back in tandem until we hit a shared state
-          while (!persistedBlockHash.equals(targetBlockHash)) {
-            LOG.debug("Paired Rollback {}", persistedBlockHash);
-            LOG.debug("Paired Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogOrThrow(targetBlockHash));
-            targetHeader = headerOrThrow(targetHeader.getParentHash());
-
-            rollBacks.add(trieLogOrThrow(persistedBlockHash));
-            persistedHeader = headerOrThrow(persistedHeader.getParentHash());
-
-            targetBlockHash = targetHeader.getBlockHash();
-            persistedBlockHash = persistedHeader.getBlockHash();
-          }
-        }
-
-        // attempt the state rolling
-        final PathBasedWorldStateUpdateAccumulator<?> pathBasedUpdater =
-            (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
-        try {
-          for (final TrieLog rollBack : rollBacks) {
-            LOG.debug("Attempting Rollback of {}", rollBack.getBlockHash());
-            pathBasedUpdater.rollBack(rollBack);
-          }
-          for (int i = rollForwards.size() - 1; i >= 0; i--) {
-            final var forward = rollForwards.get(i);
-            LOG.debug("Attempting Rollforward of {}", rollForwards.get(i).getBlockHash());
-            pathBasedUpdater.rollForward(forward);
-          }
-          pathBasedUpdater.commit();
-
-          mutableState.persist(headerOrThrow(blockHash));
-
-          LOG.debug(
-              "Archive rolling finished, {} now at {}",
-              mutableState.getWorldStateStorage().getClass().getSimpleName(),
-              blockHash);
-          return Optional.of(mutableState);
-        } catch (final MerkleTrieException | MissingCodeException e) {
-          // the caller heals and rolls the state again, from a clean updater
-          pathBasedUpdater.reset();
-          throw e;
-        } catch (final Exception e) {
-          // if we fail we must clean up the updater
-          pathBasedUpdater.reset();
-          LOG.atLevel(rollingFailureLogLevel)
-              .setMessage("State rolling failed on {} for block hash {}")
-              .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
-              .addArgument(blockHash)
-              .setCause(e)
-              .log();
-
-          return Optional.empty();
-        }
-      } catch (final RuntimeException re) {
-        LOG.warn("Archive rolling failed for block hash " + blockHash, re);
-        if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {
-          // need to throw to trigger the heal
-          throw re;
-        }
-        throw new MerkleTrieException(
-            "invalid", Optional.of(Address.ZERO), Bytes32.wrap(Hash.EMPTY.getBytes()), Bytes.EMPTY);
-      }
     }
+    try {
+      final BlockHeader targetHeader = headerOrThrow(blockHash);
+      final Optional<List<RollStep>> maybeSteps =
+          planRoll(mutableState.blockHash(), targetHeader, maxTrieLogs);
+      if (maybeSteps.isEmpty()) {
+        LOG.debug(
+            "Rolling to block {} needs more than {} trie logs, more than the limit of historical blocks that can be loaded. If you need to make older historical queries, configure your `--bonsai-historical-block-limit`.",
+            blockHash,
+            maxTrieLogs);
+        return Optional.empty();
+      }
+      return applyRoll(mutableState, targetHeader, maybeSteps.get(), rollingFailureLogLevel);
+    } catch (final RuntimeException re) {
+      LOG.warn("Archive rolling failed for block hash " + blockHash, re);
+      if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {
+        // need to throw to trigger the heal
+        throw re;
+      }
+      throw new MerkleTrieException(
+          "invalid", Optional.of(Address.ZERO), Bytes32.wrap(Hash.EMPTY.getBytes()), Bytes.EMPTY);
+    }
+  }
+
+  /** One trie log to apply, and the block whose state applying it leaves. */
+  private record RollStep(Hash trieLogBlockHash, boolean isForward, Hash resultingBlockHash) {}
+
+  /**
+   * Plans the trie logs that roll a world state at one block to another: roll backs down to the
+   * common ancestor, then roll forwards up to the target. Only headers are read.
+   *
+   * @return the steps in the order to apply them, or empty if there are more than {@code
+   *     maxTrieLogs}
+   */
+  private Optional<List<RollStep>> planRoll(
+      final Hash fromBlockHash, final BlockHeader target, final long maxTrieLogs) {
+    final List<RollStep> rollBacks = new ArrayList<>();
+    final List<RollStep> rollForwards = new ArrayList<>();
+    final Optional<BlockHeader> maybeFromHeader =
+        blockchain.getBlockHeader(fromBlockHash).map(BlockHeader.class::cast);
+    if (maybeFromHeader.isEmpty()) {
+      // a block that is not on the chain, such as a locally built one, has no known parent, so
+      // only its own changes are undone and the result is checked against the target
+      if (trieLogManager.getTrieLogLayer(fromBlockHash).isPresent()) {
+        rollBacks.add(new RollStep(fromBlockHash, false, target.getBlockHash()));
+      }
+      return Optional.of(rollBacks);
+    }
+
+    BlockHeader fromHeader = maybeFromHeader.get();
+    BlockHeader targetHeader = target;
+    while (fromHeader.getNumber() > targetHeader.getNumber()) {
+      rollBacks.add(new RollStep(fromHeader.getBlockHash(), false, fromHeader.getParentHash()));
+      if (rollBacks.size() > maxTrieLogs) {
+        return Optional.empty();
+      }
+      fromHeader = headerOrThrow(fromHeader.getParentHash());
+    }
+    while (fromHeader.getNumber() < targetHeader.getNumber()) {
+      rollForwards.add(
+          new RollStep(targetHeader.getBlockHash(), true, targetHeader.getBlockHash()));
+      if (rollBacks.size() + rollForwards.size() > maxTrieLogs) {
+        return Optional.empty();
+      }
+      targetHeader = headerOrThrow(targetHeader.getParentHash());
+    }
+    // same height on different forks: step both back until they share a block
+    while (!fromHeader.getBlockHash().equals(targetHeader.getBlockHash())) {
+      rollBacks.add(new RollStep(fromHeader.getBlockHash(), false, fromHeader.getParentHash()));
+      rollForwards.add(
+          new RollStep(targetHeader.getBlockHash(), true, targetHeader.getBlockHash()));
+      if (rollBacks.size() + rollForwards.size() > maxTrieLogs) {
+        return Optional.empty();
+      }
+      fromHeader = headerOrThrow(fromHeader.getParentHash());
+      targetHeader = headerOrThrow(targetHeader.getParentHash());
+    }
+    Collections.reverse(rollForwards);
+    rollBacks.addAll(rollForwards);
+    return Optional.of(rollBacks);
+  }
+
+  private Optional<PathBasedWorldState> applyRoll(
+      final PathBasedWorldState mutableState,
+      final BlockHeader targetHeader,
+      final List<RollStep> steps,
+      final Level rollingFailureLogLevel) {
+    final PathBasedWorldStateUpdateAccumulator<?> pathBasedUpdater =
+        (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
+    final boolean logProgress =
+        steps.size() > trieLogsPerRollBatch && mutableState.isModifyingHeadWorldState();
+    int applied = 0;
+    do {
+      final List<RollStep> batch =
+          steps.subList(applied, Math.min(applied + trieLogsPerRollBatch, steps.size()));
+      // loaded outside the try below, so a missing trie log triggers the heal
+      final List<TrieLog> trieLogs =
+          batch.stream().map(step -> trieLogOrThrow(step.trieLogBlockHash())).toList();
+      applied += batch.size();
+      // the last batch is checked against the target, also when rolling from a block off the chain
+      final BlockHeader batchHeader =
+          applied == steps.size()
+              ? targetHeader
+              : headerOrThrow(batch.getLast().resultingBlockHash());
+      try {
+        for (int i = 0; i < batch.size(); i++) {
+          final TrieLog trieLog = trieLogs.get(i);
+          if (batch.get(i).isForward()) {
+            LOG.debug("Attempting Rollforward of {}", trieLog.getBlockHash());
+            pathBasedUpdater.rollForward(trieLog);
+          } else {
+            LOG.debug("Attempting Rollback of {}", trieLog.getBlockHash());
+            pathBasedUpdater.rollBack(trieLog);
+          }
+        }
+        pathBasedUpdater.commit();
+        mutableState.persist(batchHeader);
+      } catch (final MerkleTrieException | MissingCodeException e) {
+        // the caller heals and rolls the state again, from a clean updater
+        pathBasedUpdater.reset();
+        throw e;
+      } catch (final Exception e) {
+        // if we fail we must clean up the updater
+        pathBasedUpdater.reset();
+        LOG.atLevel(rollingFailureLogLevel)
+            .setMessage("State rolling failed on {} for block hash {}")
+            .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
+            .addArgument(targetHeader.getBlockHash())
+            .setCause(e)
+            .log();
+        return Optional.empty();
+      }
+      if (logProgress) {
+        LOG.info(
+            "Rolled head world state to block {}, {} of {} trie logs applied",
+            batchHeader.getNumber(),
+            applied,
+            steps.size());
+      }
+    } while (applied < steps.size());
+
+    LOG.debug(
+        "Archive rolling finished, {} now at {}",
+        mutableState.getWorldStateStorage().getClass().getSimpleName(),
+        targetHeader.getBlockHash());
+    return Optional.of(mutableState);
   }
 
   public WorldStateConfig getWorldStateSharedSpec() {

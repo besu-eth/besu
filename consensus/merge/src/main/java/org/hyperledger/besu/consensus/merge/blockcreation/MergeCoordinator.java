@@ -109,6 +109,9 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       new ConcurrentHashMap<>();
 
   private final AtomicReference<Hash> finalizedHashAfterBackwardSync = new AtomicReference<>();
+  // at most one head move runs in the background
+  private final AtomicBoolean headMoveInBackground = new AtomicBoolean(false);
+  private final AtomicReference<Hash> failedHeadMoveInBackground = new AtomicReference<>();
   private final AtomicReference<CompletableFuture<Void>> backwardSyncWithFinalizedUpdate =
       new AtomicReference<>();
 
@@ -877,6 +880,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           getLatestValidAncestor(newHead.getParentHash()));
     }
 
+    // a move in the background holds the head world state and then the chain, so fork choices
+    // answer SYNCING until it is done instead of waiting for it
+    if (headMoveInBackground.get()) {
+      return ForkchoiceResult.withSyncing();
+    }
+    // checked without the head world state lock, so a deep move never blocks the fork choice
+    if (protocolContext.getWorldStateArchive().requiresBatchedHeadRoll(newHead)) {
+      // a failed move is reported once, the next fork choice starts another one
+      if (newHead.getHash().equals(failedHeadMoveInBackground.getAndSet(null))) {
+        return ForkchoiceResult.withFailure(
+            INTERNAL_ERROR, "Failed to set new head", Optional.empty());
+      }
+      moveHeadInBackground(blockchain, newHead);
+      return ForkchoiceResult.withSyncing();
+    }
+
     if (!setNewHead(blockchain, newHead)) {
       LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
       // the head was already validated by newPayload, failing to move to it says nothing about its
@@ -938,6 +957,31 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .log();
       return blockchain.rewindToBlock(newHead.getHash());
     }
+  }
+
+  /**
+   * Moves the world state and then the chain head to a new head that is too far away to reach
+   * within the fork choice call, which would exceed the engine API timeout. A later fork choice to
+   * that head finds both there and applies the finalized and safe blocks.
+   */
+  private void moveHeadInBackground(final MutableBlockchain blockchain, final BlockHeader newHead) {
+    headMoveInBackground.set(true);
+    LOG.info(
+        "Moving to new head {} in the background, too many blocks away to move within a fork choice",
+        newHead.toLogString());
+    ethScheduler.scheduleServiceTask(
+        () -> {
+          try {
+            if (!setNewHead(blockchain, newHead)) {
+              failedHeadMoveInBackground.set(newHead.getHash());
+            }
+          } catch (final RuntimeException e) {
+            LOG.warn("Failed to move to new head {}", newHead.toLogString(), e);
+            failedHeadMoveInBackground.set(newHead.getHash());
+          } finally {
+            headMoveInBackground.set(false);
+          }
+        });
   }
 
   private boolean moveWorldStateTo(final BlockHeader newHead) {
