@@ -71,13 +71,6 @@ public class TransactionCollisionDetector {
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
         parallelizedTransactionContext.chainPredecessorAccumulator();
-    if (chainPredecessor != null) {
-      // earlier transactions paid the beneficiary their priority fees, and a chained result carries
-      // no balance change over
-      return isAddressTouchedByTransaction(transaction, transactionAccumulator, miningBeneficiary)
-          || hasCollisionWithChainedState(
-              transactionAccumulator, chainPredecessor, blockAccumulator);
-    }
     // a run that touched the beneficiary only for its fee no longer holds it among its accounts,
     // so taking the result would drop the deletion of a beneficiary the block holds as empty. One
     // the block does not hold is created and deleted again, and a non-empty one stays as it is.
@@ -86,6 +79,13 @@ public class TransactionCollisionDetector {
       if (beneficiary != null && beneficiary.isEmpty()) {
         return true;
       }
+    }
+    if (chainPredecessor != null) {
+      // earlier transactions paid the beneficiary their priority fees, and a chained result carries
+      // no balance change over
+      return isTouchedBeyondItsFee(transaction, transactionAccumulator, miningBeneficiary)
+          || hasCollisionWithChainedState(
+              transactionAccumulator, chainPredecessor, blockAccumulator);
     }
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
@@ -186,6 +186,20 @@ public class TransactionCollisionDetector {
         || transaction.getTo().filter(address::equals).isPresent()
         || transactionAccumulator.getAccountsToUpdate().containsKey(address)
         || transactionAccumulator.getDeletedAccountAddresses().contains(address);
+  }
+
+  /**
+   * Whether the transaction touched the beneficiary other than through its fee: as its sender or
+   * recipient, or as an account its run holds. A beneficiary touched only for the fee was removed
+   * from the run's accounts, and a deletion of it left behind is checked separately.
+   */
+  private static boolean isTouchedBeyondItsFee(
+      final Transaction transaction,
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final Address beneficiary) {
+    return beneficiary.equals(transaction.getSender())
+        || transaction.getTo().filter(beneficiary::equals).isPresent()
+        || transactionAccumulator.getAccountsToUpdate().containsKey(beneficiary);
   }
 
   private boolean hasCollision(

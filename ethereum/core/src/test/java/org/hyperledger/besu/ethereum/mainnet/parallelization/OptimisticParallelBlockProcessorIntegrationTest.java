@@ -467,6 +467,18 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     }
 
     @Test
+    @DisplayName(
+        "Chained zero-fee transactions keep their results when the coinbase account does not exist")
+    void chainedZeroFeeTransactionsAreReusedWithAnAbsentCoinbaseAccount() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5), ABSENT_ACCOUNT, transfer(0, ACCOUNT_4), transfer(1, ACCOUNT_5));
+
+      assertThat(result.parWorldState().get(ABSENT_ACCOUNT)).isNull();
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
     @DisplayName("A transaction that deleted the empty coinbase account is executed again")
     void transactionThatDeletedTheEmptyCoinbaseAccountIsExecutedAgain() {
       assertThat(createFreshContext().getStateArchive().getWorldState().get(EMPTY_ACCOUNT))

@@ -804,6 +804,29 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void chainedRunThatOnlyDeletedAMiningBeneficiaryTheBlockDoesNotHoldHasNoCollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final BonsaiAccount parent = createAccount(sender, 0, 100);
+    final BonsaiAccount afterPredecessor = createAccount(sender, 1, 90);
+    predecessorUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    bonsaiUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, createAccount(sender, 2, 80)));
+    // the zero fee created the beneficiary, and state clearing deleted it again
+    trxUpdater.deleteAccount(Address.ZERO);
+    trxUpdater.commit();
+    trxUpdater.getAccountsToUpdate().remove(Address.ZERO);
+    trxUpdater.getStorageToClear().remove(Address.ZERO);
+
+    assertFalse(
+        hasChainedCollision(createTransaction(sender, Address.fromHexString("0x2"))),
+        "Expected no collision as the block does not hold the beneficiary either");
+  }
+
+  @Test
   void chainedTransactionThatTouchedTheMiningBeneficiaryCollidesEvenCarryingCredits() {
     final Address sender = Address.fromHexString("0x1");
     final Address beneficiary = Address.fromHexString("0x9");
