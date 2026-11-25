@@ -56,6 +56,7 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.metrics.MetricsSystemFactory;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
+import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -804,6 +805,138 @@ public class DefaultBlockchainTest {
     expectedLogsWithMetadata.addAll(LogWithMetadata.generate(fork, forkReceipts, false));
     assertThat(logsWithMetadata)
         .containsExactly(expectedLogsWithMetadata.toArray(new LogWithMetadata[] {}));
+  }
+
+  @Test
+  public void deepReorgReindexesBranchesAndStreamsItsLogsWithoutReturningTransactions() {
+    final BlockDataGenerator gen = new BlockDataGenerator(3);
+    final List<Block> chain = gen.blockSequence(700);
+    final List<List<TransactionReceipt>> chainReceipts = chain.stream().map(gen::receipts).toList();
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, chain.getFirst());
+    for (int i = 1; i < chain.size(); i++) {
+      blockchain.appendBlock(chain.get(i), chainReceipts.get(i));
+    }
+    // a stored fork off block 1, shorter than the chain it replaces and longer than one loading
+    // chunk
+    final List<Block> fork = gen.blockSequence(chain.get(1), 600);
+    final List<List<TransactionReceipt>> forkReceipts = fork.stream().map(gen::receipts).toList();
+    for (int i = 0; i < fork.size(); i++) {
+      blockchain.storeBlock(fork.get(i), forkReceipts.get(i), Optional.empty());
+    }
+    final AtomicReference<BlockAddedEvent> reorgEvent = new AtomicReference<>();
+    blockchain.observeBlockAdded(reorgEvent::set);
+
+    blockchain.rewindToBlock(fork.getLast().getHash());
+
+    assertBlockIsHead(blockchain, fork.getLast());
+    for (int i = 0; i < fork.size(); i++) {
+      assertBlockDataIsStored(blockchain, fork.get(i), forkReceipts.get(i));
+    }
+    for (final Block removed : chain.subList(2, chain.size())) {
+      assertThat(blockchain.blockIsOnCanonicalChain(removed.getHash())).isFalse();
+      for (final Transaction tx : removed.getBody().getTransactions()) {
+        assertThat(blockchain.getTransactionByHash(tx.getHash())).isEmpty();
+      }
+    }
+    assertThat(blockchain.getBlockHashByNumber(fork.getLast().getHeader().getNumber() + 1))
+        .isEmpty();
+
+    final BlockAddedEvent event = reorgEvent.get();
+    assertThat(event.getEventType()).isEqualTo(AddedBlockContext.EventType.CHAIN_REORG);
+    assertThat(event.getCommonAncestorHash()).isEqualTo(chain.get(1).getHash());
+    assertThat(event.getRemovedTransactions()).isEmpty();
+    assertThat(event.getAddedTransactions()).isEqualTo(fork.getLast().getBody().getTransactions());
+    final List<LogWithMetadata> expectedLogs = new ArrayList<>();
+    for (int i = chain.size() - 1; i >= 2; i--) {
+      expectedLogs.addAll(
+          Lists.reverse(LogWithMetadata.generate(chain.get(i), chainReceipts.get(i), true)));
+    }
+    for (int i = 0; i < fork.size(); i++) {
+      expectedLogs.addAll(LogWithMetadata.generate(fork.get(i), forkReceipts.get(i), false));
+    }
+    assertThat(event.streamLogsWithMetadata()).containsExactlyElementsOf(expectedLogs);
+    // streamed again from storage
+    assertThat(event.streamLogsWithMetadata()).containsExactlyElementsOf(expectedLogs);
+  }
+
+  @Test
+  public void deepReorgKeepsTransactionsBothBranchesIncludeIndexed() {
+    final BlockDataGenerator gen = new BlockDataGenerator(4);
+    final List<Block> chain = gen.blockSequence(100);
+    final KeyValueStorage kvStore = new InMemoryKeyValueStorage();
+    final KeyValueStorage kvStoreVariables = new InMemoryKeyValueStorage();
+    final DefaultBlockchain blockchain =
+        createMutableBlockchain(kvStore, kvStoreVariables, chain.getFirst());
+    for (int i = 1; i < chain.size(); i++) {
+      blockchain.appendBlock(chain.get(i), gen.receipts(chain.get(i)));
+    }
+    final Transaction includedAgain = chain.get(50).getBody().getTransactions().getFirst();
+    // a fork off block 1 that includes a transaction of the replaced chain in its block 80
+    Block parent = chain.get(1);
+    for (long number = 2; number <= 90; number++) {
+      final BlockDataGenerator.BlockOptions options =
+          new BlockDataGenerator.BlockOptions()
+              .setParentHash(parent.getHash())
+              .setBlockNumber(number)
+              .addTransaction(gen.transaction());
+      if (number == 80) {
+        options.addTransaction(includedAgain);
+      }
+      final Block block = gen.block(options);
+      blockchain.storeBlock(block, gen.receipts(block), Optional.empty());
+      parent = block;
+    }
+
+    blockchain.rewindToBlock(parent.getHash());
+
+    assertBlockIsHead(blockchain, parent);
+    assertThat(blockchain.getTransactionLocation(includedAgain.getHash()))
+        .map(TransactionLocation::getBlockHash)
+        .contains(blockchain.getBlockHashByNumber(80).orElseThrow());
+    assertThat(
+            blockchain.getTransactionByHash(
+                chain.get(60).getBody().getTransactions().getFirst().getHash()))
+        .isEmpty();
+  }
+
+  @Test
+  public void deepReorgKeepsSenderNonceEntriesThatNoLongerResolve() {
+    final BlockDataGenerator gen = new BlockDataGenerator(5);
+    final List<Block> chain = gen.blockSequence(100);
+    final DefaultBlockchain blockchain =
+        (DefaultBlockchain)
+            DefaultBlockchain.createMutable(
+                chain.getFirst(),
+                createStorage(new InMemoryKeyValueStorage(), new InMemoryKeyValueStorage()),
+                new NoOpMetricsSystem(),
+                0,
+                "",
+                0,
+                0,
+                0,
+                true);
+    for (int i = 1; i < chain.size(); i++) {
+      blockchain.appendBlock(chain.get(i), gen.receipts(chain.get(i)));
+    }
+    final List<Block> fork = gen.blockSequence(chain.get(1), 90);
+    for (final Block block : fork) {
+      blockchain.storeBlock(block, gen.receipts(block), Optional.empty());
+    }
+
+    blockchain.rewindToBlock(fork.getLast().getHash());
+
+    final Transaction added = fork.get(40).getBody().getTransactions().getFirst();
+    assertThat(blockchain.getTransactionHashBySenderAndNonce(added.getSender(), added.getNonce()))
+        .contains(added.getHash());
+    final Transaction removed = chain.get(60).getBody().getTransactions().getFirst();
+    assertThat(
+            blockchain
+                .getTransactionHashBySenderAndNonce(removed.getSender(), removed.getNonce())
+                .flatMap(blockchain::getTransactionByHash))
+        .isEmpty();
   }
 
   @Test

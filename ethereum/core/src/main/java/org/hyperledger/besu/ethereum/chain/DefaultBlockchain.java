@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.reverse;
 import static java.util.stream.Collectors.joining;
-import static java.util.stream.Collectors.toList;
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCKCHAIN;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -47,15 +46,15 @@ import org.hyperledger.besu.util.Subscribers;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -70,6 +69,11 @@ import org.slf4j.LoggerFactory;
 
 public class DefaultBlockchain implements MutableBlockchain {
   private static final Logger LOG = LoggerFactory.getLogger(DefaultBlockchain.class);
+  // bounds the memory of a deep reorg, whose blocks are decoded in parallel this many at a time
+  private static final int REORG_BLOCKS_LOADED_AT_ONCE = 512;
+  // a reorg with more blocks on either branch neither returns its transactions to the transaction
+  // pool nor holds its logs in memory
+  private static final int DEEP_REORG_BLOCKS = 64;
 
   /**
    * The default number of last blocks to cache. It is the snap serving window: peers and the
@@ -1007,7 +1011,10 @@ public class DefaultBlockchain implements MutableBlockchain {
         return handleNewHead(updater, blockWithReceipts, transactionIndexing);
       } else if (blockChoiceRule.compare(newBlock.getHeader(), chainHeader) > 0) {
         // New block represents a chain reorganization
-        return handleChainReorg(updater, blockWithReceipts);
+        return handleChainReorg(
+            updater,
+            blockWithReceipts,
+            walkToCommonAncestor(blockWithReceipts.getHeader(), chainHeader));
       } else {
         // New block represents a fork
         return handleFork(updater, newBlock);
@@ -1065,119 +1072,309 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   private BlockAddedEvent handleChainReorg(
-      final BlockchainStorage.Updater updater, final BlockWithReceipts newChainHeadWithReceipts) {
-    final BlockWithReceipts oldChainWithReceipts = getBlockWithReceipts(chainHeader).get();
-    BlockWithReceipts currentOldChainWithReceipts = oldChainWithReceipts;
-    BlockWithReceipts currentNewChainWithReceipts = newChainHeadWithReceipts;
+      final BlockchainStorage.Updater updater,
+      final BlockWithReceipts newChainHeadWithReceipts,
+      final ReorgBranches branches) {
+    final BlockHeader oldChainHead = chainHeader;
+    final BlockHeader newChainHead = newChainHeadWithReceipts.getHeader();
 
     // Update chain head
-    updater.setChainHead(currentNewChainWithReceipts.getHeader().getHash());
+    updater.setChainHead(newChainHead.getHash());
 
-    // Track transactions and logs to be added and removed
-    final Map<Hash, List<Transaction>> newTransactions = new HashMap<>();
+    // a deep reorg moves too many transactions and logs to hold, and its old transactions are
+    // rarely worth keeping, so they are not put back into the transaction pool and its logs are
+    // read back from storage when the event is consumed
+    final boolean deepReorg = branches.isDeep();
+
+    // Unindex the old branch first: the transactions the new branch includes again are then
+    // indexed again by the writes below
     final List<Transaction> removedTransactions = new ArrayList<>();
-    final List<LogWithMetadata> addedLogsWithMetadata = new ArrayList<>();
     final List<LogWithMetadata> removedLogsWithMetadata = new ArrayList<>();
-
-    while (currentNewChainWithReceipts.getNumber() > currentOldChainWithReceipts.getNumber()) {
-      // If new chain is longer than old chain, walk back until we meet the old chain by number
-      // adding indexing for new chain along the way.
-      final Hash blockHash = currentNewChainWithReceipts.getHash();
-      updater.putBlockHash(currentNewChainWithReceipts.getNumber(), blockHash);
-
-      newTransactions.put(
-          blockHash, currentNewChainWithReceipts.getBlock().getBody().getTransactions());
-      addAddedLogsWithMetadata(addedLogsWithMetadata, currentNewChainWithReceipts);
-      notifyChainReorgBlockAdded(currentNewChainWithReceipts);
-      currentNewChainWithReceipts = getParentBlockWithReceipts(currentNewChainWithReceipts);
-    }
-
-    while (currentOldChainWithReceipts.getNumber() > currentNewChainWithReceipts.getNumber()) {
-      // If oldChain is longer than new chain, walk back until we meet the new chain by number,
-      // updating as we go.
-      updater.removeBlockHash(currentOldChainWithReceipts.getNumber());
-
-      removedTransactions.addAll(
-          currentOldChainWithReceipts.getBlock().getBody().getTransactions());
-      addRemovedLogsWithMetadata(removedLogsWithMetadata, currentOldChainWithReceipts);
-
-      currentOldChainWithReceipts = getParentBlockWithReceipts(currentOldChainWithReceipts);
-    }
-
-    while (!currentOldChainWithReceipts.getHash().equals(currentNewChainWithReceipts.getHash())) {
-      // Walk back until we meet the common ancestor between the two chains, updating as we go.
-      final Hash newBlockHash = currentNewChainWithReceipts.getHash();
-      updater.putBlockHash(currentNewChainWithReceipts.getNumber(), newBlockHash);
-
-      newTransactions.put(
-          newBlockHash, currentNewChainWithReceipts.getBlock().getBody().getTransactions());
-      removedTransactions.addAll(
-          currentOldChainWithReceipts.getBlock().getBody().getTransactions());
-      addAddedLogsWithMetadata(addedLogsWithMetadata, currentNewChainWithReceipts);
-      addRemovedLogsWithMetadata(removedLogsWithMetadata, currentOldChainWithReceipts);
-
-      currentNewChainWithReceipts = getParentBlockWithReceipts(currentNewChainWithReceipts);
-      currentOldChainWithReceipts = getParentBlockWithReceipts(currentOldChainWithReceipts);
-    }
-    final BlockWithReceipts commonAncestorWithReceipts = currentNewChainWithReceipts;
-
-    // Update indexed transactions
-    newTransactions.forEach(
-        (blockHash, transactionsInBlock) -> {
-          indexTransactionsForBlock(updater, blockHash, transactionsInBlock);
-          // Don't remove transactions that are being re-indexed.
-          removedTransactions.removeAll(transactionsInBlock);
+    forEachBlockWithReceipts(
+        branches.oldBranch(),
+        null,
+        !deepReorg,
+        blockWithReceipts -> {
+          if (blockWithReceipts.getNumber() > newChainHead.getNumber()) {
+            updater.removeBlockHash(blockWithReceipts.getNumber());
+          }
+          final List<Transaction> transactions =
+              blockWithReceipts.getBlock().getBody().getTransactions();
+          clearIndexedTransactionsForBlock(updater, transactions, !deepReorg);
+          if (!deepReorg) {
+            removedTransactions.addAll(transactions);
+            removedLogsWithMetadata.addAll(removedLogs(blockWithReceipts));
+          }
         });
-    clearIndexedTransactionsForBlock(updater, removedTransactions);
 
-    // Update tracked forks
-    final Collection<Hash> forks = blockchainStorage.getForkHeads();
-    // Old head is now a fork
-    forks.add(oldChainWithReceipts.getHash());
-    // Remove new chain head's parent if it was tracked as a fork
-    final Optional<Hash> parentFork =
-        forks.stream()
-            .filter(f -> f.equals(newChainHeadWithReceipts.getHeader().getParentHash()))
-            .findAny();
-    parentFork.ifPresent(forks::remove);
-    updater.setForkHeads(forks);
+    // Index the new branch
+    final List<Transaction> addedTransactions = new ArrayList<>();
+    final List<List<LogWithMetadata>> addedLogsByBlock = new ArrayList<>();
+    forEachBlockWithReceipts(
+        branches.newBranch(),
+        newChainHeadWithReceipts,
+        true,
+        blockWithReceipts -> {
+          final Hash blockHash = blockWithReceipts.getHash();
+          final List<Transaction> transactions =
+              blockWithReceipts.getBlock().getBody().getTransactions();
+          updater.putBlockHash(blockWithReceipts.getNumber(), blockHash);
+          indexTransactionsForBlock(updater, blockHash, transactions);
+          if (!deepReorg) {
+            addedTransactions.addAll(transactions);
+            addedLogsByBlock.add(addedLogs(blockWithReceipts));
+          }
+          if (blockWithReceipts.getNumber() > oldChainHead.getNumber()) {
+            notifyChainReorgBlockAdded(blockWithReceipts);
+          }
+        });
 
-    maybeLogReorg(newChainHeadWithReceipts, oldChainWithReceipts, commonAncestorWithReceipts);
+    updateTrackedForks(updater, oldChainHead, newChainHead);
+    maybeLogReorg(newChainHead, oldChainHead, branches.commonAncestor());
 
+    if (deepReorg) {
+      return deepChainReorgEvent(newChainHeadWithReceipts, branches);
+    }
+
+    // a transaction in both branches is not removed
+    final Set<Hash> addedTransactionHashes = new HashSet<>();
+    addedTransactions.forEach(tx -> addedTransactionHashes.add(tx.getHash()));
+    removedTransactions.removeIf(tx -> addedTransactionHashes.contains(tx.getHash()));
+    // the new branch was walked down, its logs are reported in chain order
+    final List<LogWithMetadata> addedLogsWithMetadata =
+        Lists.reverse(addedLogsByBlock).stream().flatMap(List::stream).toList();
     return BlockAddedEvent.createForChainReorg(
         newChainHeadWithReceipts.getBlock(),
-        newTransactions.values().stream().flatMap(Collection::stream).collect(toList()),
+        addedTransactions,
         removedTransactions,
         newChainHeadWithReceipts.getReceipts(),
-        Stream.concat(removedLogsWithMetadata.stream(), addedLogsWithMetadata.stream())
-            .collect(Collectors.toUnmodifiableList()),
-        currentNewChainWithReceipts.getBlock().getHash());
+        Stream.concat(removedLogsWithMetadata.stream(), addedLogsWithMetadata.stream()).toList(),
+        branches.commonAncestor().getHash());
+  }
+
+  /**
+   * Moves the chain head to a block a deep reorg away, committing a chunk of blocks at a time, so
+   * no storage transaction holds the index changes of the whole reorg. Every commit leaves the
+   * chain head at a block of the old or the new branch with the index consistent up to it.
+   */
+  private BlockAddedEvent rewindInChunks(
+      final BlockWithReceipts newChainHeadWithReceipts, final ReorgBranches branches) {
+    final BlockHeader oldChainHead = chainHeader;
+    final BlockHeader newChainHead = newChainHeadWithReceipts.getHeader();
+
+    // Unindex the old branch from its head down, the new branch indexes again the transactions
+    // it includes too
+    for (final List<BlockHeader> chunk : chunks(branches.oldBranch()).toList()) {
+      commitChunk(
+          updater -> {
+            for (final BlockWithReceipts blockWithReceipts : loadInParallel(chunk, null, false)) {
+              updater.removeBlockHash(blockWithReceipts.getNumber());
+              clearIndexedTransactionsForBlock(
+                  updater, blockWithReceipts.getBlock().getBody().getTransactions(), false);
+            }
+            return parentHeader(chunk.getLast());
+          });
+    }
+
+    // Index the new branch from the common ancestor up
+    for (final List<BlockHeader> chunk : chunks(Lists.reverse(branches.newBranch())).toList()) {
+      commitChunk(
+          updater -> {
+            for (final BlockWithReceipts blockWithReceipts : loadInParallel(chunk, null, true)) {
+              final Hash blockHash = blockWithReceipts.getHash();
+              updater.putBlockHash(blockWithReceipts.getNumber(), blockHash);
+              indexTransactionsForBlock(
+                  updater, blockHash, blockWithReceipts.getBlock().getBody().getTransactions());
+              if (blockWithReceipts.getNumber() > oldChainHead.getNumber()) {
+                notifyChainReorgBlockAdded(blockWithReceipts);
+              }
+            }
+            return chunk.getLast();
+          });
+    }
+
+    commitChunk(
+        updater -> {
+          updateTrackedForks(updater, oldChainHead, newChainHead);
+          return newChainHead;
+        });
+    maybeLogReorg(newChainHead, oldChainHead, branches.commonAncestor());
+    return deepChainReorgEvent(newChainHeadWithReceipts, branches);
+  }
+
+  /**
+   * Commits one chunk of a chunked reorg.
+   *
+   * @param chunk writes the chunk and returns the chain head it leaves
+   */
+  private void commitChunk(final Function<BlockchainStorage.Updater, BlockHeader> chunk) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    try {
+      final BlockHeader head = chunk.apply(updater);
+      updater.setChainHead(head.getHash());
+      updater.commit();
+      updateCacheForNewCanonicalHead(
+          new Block(head, blockchainStorage.getBlockBody(head.getHash()).get()),
+          calculateTotalDifficulty(head));
+    } catch (final NoSuchElementException e) {
+      updater.rollback();
+      throw new IllegalStateException("Blockchain is missing data that should be present.", e);
+    }
+  }
+
+  private void updateTrackedForks(
+      final BlockchainStorage.Updater updater,
+      final BlockHeader oldChainHead,
+      final BlockHeader newChainHead) {
+    final Collection<Hash> forks = blockchainStorage.getForkHeads();
+    // Old head is now a fork
+    forks.add(oldChainHead.getHash());
+    // Remove new chain head's parent if it was tracked as a fork
+    final Optional<Hash> parentFork =
+        forks.stream().filter(f -> f.equals(newChainHead.getParentHash())).findAny();
+    parentFork.ifPresent(forks::remove);
+    updater.setForkHeads(forks);
+  }
+
+  private BlockAddedEvent deepChainReorgEvent(
+      final BlockWithReceipts newChainHeadWithReceipts, final ReorgBranches branches) {
+    LOG.debug(
+        "Not returning the transactions of a reorg deeper than {} blocks to the transaction pool",
+        DEEP_REORG_BLOCKS);
+    return BlockAddedEvent.createForDeepChainReorg(
+        newChainHeadWithReceipts.getBlock(),
+        newChainHeadWithReceipts.getReceipts(),
+        () -> streamReorgLogs(branches.oldBranch(), branches.newBranch()),
+        branches.commonAncestor().getHash());
+  }
+
+  /** The blocks of both branches of a reorg, from their heads down, and their common ancestor. */
+  private record ReorgBranches(
+      List<BlockHeader> newBranch, List<BlockHeader> oldBranch, BlockHeader commonAncestor) {
+    boolean isDeep() {
+      return Math.max(newBranch.size(), oldBranch.size()) > DEEP_REORG_BLOCKS;
+    }
+  }
+
+  /** Walks both branches back to their common ancestor by header. */
+  private ReorgBranches walkToCommonAncestor(
+      final BlockHeader newChainHead, final BlockHeader oldChainHead) {
+    final List<BlockHeader> newBranch = new ArrayList<>();
+    final List<BlockHeader> oldBranch = new ArrayList<>();
+    BlockHeader newBranchHeader = newChainHead;
+    BlockHeader oldBranchHeader = oldChainHead;
+    while (newBranchHeader.getNumber() > oldBranchHeader.getNumber()) {
+      newBranch.add(newBranchHeader);
+      newBranchHeader = parentHeader(newBranchHeader);
+    }
+    while (oldBranchHeader.getNumber() > newBranchHeader.getNumber()) {
+      oldBranch.add(oldBranchHeader);
+      oldBranchHeader = parentHeader(oldBranchHeader);
+    }
+    while (!oldBranchHeader.getHash().equals(newBranchHeader.getHash())) {
+      newBranch.add(newBranchHeader);
+      oldBranch.add(oldBranchHeader);
+      newBranchHeader = parentHeader(newBranchHeader);
+      oldBranchHeader = parentHeader(oldBranchHeader);
+    }
+    return new ReorgBranches(newBranch, oldBranch, newBranchHeader);
+  }
+
+  private BlockHeader parentHeader(final BlockHeader header) {
+    return blockchainStorage.getBlockHeader(header.getParentHash()).get();
+  }
+
+  private static List<LogWithMetadata> removedLogs(final BlockWithReceipts blockWithReceipts) {
+    return Lists.reverse(
+        LogWithMetadata.generate(
+            blockWithReceipts.getBlock(), blockWithReceipts.getReceipts(), true));
+  }
+
+  private static List<LogWithMetadata> addedLogs(final BlockWithReceipts blockWithReceipts) {
+    return LogWithMetadata.generate(
+        blockWithReceipts.getBlock(), blockWithReceipts.getReceipts(), false);
+  }
+
+  /** Streams the logs of a deep reorg in event order, loading a chunk of blocks at a time. */
+  private Stream<LogWithMetadata> streamReorgLogs(
+      final List<BlockHeader> oldBranch, final List<BlockHeader> newBranch) {
+    return Stream.concat(
+        chunks(oldBranch)
+            .flatMap(chunk -> loadInParallel(chunk, null, false).stream())
+            .flatMap(blockWithReceipts -> removedLogs(blockWithReceipts).stream()),
+        chunks(Lists.reverse(newBranch))
+            .flatMap(chunk -> loadInParallel(chunk, null, false).stream())
+            .flatMap(blockWithReceipts -> addedLogs(blockWithReceipts).stream()));
+  }
+
+  /**
+   * Runs an action on the blocks of a branch in order. Decoding the blocks and receipts of a deep
+   * reorg, and recovering the senders the transaction index needs, dominate its cost, so the blocks
+   * are loaded in parallel, a chunk at a time to bound memory.
+   *
+   * @param branchHeaders the headers of the branch, in the order to run the action on
+   * @param branchHead the first block of the branch if it is not stored yet, or null
+   * @param recoverSenders whether the transaction index needs the senders of the transactions
+   */
+  private void forEachBlockWithReceipts(
+      final List<BlockHeader> branchHeaders,
+      final BlockWithReceipts branchHead,
+      final boolean recoverSenders,
+      final Consumer<BlockWithReceipts> action) {
+    chunks(branchHeaders)
+        .forEach(chunk -> loadInParallel(chunk, branchHead, recoverSenders).forEach(action));
+  }
+
+  private static Stream<List<BlockHeader>> chunks(final List<BlockHeader> headers) {
+    return IntStream.iterate(
+            0, start -> start < headers.size(), start -> start + REORG_BLOCKS_LOADED_AT_ONCE)
+        .mapToObj(
+            start ->
+                headers.subList(
+                    start, Math.min(start + REORG_BLOCKS_LOADED_AT_ONCE, headers.size())));
+  }
+
+  private List<BlockWithReceipts> loadInParallel(
+      final List<BlockHeader> headers,
+      final BlockWithReceipts notStoredYet,
+      final boolean recoverSenders) {
+    return headers.parallelStream()
+        .map(
+            header -> {
+              final BlockWithReceipts blockWithReceipts =
+                  notStoredYet != null && header.getHash().equals(notStoredYet.getHash())
+                      ? notStoredYet
+                      : getBlockWithReceipts(header).get();
+              if (recoverSenders) {
+                blockWithReceipts
+                    .getBlock()
+                    .getBody()
+                    .getTransactions()
+                    .forEach(Transaction::getSender);
+              }
+              return blockWithReceipts;
+            })
+        .toList();
   }
 
   private void maybeLogReorg(
-      final BlockWithReceipts newChainHeadWithReceipts,
-      final BlockWithReceipts oldChainWithReceipts,
-      final BlockWithReceipts commonAncestorWithReceipts) {
-    if ((newChainHeadWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber()
-                > reorgLoggingThreshold
-            || oldChainWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber()
-                > reorgLoggingThreshold)
+      final BlockHeader newChainHead,
+      final BlockHeader oldChainHead,
+      final BlockHeader commonAncestor) {
+    if ((newChainHead.getNumber() - commonAncestor.getNumber() > reorgLoggingThreshold
+            || oldChainHead.getNumber() - commonAncestor.getNumber() > reorgLoggingThreshold)
         && LOG.isWarnEnabled()) {
       LOG.warn(
           "Chain Reorganization +{} new / -{} old\n{}",
-          newChainHeadWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber(),
-          oldChainWithReceipts.getNumber() - commonAncestorWithReceipts.getNumber(),
+          newChainHead.getNumber() - commonAncestor.getNumber(),
+          oldChainHead.getNumber() - commonAncestor.getNumber(),
           Streams.zip(
                   Stream.of("Old", "New", "Ancestor"),
-                  Stream.of(
-                          oldChainWithReceipts,
-                          newChainHeadWithReceipts,
-                          commonAncestorWithReceipts)
+                  Stream.of(oldChainHead, newChainHead, commonAncestor)
                       .map(
-                          blockWithReceipts ->
+                          header ->
                               String.format(
-                                  "hash: %s, height: %s",
-                                  blockWithReceipts.getHash(), blockWithReceipts.getNumber())),
+                                  "hash: %s, height: %s", header.getHash(), header.getNumber())),
                   (label, values) -> String.format("%10s - %s", label, values))
               .collect(joining("\n")));
     }
@@ -1190,13 +1387,26 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public boolean rewindToBlock(final Hash blockHash) {
-    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    final BlockWithReceipts blockWithReceipts;
+    final ReorgBranches branches;
     try {
       final BlockHeader oldBlockHeader = blockchainStorage.getBlockHeader(blockHash).get();
-      final BlockWithReceipts blockWithReceipts = getBlockWithReceipts(oldBlockHeader).get();
-      final Block block = blockWithReceipts.getBlock();
+      blockWithReceipts = getBlockWithReceipts(oldBlockHeader).get();
+      branches = walkToCommonAncestor(oldBlockHeader, chainHeader);
+    } catch (final NoSuchElementException e) {
+      throw new IllegalStateException("Blockchain is missing data that should be present.", e);
+    }
 
-      var reorgEvent = handleChainReorg(updater, blockWithReceipts);
+    if (branches.isDeep()) {
+      final BlockAddedEvent reorgEvent = rewindInChunks(blockWithReceipts, branches);
+      blockAddedObservers.forEach(o -> o.onBlockAdded(reorgEvent));
+      return true;
+    }
+
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    try {
+      final Block block = blockWithReceipts.getBlock();
+      var reorgEvent = handleChainReorg(updater, blockWithReceipts, branches);
       updater.commit();
       blockAddedObservers.forEach(o -> o.onBlockAdded(reorgEvent));
 
@@ -1302,11 +1512,20 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
   }
 
+  /**
+   * Removes the index entries of transactions no longer on the chain.
+   *
+   * @param removeSenderNonceEntries false to keep the sender-nonce entries, which are only resolved
+   *     through the location index and so find nothing once it is removed: a deep reorg keeps them
+   *     rather than recovering the sender of every transaction it removes
+   */
   private void clearIndexedTransactionsForBlock(
-      final BlockchainStorage.Updater updater, final List<Transaction> txs) {
+      final BlockchainStorage.Updater updater,
+      final List<Transaction> txs,
+      final boolean removeSenderNonceEntries) {
     for (final Transaction tx : txs) {
       updater.removeTransactionLocation(tx.getHash());
-      if (senderNonceIndexing) {
+      if (senderNonceIndexing && removeSenderNonceEntries) {
         updater.removeTransactionHashBySenderAndNonce(tx.getSender(), tx.getNonce());
       }
     }
@@ -1364,22 +1583,6 @@ public class DefaultBlockchain implements MutableBlockchain {
     return blockchainStorage.getBlockHeader(block.getHeader().getParentHash()).isPresent();
   }
 
-  private void addAddedLogsWithMetadata(
-      final List<LogWithMetadata> logsWithMetadata, final BlockWithReceipts blockWithReceipts) {
-    logsWithMetadata.addAll(
-        0,
-        LogWithMetadata.generate(
-            blockWithReceipts.getBlock(), blockWithReceipts.getReceipts(), false));
-  }
-
-  private void addRemovedLogsWithMetadata(
-      final List<LogWithMetadata> logsWithMetadata, final BlockWithReceipts blockWithReceipts) {
-    logsWithMetadata.addAll(
-        Lists.reverse(
-            LogWithMetadata.generate(
-                blockWithReceipts.getBlock(), blockWithReceipts.getReceipts(), true)));
-  }
-
   private Optional<BlockWithReceipts> getBlockWithReceipts(final BlockHeader blockHeader) {
     return getBlockBody(blockHeader.getHash())
         .map(body -> new Block(blockHeader, body))
@@ -1387,13 +1590,6 @@ public class DefaultBlockchain implements MutableBlockchain {
             block ->
                 getTxReceipts(blockHeader.getHash())
                     .map(receipts -> new BlockWithReceipts(block, receipts)));
-  }
-
-  private BlockWithReceipts getParentBlockWithReceipts(final BlockWithReceipts blockWithReceipts) {
-    return blockchainStorage
-        .getBlockHeader(blockWithReceipts.getHeader().getParentHash())
-        .flatMap(this::getBlockWithReceipts)
-        .get();
   }
 
   @Override

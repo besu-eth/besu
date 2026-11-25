@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter;
 
 import static com.google.common.base.Preconditions.checkNotNull;
-import static java.util.stream.Collectors.toUnmodifiableList;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
@@ -32,6 +31,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -146,27 +146,38 @@ public class FilterManager extends AbstractVerticle {
           }
         });
 
-    final List<LogWithMetadata> logsWithMetadata = event.getLogsWithMetadata();
     final LogsBloomFilter blockBloom = event.getHeader().getLogsBloom();
-    filterRepository.getFiltersOfType(LogFilter.class).stream()
-        .filter(
-            // Only keep filters where the "to" block could include the block in the event
-            filter -> {
-              final Optional<Long> maybeToBlockNumber = filter.getToBlock().getNumber();
-              return maybeToBlockNumber.isEmpty()
-                  || maybeToBlockNumber.get() >= event.getHeader().getNumber();
-            })
-        .filter(filter -> filter.getLogsQuery().couldMatch(blockBloom))
+    final List<LogFilter> logFilters =
+        filterRepository.getFiltersOfType(LogFilter.class).stream()
+            .filter(
+                // Only keep filters where the "to" block could include the block in the event
+                filter -> {
+                  final Optional<Long> maybeToBlockNumber = filter.getToBlock().getNumber();
+                  return maybeToBlockNumber.isEmpty()
+                      || maybeToBlockNumber.get() >= event.getHeader().getNumber();
+                })
+            .filter(filter -> filter.getLogsQuery().couldMatch(blockBloom))
+            .toList();
+    if (logFilters.isEmpty()) {
+      return;
+    }
+    // a deep reorg reads its logs back from storage when they are streamed, so they are streamed
+    // once for all filters
+    final List<List<LogWithMetadata>> matchingLogs = new ArrayList<>();
+    logFilters.forEach(filter -> matchingLogs.add(new ArrayList<>()));
+    event
+        .streamLogsWithMetadata()
         .forEach(
-            filter -> {
-              final LogsQuery logsQuery = filter.getLogsQuery();
-              filter.addLogs(
-                  // We need to use privacy queries for private log filters but for regular
-                  // log filters we already have all the info in the event
-                  logsWithMetadata.stream()
-                      .filter(logsQuery::matches)
-                      .collect(toUnmodifiableList()));
+            log -> {
+              for (int i = 0; i < logFilters.size(); i++) {
+                if (logFilters.get(i).getLogsQuery().matches(log)) {
+                  matchingLogs.get(i).add(log);
+                }
+              }
             });
+    for (int i = 0; i < logFilters.size(); i++) {
+      logFilters.get(i).addLogs(Collections.unmodifiableList(matchingLogs.get(i)));
+    }
   }
 
   @VisibleForTesting
