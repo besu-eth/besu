@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldStateArchive;
@@ -29,6 +30,7 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -49,6 +51,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MempoolPrewarmer;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
@@ -82,6 +85,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -1082,9 +1086,65 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             .build());
 
     final InOrder inOrder = inOrder(prewarmer);
-    inOrder.verify(prewarmer).stop(Optional.of(terminal));
+    inOrder.verify(prewarmer).stopForExecution(terminal);
+    inOrder.verify(prewarmer).executionEnded();
     inOrder.verify(prewarmer).start(terminalHeader);
     inOrder.verify(prewarmer).stopForBlockBuilding();
+  }
+
+  @Test
+  public void endsTheStopForAnExecutionAfterTheWritesOfTheBlock() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+    final Block terminal = new Block(terminalPowBlock(), BlockBody.empty());
+    final List<Runnable> writes = new ArrayList<>();
+
+    assertThat(coordinator.rememberBlock(terminal, Optional.empty(), writes::add).getYield())
+        .isPresent();
+
+    assertThat(writes).hasSize(2);
+    writes.get(0).run();
+    assertThat(blockchain.getBlockByHash(terminal.getHash())).isPresent();
+    verify(prewarmer, never()).executionEnded();
+    writes.get(1).run();
+    verify(prewarmer).executionEnded();
+  }
+
+  @Test
+  public void endsTheStopForAnExecutionThatFails() {
+    final MempoolPrewarmer prewarmer = mock(MempoolPrewarmer.class);
+    coordinator =
+        new MergeCoordinator(
+            protocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext,
+            Optional.of(prewarmer));
+    final Block block = new Block(terminalPowBlock(), BlockBody.empty());
+    final BlockValidator blockValidator = mock(BlockValidator.class);
+    when(blockValidator.validateAndProcessBlockDeferringTrieLog(
+            any(), any(), any(), any(), any(), any()))
+        .thenThrow(new IllegalStateException("execution failed"));
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    when(protocolSpec.getBlockValidator()).thenReturn(blockValidator);
+    doReturn(protocolSpec).when(protocolSchedule).getByBlockHeader(block.getHeader());
+
+    assertThatThrownBy(() -> coordinator.rememberBlock(block))
+        .isInstanceOf(IllegalStateException.class);
+
+    final InOrder inOrder = inOrder(prewarmer);
+    inOrder.verify(prewarmer).stopForExecution(block);
+    inOrder.verify(prewarmer).executionEnded();
   }
 
   @Test

@@ -1622,6 +1622,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateGraphQlOptions();
     validatePluginOptions();
     validateUnstableNetworkingOptions();
+    validateEvmOptions();
   }
 
   private void validatePluginOptions() {
@@ -1630,6 +1631,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void validateUnstableNetworkingOptions() {
     unstableNetworkingOptions.validate(commandLine);
+  }
+
+  private void validateEvmOptions() {
+    unstableEvmOptions.validate(commandLine, genesisConfigOptionsSupplier.get());
   }
 
   private void validateApiOptions() {

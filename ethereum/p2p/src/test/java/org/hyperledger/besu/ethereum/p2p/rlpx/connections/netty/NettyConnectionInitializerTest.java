@@ -18,24 +18,34 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mock;
 
+import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
+import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.LocalNode;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.ConnectionInitializer.ListeningAddresses;
+import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnectionEventDispatcher;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerLookup;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MockSubProtocol;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.util.NetworkUtility;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.net.InetAddresses;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -173,6 +183,72 @@ public class NettyConnectionInitializerTest {
   }
 
   @Test
+  public void refusesInboundConnectionsBeyondThePendingLimit() throws Exception {
+    initializer = createInitializer(ipv4OnlyConfig(), 2);
+    final InetSocketAddress address = initializer.start().get(10, TimeUnit.SECONDS).ipv4Address();
+
+    try (var first = new Socket();
+        var second = new Socket();
+        var third = new Socket();
+        var fourth = new Socket()) {
+      first.connect(address, 5_000);
+      second.connect(address, 5_000);
+      Awaitility.await()
+          .atMost(5, TimeUnit.SECONDS)
+          .until(() -> initializer.pendingInboundConnectionCount() == 2);
+
+      // Both slots are taken, so a third connection is closed by the server without a handshake.
+      third.connect(address, 5_000);
+      assertThat(isClosedByServer(third)).isTrue();
+      assertThat(initializer.pendingInboundConnectionCount()).isEqualTo(2);
+
+      // A slot is freed as soon as the remote end closes, not only when the handshake times out.
+      first.close();
+      Awaitility.await()
+          .atMost(5, TimeUnit.SECONDS)
+          .until(() -> initializer.pendingInboundConnectionCount() == 1);
+
+      fourth.connect(address, 5_000);
+      Awaitility.await()
+          .atMost(5, TimeUnit.SECONDS)
+          .until(() -> initializer.pendingInboundConnectionCount() == 2);
+    }
+  }
+
+  @Test
+  public void releasesThePendingSlotOnceAnInboundHandshakeCompletes() throws Exception {
+    final NodeKey listenerKey = NodeKeyUtils.generate();
+    initializer = createHandshakingInitializer(listenerKey, 50);
+    final InetSocketAddress address = initializer.start().get(10, TimeUnit.SECONDS).ipv4Address();
+    final NettyConnectionInitializer dialer =
+        createHandshakingInitializer(NodeKeyUtils.generate(), 50);
+    dialer.start().get(10, TimeUnit.SECONDS);
+
+    try {
+      final var listener =
+          DefaultPeer.fromEnodeURL(
+              EnodeURLImpl.builder()
+                  .ipAddress("127.0.0.1")
+                  .listeningPort(address.getPort())
+                  .nodeId(listenerKey.getPublicKey().getEncodedBytes())
+                  .disableDiscovery()
+                  .build());
+
+      // A real ECIES handshake and HELLO exchange; the listener side is the inbound connection.
+      final PeerConnection connection = dialer.connect(listener).get(10, TimeUnit.SECONDS);
+
+      // The established connection must not keep a slot. The channel is still open, so it is the
+      // completed handshake that released it, not the channel closing or the handshake timeout.
+      Awaitility.await()
+          .atMost(5, TimeUnit.SECONDS)
+          .until(() -> initializer.pendingInboundConnectionCount() == 0);
+      assertThat(connection.isDisconnected()).isFalse();
+    } finally {
+      dialer.stop().get(10, TimeUnit.SECONDS);
+    }
+  }
+
+  @Test
   public void stopImmediatelyAfterStartCompletesWithoutHanging() throws Exception {
     initializer = createInitializer(ipv4OnlyConfig());
 
@@ -234,12 +310,50 @@ public class NettyConnectionInitializerTest {
   }
 
   private static NettyConnectionInitializer createInitializer(final RlpxConfiguration config) {
+    return createInitializer(config, 50);
+  }
+
+  private static NettyConnectionInitializer createInitializer(
+      final RlpxConfiguration config, final int maxPendingInboundConnections) {
     return new NettyConnectionInitializer(
         NodeKeyUtils.generate(),
         config,
         mock(LocalNode.class),
         mock(PeerConnectionEventDispatcher.class),
         new NoOpMetricsSystem(),
-        new PeerLookup());
+        new PeerLookup(),
+        maxPendingInboundConnections);
+  }
+
+  private static NettyConnectionInitializer createHandshakingInitializer(
+      final NodeKey nodeKey, final int maxPendingInboundConnections) {
+    final LocalNode localNode =
+        LocalNode.create(
+            "test",
+            5,
+            List.of(Capability.create("eth", 68)),
+            EnodeURLImpl.builder()
+                .ipAddress("127.0.0.1")
+                .discoveryAndListeningPorts(30303)
+                .nodeId(nodeKey.getPublicKey().getEncodedBytes())
+                .build());
+    return new NettyConnectionInitializer(
+        nodeKey,
+        ipv4OnlyConfig().setSupportedProtocols(MockSubProtocol.create("eth")),
+        localNode,
+        mock(PeerConnectionEventDispatcher.class),
+        new NoOpMetricsSystem(),
+        new PeerLookup(),
+        maxPendingInboundConnections);
+  }
+
+  private static boolean isClosedByServer(final Socket socket) throws IOException {
+    socket.setSoTimeout(5_000);
+    try {
+      return socket.getInputStream().read() == -1;
+    } catch (final SocketException e) {
+      // The server closed the connection with a TCP reset.
+      return true;
+    }
   }
 }

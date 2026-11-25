@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.IntSupplier;
 import java.util.stream.StreamSupport;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
@@ -74,6 +75,7 @@ public class NettyConnectionInitializer
   private final MetricsSystem metricsSystem;
   private final Subscribers<ConnectCallback> connectSubscribers = Subscribers.create();
   private final PeerLookup peerLookup;
+  private final PendingInboundConnectionLimiter pendingInboundConnections;
 
   private volatile ChannelFuture server;
   private volatile ChannelFuture serverIpv6;
@@ -89,13 +91,16 @@ public class NettyConnectionInitializer
       final LocalNode localNode,
       final PeerConnectionEventDispatcher eventDispatcher,
       final MetricsSystem metricsSystem,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxPendingInboundConnections) {
     this.nodeKey = nodeKey;
     this.config = config;
     this.localNode = localNode;
     this.eventDispatcher = eventDispatcher;
     this.metricsSystem = metricsSystem;
     this.peerLookup = peerLookup;
+    this.pendingInboundConnections =
+        new PendingInboundConnectionLimiter(maxPendingInboundConnections);
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.NETWORK,
@@ -379,7 +384,18 @@ public class NettyConnectionInitializer
     return new ChannelInitializer<SocketChannel>() {
       @Override
       protected void initChannel(final SocketChannel ch) throws Exception {
+        final InetSocketAddress remoteAddress = ch.remoteAddress();
+        final Optional<PendingInboundConnectionLimiter.Slot> maybeSlot =
+            pendingInboundConnections.tryAcquire(
+                remoteAddress == null ? null : remoteAddress.getAddress());
+        if (maybeSlot.isEmpty()) {
+          ch.close();
+          return;
+        }
+        final PendingInboundConnectionLimiter.Slot slot = maybeSlot.get();
+        ch.closeFuture().addListener(closed -> slot.release());
         final CompletableFuture<PeerConnection> connectionFuture = new CompletableFuture<>();
+        connectionFuture.whenComplete((connection, error) -> slot.release());
         connectionFuture.thenAccept(
             connection -> connectSubscribers.forEach(c -> c.onConnect(connection)));
         ch.pipeline()
@@ -446,6 +462,11 @@ public class NettyConnectionInitializer
             .filter(eventExecutor -> eventExecutor instanceof SingleThreadEventExecutor)
             .mapToInt(eventExecutor -> ((SingleThreadEventExecutor) eventExecutor).pendingTasks())
             .sum();
+  }
+
+  @VisibleForTesting
+  int pendingInboundConnectionCount() {
+    return pendingInboundConnections.pendingConnections();
   }
 
   @Override

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.dns;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -73,7 +74,19 @@ public class DNSDaemon extends AbstractVerticle {
     }
 
     LOG.info("Starting DNSDaemon for {}, using {} DNS host.", enrLink, dnsServer.orElse("default"));
-    dnsResolver = new DNSResolver(vertx, enrLink, seq, dnsServer);
+    // a refresh stops reading before the next one is due, so that one slow refresh does not hold up
+    // the next ones
+    final Duration refreshTimeLimit =
+        delay > 0 ? Duration.ofMillis(delay / 2) : DNSResolver.DEFAULT_REFRESH_TIME_LIMIT;
+    dnsResolver =
+        new DNSResolver(
+            vertx,
+            enrLink,
+            seq,
+            dnsServer,
+            DNSResolver.MAX_RECORDS_PER_REFRESH,
+            refreshTimeLimit,
+            System::nanoTime);
     if (delay > 0) {
       periodicTaskId = Optional.of(vertx.setPeriodic(initialDelay, delay, this::refreshENRRecords));
     } else {

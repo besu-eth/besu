@@ -276,6 +276,17 @@ public class EVM {
   }
 
   /**
+   * Returns whether a call to an account with an EIP-7702 delegation designator runs the code of
+   * the delegation target. Before Prague the designator is ordinary code that starts with the
+   * undefined opcode 0xef, so the call halts exceptionally.
+   *
+   * @return true from Prague on
+   */
+  public boolean followsCodeDelegation() {
+    return evmSpecVersion.compareTo(EvmSpecVersion.PRAGUE) >= 0;
+  }
+
+  /**
    * Return the ChainId this Executor is using, or empty if the EVM version does not expose chain
    * ID.
    *

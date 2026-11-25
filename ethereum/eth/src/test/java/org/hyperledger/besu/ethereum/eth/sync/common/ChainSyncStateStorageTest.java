@@ -55,6 +55,16 @@ public class ChainSyncStateStorageTest {
   }
 
   @Test
+  public void isStoredOnceAStateIsStored() {
+    assertThat(ChainSyncStateStorage.isStored(tempDir)).isFalse();
+
+    storage.storeState(
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false));
+
+    assertThat(ChainSyncStateStorage.isStored(tempDir)).isTrue();
+  }
+
+  @Test
   public void shouldStoreAndLoadStateWithNonNullHeaderDownloadAnchor() {
     final ChainSyncState state =
         new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);

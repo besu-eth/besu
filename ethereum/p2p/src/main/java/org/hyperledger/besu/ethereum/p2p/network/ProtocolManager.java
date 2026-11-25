@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /** Represents an object responsible for managing a wire subprotocol. */
 public interface ProtocolManager extends AutoCloseable {
@@ -32,6 +33,14 @@ public interface ProtocolManager extends AutoCloseable {
    * @return the list of capabilities supported by this manager
    */
   List<Capability> getSupportedCapabilities();
+
+  /**
+   * Subscribes to the capabilities the manager adds once it runs, which only the connections made
+   * afterwards may agree on. A manager whose capabilities never change ignores it.
+   *
+   * @param listener receives each capability added to {@link #getSupportedCapabilities()}
+   */
+  default void subscribeCapabilityAdded(final Consumer<Capability> listener) {}
 
   /** Stops the protocol manager. */
   void stop();

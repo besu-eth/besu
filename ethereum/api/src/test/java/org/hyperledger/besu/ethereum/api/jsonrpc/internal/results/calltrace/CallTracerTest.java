@@ -56,6 +56,12 @@ import org.junit.jupiter.api.Test;
 class CallTracerTest {
 
   @Test
+  @DisplayName("lets EVM v2 run the transaction on the journal, as block import does")
+  void allowsTheJournal() {
+    assertThat(new CallTracer(callTracerOptions(false), null, 0).allowsJournal()).isTrue();
+  }
+
+  @Test
   @DisplayName("reports a nested precompile's exact entry gas, not an approximation")
   void precompileCallReportsExactEntryGas() {
     final CallTracer tracer = new CallTracer(callTracerOptions(false), null, 0);

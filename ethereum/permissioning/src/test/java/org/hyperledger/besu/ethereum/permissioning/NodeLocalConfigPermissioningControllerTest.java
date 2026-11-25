@@ -662,6 +662,37 @@ public class NodeLocalConfigPermissioningControllerTest {
                 + ":4567");
   }
 
+  @Test
+  public void addNodesShouldSucceedWithIpLiteralEntryWhenDnsAndUpdateEnabled() throws Exception {
+    // An IP literal must keep rendering as written, so the in-memory allowlist still matches the
+    // file and changes to it succeed.
+    final String ipLiteralEnode =
+        "enode://6f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@[2001:db8::1]:4567";
+    final Path permissionsFile = createPermissionsFileWithNode(ipLiteralEnode);
+    final LocalPermissioningConfiguration permissioningConfig =
+        mock(LocalPermissioningConfiguration.class);
+
+    final EnodeDnsConfiguration enodeDnsConfiguration =
+        ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build();
+
+    when(permissioningConfig.getNodePermissioningConfigFilePath())
+        .thenReturn(permissionsFile.toAbsolutePath().toString());
+    when(permissioningConfig.isNodeAllowlistEnabled()).thenReturn(true);
+    when(permissioningConfig.getEnodeDnsConfiguration()).thenReturn(enodeDnsConfiguration);
+    when(permissioningConfig.getNodeAllowlist())
+        .thenReturn(singletonList(EnodeURLImpl.fromString(ipLiteralEnode, enodeDnsConfiguration)));
+    controller =
+        new NodeLocalConfigPermissioningController(
+            permissioningConfig, bootnodesList, selfEnode.getNodeId(), metricsSystem);
+
+    assertThat(controller.getNodesAllowlist()).containsExactly(ipLiteralEnode);
+
+    final NodesAllowlistResult result = controller.addNodes(Lists.newArrayList(enode2));
+
+    assertThat(result.result()).isEqualTo(AllowlistOperationResult.SUCCESS);
+    assertThat(controller.getNodesAllowlist()).containsExactlyInAnyOrder(ipLiteralEnode, enode2);
+  }
+
   private Path createPermissionsFileWithNode(final String node) throws IOException {
     final String nodePermissionsFileContent = "nodes-allowlist=[\"" + node + "\"]";
     final Path permissionsFile = Files.createTempFile("node_permissions", "");
