@@ -35,7 +35,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class TransactionCollisionDetector {
 
   /**
-   * What taking a result sets an account to whose change the transaction carries over.
+   * The balance and nonce the account ends with when the result is taken.
    *
    * @param balance the block's balance plus the transaction's change of it
    * @param nonce the nonce of the block or of the transaction, whichever changed it
@@ -49,7 +49,7 @@ public class TransactionCollisionDetector {
    * <p>The transaction collides when it touched an account whose nonce, balance or code the block
    * changed, or a slot of an account whose slot the block changed or whose storage the block
    * cleared. A change the transaction did not depend on is carried over instead, as {@code
-   * isBalanceChangeCarried} describes. A transaction chained on its sender's previous one executed
+   * isAccountChangeCarried} describes. A transaction chained on its sender's previous one executed
    * on the state that one left instead, and collides when it touched the mining beneficiary or when
    * the block does not hold that state for something it touched.
    *
@@ -216,7 +216,7 @@ public class TransactionCollisionDetector {
       return false;
     }
     if (!areAccountDetailsEqualExcludingStorage(inBlock.getPrior(), inBlock.getUpdated())) {
-      if (!isBalanceChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
+      if (!isAccountChangeCarried(transaction, transactionAccumulator, address, inBlock)) {
         return true;
       }
       carriedAccounts.put(
@@ -262,7 +262,7 @@ public class TransactionCollisionDetector {
    *   <li>everything the run spent from the balance still finds enough on the block's balance.
    * </ul>
    */
-  private static boolean isBalanceChangeCarried(
+  private static boolean isAccountChangeCarried(
       final Transaction transaction,
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final Address address,
