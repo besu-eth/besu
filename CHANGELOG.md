@@ -35,6 +35,7 @@
 - `debug_traceTransaction`, `debug_traceCall` and `debug_traceBlock*` return empty struct logs for a transaction sent directly to a precompile instead of a synthetic entry with an empty `op`. [#11347](https://github.com/besu-eth/besu/pull/11347)
 - `debug_traceTransaction` and `debug_storageRangeAt` replay the block's earlier transactions as block import does, so an SSTORE of a slot one of them wrote is no longer charged differently on Bonsai, and their changes are no longer lost on Forest. [#11754](https://github.com/besu-eth/besu/pull/11754)
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork. With `--snapsync-server-enabled` on Bonsai, it advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
+- Snap sync no longer loses trie nodes when writing them fails with a retryable error, which stalled the sync or left blocks after the pivot unable to import. [#12016](https://github.com/besu-eth/besu/pull/12016)
 
 ### Additions and Improvements
 - The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
@@ -113,7 +114,6 @@
 - `eth_getLogs` no longer misses the logs of a block that replaced, in a reorg, a block at the end of an earlier log bloom cache segment. [#11969](https://github.com/besu-eth/besu/pull/11969)
 - `debug_storageRangeAt` and `debug_accountRange` resolve the `finalized` and `safe` block tags instead of returning an empty result. [#11978](https://github.com/besu-eth/besu/pull/11978)
 - DNS discovery now compares each linked ENR tree with its own previous sequence number, so a linked tree with a higher sequence number no longer stops the tree that links to it from being read, and each refresh reads a tree or subtree at most once and stops after 50,000 records or 5 minutes.
-- Snap sync no longer loses trie nodes when writing them fails with a retryable error, which stalled the sync or left blocks after the pivot unable to import. [#12016](https://github.com/besu-eth/besu/pull/12016)
 
 ### Additions and Improvements
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
