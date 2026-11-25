@@ -113,7 +113,11 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var maybeStateOverrides = getAddressStateOverrideMap(requestContext);
     final var pendingBlockHeader = transactionSimulator.simulatePendingBlockHeader();
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(pendingBlockHeader);
-    final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, pendingBlockHeader);
+    final var gasLimitUpperBound =
+        adjustGasLimitUpperBound(
+            callParameter,
+            calculateGasLimitUpperBound(callParameter, pendingBlockHeader),
+            minTxCost);
     if (gasLimitUpperBound < minTxCost) {
       return errorResponse(
           requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
@@ -151,7 +155,9 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var validationParams = getTransactionValidationParams(callParameter);
     final var maybeStateOverrides = getAddressStateOverrideMap(requestContext);
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(blockHeader);
-    final var gasLimitUpperBound = calculateGasLimitUpperBound(callParameter, blockHeader);
+    final var gasLimitUpperBound =
+        adjustGasLimitUpperBound(
+            callParameter, calculateGasLimitUpperBound(callParameter, blockHeader), minTxCost);
     if (gasLimitUpperBound < minTxCost) {
       return errorResponse(
           requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
@@ -196,6 +202,21 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       return Optional.of(getBlockchainQueries().getBlockchain().getChainHeadHeader());
     }
     return getBlockchainQueries().getBlockHeaderByNumber(blockNumber);
+  }
+
+  /**
+   * Adjusts the gas limit upper bound computed from the protocol cap, the block gas limit and the
+   * sender's balance. Subclasses can use it to honour the gas limit provided by the caller of the
+   * RPC method.
+   *
+   * @param callParameter the call parameters of the request
+   * @param gasLimitUpperBound the bound computed from the chain and the sender's account
+   * @param minTxCost the intrinsic cost of the call at the simulated block
+   * @return the gas limit the call is simulated with
+   */
+  protected long adjustGasLimitUpperBound(
+      final CallParameter callParameter, final long gasLimitUpperBound, final long minTxCost) {
+    return gasLimitUpperBound;
   }
 
   private Optional<RpcErrorType> validateBlockHeader(final Optional<BlockHeader> maybeBlockHeader) {
