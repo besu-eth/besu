@@ -176,6 +176,7 @@ class TransactionCollisionDetectorTest {
   @Test
   void testCollisionWithModifiedCode() {
     final Address address = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
     final BonsaiAccount priorAccountValue = createAccount(address);
     final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
     nextAccountValue.setCode(Bytes.repeat((byte) 0x01, 10));
@@ -673,6 +674,20 @@ class TransactionCollisionDetectorTest {
         Wei.of(balance),
         new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
         Hash.EMPTY,
+        false,
+        new BonsaiCodeCache());
+  }
+
+  private BonsaiAccount createAccount(
+      final Address address, final long nonce, final long balance, final Hash codeHash) {
+    return new BonsaiAccount(
+        worldState,
+        address,
+        Hash.hash(address.getBytes()),
+        nonce,
+        Wei.of(balance),
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
+        codeHash,
         false,
         new BonsaiCodeCache());
   }
@@ -1227,6 +1242,37 @@ class TransactionCollisionDetectorTest {
     assertThat(carried).containsOnlyKeys(paid);
     // the run's credit of 5 on the block's balance of 70, and the block's nonce
     assertThat(carried.get(paid)).isEqualTo(new CarriedAccount(Wei.of(75), 2));
+  }
+
+  @Test
+  void removedDelegationIsACollisionAlthoughTheNonceQualifies() {
+    // an earlier transaction removed the account's EIP-7702 delegation, so its code is empty again
+    // while the authorization raised its non-zero nonce
+    final Address account = Address.fromHexString("0x2");
+    final Hash delegation =
+        Hash.hash(
+            Bytes.concatenate(
+                Bytes.fromHexString("0xef0100"), Address.fromHexString("0x9").getBytes()));
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, 1, 50, delegation),
+                createAccount(account, 2, 50, Hash.EMPTY)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, 1, 50, delegation),
+                createAccount(account, 1, 55, delegation)));
+
+    assertTrue(
+        hasCollisionCarryingCredits(
+            createTransaction(Address.fromHexString("0x1"), account), new HashMap<>()),
+        "Expected a collision as the block changed the account's code");
   }
 
   @Test
