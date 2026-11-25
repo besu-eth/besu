@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.messages;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationListLimit;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
@@ -79,15 +80,48 @@ public final class PooledTransactionsMessage extends AbstractMessageData {
    * @return the decoded transactions
    */
   public List<Transaction> transactions(final int maxTransactions, final EncodingContext context) {
+    return transactions(maxTransactions, context, CodeDelegationListLimit.UNLIMITED);
+  }
+
+  /**
+   * The transactions in this response, decoded in the given context, refusing any EIP-7702
+   * authorization list longer than the limit allows.
+   *
+   * @param maxTransactions the most transactions this response may carry
+   * @param context the context to decode in
+   * @param codeDelegationListLimit the longest authorization list a transaction may carry
+   * @return the decoded transactions
+   * @throws RLPException if the response is malformed or exceeds either limit
+   */
+  public List<Transaction> transactions(
+      final int maxTransactions,
+      final EncodingContext context,
+      final CodeDelegationListLimit codeDelegationListLimit) {
     if (pooledTransactions == null) {
       final BytesValueRLPInput in = new BytesValueRLPInput(getData(), false);
       pooledTransactions =
-          in.readList(input -> TransactionDecoder.decodeRLP(input, context), maxTransactions);
-    } else if (pooledTransactions.size() > maxTransactions) {
-      throw new RLPException(
-          String.format(
-              "List of %d elements exceeds the maximum permitted size of %d",
-              pooledTransactions.size(), maxTransactions));
+          in.readList(
+              input -> TransactionDecoder.decodeRLP(input, context, codeDelegationListLimit),
+              maxTransactions);
+    } else {
+      if (pooledTransactions.size() > maxTransactions) {
+        throw new RLPException(
+            String.format(
+                "List of %d elements exceeds the maximum permitted size of %d",
+                pooledTransactions.size(), maxTransactions));
+      }
+      // Already decoded, possibly under a looser limit, so check the lists that were kept.
+      for (final Transaction transaction : pooledTransactions) {
+        final int codeDelegations = transaction.codeDelegationListSize();
+        final int maxCodeDelegations =
+            codeDelegationListLimit.maxCodeDelegations(transaction.getGasLimit());
+        if (codeDelegations > maxCodeDelegations) {
+          throw new RLPException(
+              String.format(
+                  "List of %d elements exceeds the maximum permitted size of %d",
+                  codeDelegations, maxCodeDelegations));
+        }
+      }
     }
     return pooledTransactions;
   }

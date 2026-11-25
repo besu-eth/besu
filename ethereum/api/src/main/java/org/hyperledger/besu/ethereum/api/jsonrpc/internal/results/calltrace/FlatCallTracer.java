@@ -86,6 +86,11 @@ public class FlatCallTracer implements OperationTracer {
   }
 
   @Override
+  public boolean allowsJournal() {
+    return inner.allowsJournal();
+  }
+
+  @Override
   public void traceStartTransaction(final WorldView worldView, final Transaction transaction) {
     inner.traceStartTransaction(worldView, transaction);
   }

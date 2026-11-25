@@ -24,11 +24,13 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.permissioning.AllowlistPersistor.ALLOWLIST_TYPE;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -82,6 +84,34 @@ public class AccountLocalConfigPermissioningControllerTest {
     controller =
         new AccountLocalConfigPermissioningController(
             permissioningConfig, allowlistPersistor, metricsSystem);
+  }
+
+  @Test
+  public void accountsInLowercaseShouldBeLoadedWithoutWritingTheFile() {
+    when(permissioningConfig.isAccountAllowlistEnabled()).thenReturn(true);
+    when(permissioningConfig.getAccountAllowlist())
+        .thenReturn(singletonList("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73"));
+    controller =
+        new AccountLocalConfigPermissioningController(
+            permissioningConfig, allowlistPersistor, metricsSystem);
+
+    verifyNoInteractions(allowlistPersistor);
+  }
+
+  @Test
+  public void accountsNotInLowercaseShouldBeWrittenInLowercaseWhenLoaded() throws Exception {
+    when(permissioningConfig.isAccountAllowlistEnabled()).thenReturn(true);
+    when(permissioningConfig.getAccountAllowlist())
+        .thenReturn(singletonList("0xFe3b557E8Fb62b89F4916B721be55cEb828dBd73"));
+    controller =
+        new AccountLocalConfigPermissioningController(
+            permissioningConfig, allowlistPersistor, metricsSystem);
+
+    final List<String> lowercase = singletonList("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73");
+    assertThat(controller.getAccountAllowlist()).isEqualTo(lowercase);
+    verify(allowlistPersistor).updateConfig(ALLOWLIST_TYPE.ACCOUNTS, lowercase);
+    verify(allowlistPersistor).verifyConfigFileMatchesState(ALLOWLIST_TYPE.ACCOUNTS, lowercase);
+    verifyNoMoreInteractions(allowlistPersistor);
   }
 
   @Test

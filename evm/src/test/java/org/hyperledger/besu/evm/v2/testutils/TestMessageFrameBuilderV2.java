@@ -41,6 +41,7 @@ public class TestMessageFrameBuilderV2 {
   public static final Address DEFAULT_ADDRESS = Address.fromHexString("0xe8f1b89");
   private static final int maxStackSize = DEFAULT_MAX_STACK_SIZE;
 
+  private MessageFrame parentMessageFrame;
   private Optional<BlockValues> blockValues = Optional.empty();
   private Optional<WorldUpdater> worldUpdater = Optional.empty();
   private long initialGas = Long.MAX_VALUE;
@@ -60,6 +61,11 @@ public class TestMessageFrameBuilderV2 {
   private boolean isStatic = false;
   private Address miningBeneficiary = Address.ZERO;
   private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
+
+  public TestMessageFrameBuilderV2 parentMessageFrame(final MessageFrame parentMessageFrame) {
+    this.parentMessageFrame = parentMessageFrame;
+    return this;
+  }
 
   public TestMessageFrameBuilderV2 worldUpdater(final WorldUpdater worldUpdater) {
     this.worldUpdater = Optional.of(worldUpdater);
@@ -160,6 +166,7 @@ public class TestMessageFrameBuilderV2 {
   public MessageFrame build() {
     final MessageFrame frame =
         MessageFrame.builder()
+            .parentMessageFrame(parentMessageFrame)
             .type(MessageFrame.Type.MESSAGE_CALL)
             .worldUpdater(worldUpdater.orElseGet(this::createDefaultWorldUpdater))
             .initialGas(initialGas)

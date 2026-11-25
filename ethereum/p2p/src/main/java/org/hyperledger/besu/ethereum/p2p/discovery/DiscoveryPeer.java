@@ -28,6 +28,7 @@ public class DiscoveryPeer extends DefaultPeer {
   // volatile gives readers the JMM visibility guarantee for writes made under its lock.
   private volatile NodeRecord nodeRecord;
   private volatile Optional<ForkId> forkId = Optional.empty();
+  private volatile boolean forkIdMalformed = false;
 
   protected DiscoveryPeer(final EnodeURLImpl enodeURL) {
     super(enodeURL);
@@ -48,7 +49,9 @@ public class DiscoveryPeer extends DefaultPeer {
 
   public void setNodeRecord(final NodeRecord nodeRecord) {
     this.nodeRecord = nodeRecord;
-    this.forkId = ForkId.fromRawForkId(nodeRecord.get("eth"));
+    final Object rawForkId = nodeRecord.get("eth");
+    this.forkId = ForkId.fromRawForkId(rawForkId);
+    this.forkIdMalformed = rawForkId != null && forkId.isEmpty();
   }
 
   @Override
@@ -59,6 +62,18 @@ public class DiscoveryPeer extends DefaultPeer {
   @Override
   public void setForkId(final ForkId forkId) {
     this.forkId = Optional.ofNullable(forkId);
+    this.forkIdMalformed = false;
+  }
+
+  /**
+   * Indicates whether the peer's node record has an {@code eth} entry that doesn't decode to a fork
+   * ID. A peer with no {@code eth} entry may be on any chain, but a peer whose entry is malformed
+   * is treated as incompatible, as geth's discovery filter does.
+   *
+   * @return true if the {@code eth} entry is present but can't be decoded
+   */
+  public boolean hasMalformedForkId() {
+    return forkIdMalformed;
   }
 
   /**
