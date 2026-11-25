@@ -113,8 +113,8 @@ public class EngineTestCaseSpec {
   }
 
   /**
-   * Builds {@link BlobScheduleOptions} from the fixture's {@code config.blobSchedule}. Fork keys
-   * go through {@link ReferenceTestProtocolSchedules#blobScheduleKey} because Besu reads them as
+   * Builds {@link BlobScheduleOptions} from the fixture's {@code config.blobSchedule}. Fork keys go
+   * through {@link ReferenceTestProtocolSchedules#blobScheduleKey} because Besu reads them as
    * {@code cancun}/{@code prague}/{@code bpo1}..{@code bpo5} whereas fixtures use {@code
    * Cancun}/{@code BPO1} etc.
    *
