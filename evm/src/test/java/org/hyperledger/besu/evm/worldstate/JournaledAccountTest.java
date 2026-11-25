@@ -16,6 +16,7 @@ package org.hyperledger.besu.evm.worldstate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -28,7 +29,9 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class JournaledAccountTest {
 
@@ -36,6 +39,8 @@ class JournaledAccountTest {
   private static final Bytes CODE = Bytes.fromHexString("0x600456005b00");
   // PUSH1 5, JUMP, STOP, STOP, JUMPDEST, STOP
   private static final Bytes OTHER_CODE = Bytes.fromHexString("0x60055600005b00");
+  private static final UInt256 SLOT = UInt256.ONE;
+  private static final UInt256 STORED = UInt256.valueOf(5);
 
   @Test
   void settingTheSameCodeIsNotAnUpdateWhenTheCodeIsNotLoaded() {
@@ -105,6 +110,58 @@ class JournaledAccountTest {
     } finally {
       Undoable.markState.set(mark);
     }
+  }
+
+  @Test
+  void commitClearsTheWrappedStorageBeforeWritingTheSlotsSetAfterTheClear() {
+    final MutableAccount wrapped = contract(CODE);
+    final JournaledAccount account = new JournaledAccount(wrapped);
+
+    account.clearStorage();
+    account.setStorageValue(SLOT, UInt256.ONE);
+    account.commit();
+
+    final InOrder inOrder = inOrder(wrapped);
+    inOrder.verify(wrapped).clearStorage();
+    inOrder.verify(wrapped).setStorageValue(SLOT, UInt256.ONE);
+  }
+
+  @Test
+  void undoingAClearReadsTheWrappedStorageAgain() {
+    final MutableAccount wrapped = contract(CODE);
+    when(wrapped.getStorageValue(SLOT)).thenReturn(STORED);
+    final JournaledAccount account = new JournaledAccount(wrapped);
+    final long mark = account.mark();
+
+    account.clearStorage();
+    assertThat(account.getStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
+
+    account.undo(mark);
+    assertThat(account.getStorageWasCleared()).isFalse();
+    assertThat(account.getStorageValue(SLOT)).isEqualTo(STORED);
+    assertThat(account.getOriginalStorageValue(SLOT)).isEqualTo(STORED);
+
+    account.commit();
+    verify(wrapped, never()).clearStorage();
+  }
+
+  @Test
+  void aClearThroughACopyIsSharedWithTheOriginal() {
+    final MutableAccount wrapped = contract(CODE);
+    when(wrapped.getStorageValue(SLOT)).thenReturn(STORED);
+    final JournaledAccount account = new JournaledAccount(wrapped);
+    final JournaledAccount copy = new JournaledAccount(account);
+    final long mark = account.mark();
+
+    copy.clearStorage();
+    assertThat(account.getStorageValue(SLOT)).isEqualTo(UInt256.ZERO);
+
+    account.undo(mark);
+    assertThat(copy.getStorageValue(SLOT)).isEqualTo(STORED);
+
+    copy.clearStorage();
+    account.commit();
+    verify(wrapped).clearStorage();
   }
 
   private static MutableAccount contract(final Bytes code) {

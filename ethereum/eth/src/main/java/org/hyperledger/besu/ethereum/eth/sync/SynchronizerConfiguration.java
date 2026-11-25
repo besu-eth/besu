@@ -179,6 +179,46 @@ public class SynchronizerConfiguration {
   }
 
   /**
+   * Returns this configuration with another sync mode.
+   *
+   * @param mode the sync mode
+   * @return a copy that syncs with {@code mode}
+   */
+  public SynchronizerConfiguration withSyncMode(final SyncMode mode) {
+    return new SynchronizerConfiguration(
+        syncPivotDistance,
+        fastSyncFullValidationRate,
+        syncMinimumPeerCount,
+        worldStateHashCountPerRequest,
+        worldStateRequestParallelism,
+        worldStateMaxRequestsWithoutProgress,
+        worldStateMinMillisBeforeStalling,
+        worldStateTaskCacheSize,
+        snapSyncConfiguration,
+        blockPropagationRange,
+        mode,
+        downloaderChangeTargetThresholdByHeight,
+        downloaderChangeTargetThresholdByTd,
+        downloaderHeaderRequestSize,
+        downloaderBodiesRequestSize,
+        downloaderCheckpointRetries,
+        downloaderChainSegmentSize,
+        downloaderParallelism,
+        headerDownloadParallelismFactor,
+        transactionsParallelism,
+        computationParallelism,
+        maxTrailingPeers,
+        forwardDownloadStepTimeoutMillis,
+        backwardHeadersDownloadStepTimeoutMillis,
+        bodiesDownloadStepTimeoutMillis,
+        snapSyncSavePreCheckpointHeadersOnlyEnabled,
+        snapSyncHeadersToCheckpointOnly,
+        era1ImportPrepipelineEnabled,
+        era1DataUri,
+        era1ImportPrepipelineConcurrency);
+  }
+
+  /**
    * All the configuration related to snapsync
    *
    * @return snapsync configuration

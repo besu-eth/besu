@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
 import static org.hyperledger.besu.ethereum.eth.core.transactions.DevP2PUtils.createPooledTransactionsMessage;
+import static org.hyperledger.besu.ethereum.eth.core.transactions.SetCodeTransactionFixture.createSetCodeTransaction;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -226,5 +227,43 @@ public class GetPooledTransactionsFromPeerTaskTest {
     Assertions.assertEquals(
         PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY,
         task.validateResult(List.of(first, first)));
+  }
+
+  @Test
+  public void testProcessResponseRefusesAuthorizationListOverLimit() {
+    // The attack in the report: gas limit 0 allows no authorization at all.
+    final Transaction transaction = createSetCodeTransaction(0, 3);
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            List.of(announcementOf(transaction)), gasLimit -> 0);
+
+    Assertions.assertThrows(
+        MalformedRlpFromPeerException.class,
+        () ->
+            task.processResponse(
+                createPooledTransactionsMessage(List.of(transaction)), AGREED_CAPABILITIES));
+  }
+
+  @Test
+  public void testProcessResponseAcceptsAuthorizationListWithinLimit()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final Transaction transaction = createSetCodeTransaction(75_000, 3);
+    final GetPooledTransactionsFromPeerTask task =
+        GetPooledTransactionsFromPeerTask.fromAnnouncements(
+            List.of(announcementOf(transaction)), gasLimit -> 3);
+
+    Assertions.assertEquals(
+        List.of(transaction),
+        task.processResponse(
+            createPooledTransactionsMessage(List.of(transaction)), AGREED_CAPABILITIES));
+  }
+
+  private static TransactionAnnouncement announcementOf(final Transaction transaction) {
+    // Not a blob transaction, so there is no cell mask to announce.
+    return new TransactionAnnouncement(
+        transaction.getHash(),
+        transaction.getType(),
+        (long) transaction.getSizeForAnnouncement(),
+        null);
   }
 }
