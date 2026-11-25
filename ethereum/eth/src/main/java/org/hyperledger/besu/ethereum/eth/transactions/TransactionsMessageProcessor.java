@@ -72,7 +72,9 @@ class TransactionsMessageProcessor {
           .addArgument(
               () -> {
                 try {
-                  return toHashList(transactionsMessage.transactions(maxTransactionsPerMessage));
+                  return toHashList(
+                      transactionsMessage.transactions(
+                          maxTransactionsPerMessage, transactionPool.codeDelegationListLimit()));
                 } catch (final RLPException e) {
                   return e.getMessage();
                 }
@@ -86,7 +88,8 @@ class TransactionsMessageProcessor {
       final EthPeer peer, final TransactionsMessage transactionsMessage) {
     try {
       final List<Transaction> incomingTransactions =
-          transactionsMessage.transactions(maxTransactionsPerMessage);
+          transactionsMessage.transactions(
+              maxTransactionsPerMessage, transactionPool.codeDelegationListLimit());
 
       final Collection<Transaction> freshTransactions =
           transactionTracker.receivedTransactions(peer, incomingTransactions);

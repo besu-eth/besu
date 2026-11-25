@@ -90,7 +90,7 @@ public class AccountLocalConfigPermissioningController implements TransactionPer
   private void readAccountsFromConfig(final LocalPermissioningConfiguration configuration) {
     if (configuration != null && configuration.isAccountAllowlistEnabled()) {
       if (!configuration.getAccountAllowlist().isEmpty()) {
-        AllowlistOperationResult result = addAccounts(configuration.getAccountAllowlist());
+        AllowlistOperationResult result = loadAccounts(configuration.getAccountAllowlist());
         if (result != AllowlistOperationResult.SUCCESS) {
           throw new IllegalStateException(
               String.format(
@@ -101,7 +101,34 @@ public class AccountLocalConfigPermissioningController implements TransactionPer
     }
   }
 
-  public AllowlistOperationResult addAccounts(final List<String> accounts) {
+  /**
+   * Loads the accounts of the file into the allowlist, which is empty. The file is rewritten only
+   * if lowercasing changed an account, so that it then matches the allowlist exactly: a node that
+   * never changes its allowlist otherwise leaves the file as it is.
+   */
+  private AllowlistOperationResult loadAccounts(final List<String> accounts) {
+    final List<String> normalizedAccounts = normalizeAccounts(accounts);
+    final AllowlistOperationResult inputValidationResult = inputValidation(normalizedAccounts);
+    if (inputValidationResult != AllowlistOperationResult.SUCCESS) {
+      return inputValidationResult;
+    }
+
+    this.accountAllowlist.addAll(normalizedAccounts);
+    if (!normalizedAccounts.equals(accounts)) {
+      try {
+        updateConfigurationFile(accountAllowlist);
+        verifyConfigurationFileState(accountAllowlist);
+      } catch (IOException e) {
+        return AllowlistOperationResult.ERROR_ALLOWLIST_PERSIST_FAIL;
+      } catch (AllowlistFileSyncException e) {
+        return AllowlistOperationResult.ERROR_ALLOWLIST_FILE_SYNC;
+      }
+    }
+    return AllowlistOperationResult.SUCCESS;
+  }
+
+  // Changes are made one at a time: each one checks the file against the allowlist it started from
+  public synchronized AllowlistOperationResult addAccounts(final List<String> accounts) {
     final List<String> normalizedAccounts = normalizeAccounts(accounts);
     final AllowlistOperationResult inputValidationResult = inputValidation(normalizedAccounts);
     if (inputValidationResult != AllowlistOperationResult.SUCCESS) {
@@ -129,7 +156,7 @@ public class AccountLocalConfigPermissioningController implements TransactionPer
     return AllowlistOperationResult.SUCCESS;
   }
 
-  public AllowlistOperationResult removeAccounts(final List<String> accounts) {
+  public synchronized AllowlistOperationResult removeAccounts(final List<String> accounts) {
     final List<String> normalizedAccounts = normalizeAccounts(accounts);
     final AllowlistOperationResult inputValidationResult = inputValidation(normalizedAccounts);
     if (inputValidationResult != AllowlistOperationResult.SUCCESS) {

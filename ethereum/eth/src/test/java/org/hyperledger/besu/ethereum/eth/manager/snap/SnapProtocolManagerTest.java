@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -39,13 +40,18 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
 import org.hyperledger.besu.ethereum.eth.messages.snap.TrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
+import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -102,6 +108,66 @@ class SnapProtocolManagerTest {
     assertThat(snapProtocolManager.getSupportedCapabilities())
         .containsExactly(
             SnapProtocolVersion.V1.getCapability(), SnapProtocolVersion.V2.getCapability());
+  }
+
+  @Test
+  void servesOnceTheSnapServerStartsAfterTheSync() {
+    when(snapConfig.isSnapServerEnabled()).thenReturn(true);
+    final WorldStateKeyValueStorage storage = mock(WorldStateKeyValueStorage.class);
+    when(storage.getDataStorageFormat()).thenReturn(DataStorageFormat.BONSAI);
+    when(worldStateStorageCoordinator.worldStateKeyValueStorage()).thenReturn(storage);
+    when(worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)).thenReturn(true);
+    snapProtocolManager = createSnapProtocolManager(false);
+    assertThat(snapProtocolManager.isServing()).isFalse();
+
+    syncCompleted();
+
+    assertThat(snapProtocolManager.isServing()).isTrue();
+  }
+
+  @Test
+  void servesNothingWithTheSnapServerDisabled() {
+    syncCompleted();
+
+    assertThat(snapProtocolManager.isServing()).isFalse();
+  }
+
+  @Test
+  void addsSnap2OnceAndTellsTheListeners() {
+    snapProtocolManager = createSnapProtocolManager(false);
+    final List<Capability> added = new ArrayList<>();
+    snapProtocolManager.subscribeCapabilityAdded(added::add);
+
+    assertThat(snapProtocolManager.advertiseSnap2()).isTrue();
+    assertThat(snapProtocolManager.advertiseSnap2()).isFalse();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities())
+        .containsExactly(
+            SnapProtocolVersion.V1.getCapability(), SnapProtocolVersion.V2.getCapability());
+    assertThat(added).containsExactly(SnapProtocolVersion.V2.getCapability());
+  }
+
+  @Test
+  void failsWhenAListenerFailsToAddSnap2() {
+    snapProtocolManager = createSnapProtocolManager(false);
+    snapProtocolManager.subscribeCapabilityAdded(
+        capability -> {
+          throw new IllegalStateException("no network");
+        });
+
+    assertThatThrownBy(snapProtocolManager::advertiseSnap2)
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void addsNothingWhenSnap2IsAdvertisedFromTheStart() {
+    snapProtocolManager = createSnapProtocolManager(true);
+    final List<Capability> added = new ArrayList<>();
+    snapProtocolManager.subscribeCapabilityAdded(added::add);
+
+    assertThat(snapProtocolManager.advertiseSnap2()).isFalse();
+
+    assertThat(added).isEmpty();
   }
 
   @Test
@@ -392,6 +458,14 @@ class SnapProtocolManagerTest {
 
   private SnapProtocolManager createSnapProtocolManager() {
     return createSnapProtocolManager(false);
+  }
+
+  // tells the snap server of the last manager created that the initial sync completed
+  private void syncCompleted() {
+    final ArgumentCaptor<InitialSyncCompletionListener> server =
+        ArgumentCaptor.forClass(InitialSyncCompletionListener.class);
+    verify(synchronizer, atLeastOnce()).subscribeInitialSync(server.capture());
+    server.getValue().onInitialSyncCompleted();
   }
 
   private SnapProtocolManager createSnapProtocolManager(final boolean advertiseSnap2) {

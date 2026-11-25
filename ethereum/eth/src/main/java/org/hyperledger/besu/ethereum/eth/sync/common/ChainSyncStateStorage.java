@@ -50,6 +50,16 @@ public class ChainSyncStateStorage {
   }
 
   /**
+   * Returns whether a chain sync state is stored in the directory.
+   *
+   * @param dataDirectory the directory the state is stored in
+   * @return true when a state is stored
+   */
+  public static boolean isStored(final Path dataDirectory) {
+    return Files.exists(dataDirectory.resolve(STATE_FILE_NAME));
+  }
+
+  /**
    * Loads the chain sync state from storage.
    *
    * @param headerReader function to deserialize block headers

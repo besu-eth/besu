@@ -114,7 +114,8 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
     }
   }
 
-  public NodesAllowlistResult addNodes(final List<String> enodeURLs) {
+  // Changes are made one at a time: each one checks the file against the allowlist it started from
+  public synchronized NodesAllowlistResult addNodes(final List<String> enodeURLs) {
     final NodesAllowlistResult inputValidationResult = validInput(enodeURLs);
     if (inputValidationResult.result() != AllowlistOperationResult.SUCCESS) {
       return inputValidationResult;
@@ -148,7 +149,7 @@ public class NodeLocalConfigPermissioningController implements NodeConnectionPer
     return nodesAllowlist.add(enodeURL);
   }
 
-  public NodesAllowlistResult removeNodes(final List<String> enodeURLs) {
+  public synchronized NodesAllowlistResult removeNodes(final List<String> enodeURLs) {
     final NodesAllowlistResult inputValidationResult = validInput(enodeURLs);
     if (inputValidationResult.result() != AllowlistOperationResult.SUCCESS) {
       return inputValidationResult;

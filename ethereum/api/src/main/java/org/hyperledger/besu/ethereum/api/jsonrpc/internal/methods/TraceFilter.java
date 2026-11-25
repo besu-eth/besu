@@ -63,6 +63,7 @@ import java.util.function.Function;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
@@ -72,16 +73,30 @@ public class TraceFilter extends TraceBlock {
   private static final Logger LOG = LoggerFactory.getLogger(TraceFilter.class);
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private final Long maxRange;
+  private final int maxFilterAddresses;
   private final LabelledMetric<Counter> outputCounter;
 
-  public TraceFilter(
+  /** Without a cap on the fromAddress/toAddress lists (maxFilterAddresses 0). */
+  @VisibleForTesting
+  TraceFilter(
       final ProtocolSchedule protocolSchedule,
       final BlockchainQueries blockchainQueries,
       final Long maxRange,
       final MetricsSystem metricsSystem,
       final EthScheduler ethScheduler) {
+    this(protocolSchedule, blockchainQueries, maxRange, 0, metricsSystem, ethScheduler);
+  }
+
+  public TraceFilter(
+      final ProtocolSchedule protocolSchedule,
+      final BlockchainQueries blockchainQueries,
+      final Long maxRange,
+      final int maxFilterAddresses,
+      final MetricsSystem metricsSystem,
+      final EthScheduler ethScheduler) {
     super(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler);
     this.maxRange = maxRange;
+    this.maxFilterAddresses = maxFilterAddresses;
     this.outputCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.BLOCKCHAIN,
@@ -110,6 +125,17 @@ public class TraceFilter extends TraceBlock {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_FILTER_PARAMS);
     }
+
+    // Bound the fromAddress/toAddress lists like eth_newFilter, eth_getLogs and GraphQL logs: each
+    // address is matched against every trace with List.contains, so an unbounded list over the
+    // (range-capped) span pins a JSON-RPC worker. 0 means no limit.
+    final int addressCount =
+        filterParameter.getFromAddress().size() + filterParameter.getToAddress().size();
+    if (maxFilterAddresses > 0 && addressCount > maxFilterAddresses) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+    }
+
     final Optional<Hash> maybeBlockHash = filterParameter.getBlockHash();
     if (maybeBlockHash.isPresent()) {
       return traceFilterByBlockHash(requestContext, filterParameter, maybeBlockHash.get());

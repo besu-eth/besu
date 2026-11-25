@@ -40,8 +40,7 @@ public class TransactionDecoder {
               TransactionType.FRONTIER, FrontierTransactionDecoder::decode,
               TransactionType.ACCESS_LIST, AccessListTransactionDecoder::decode,
               TransactionType.EIP1559, EIP1559TransactionDecoder::decode,
-              TransactionType.BLOB, BlobTransactionDecoder::decode,
-              TransactionType.DELEGATE_CODE, CodeDelegationTransactionDecoder::decode));
+              TransactionType.BLOB, BlobTransactionDecoder::decode));
 
   @FunctionalInterface
   interface PooledDecoder {
@@ -60,8 +59,25 @@ public class TransactionDecoder {
    */
   public static Transaction decodeRLP(
       final RLPInput rlpInput, final EncodingContext encodingContext) {
+    return decodeRLP(rlpInput, encodingContext, CodeDelegationListLimit.UNLIMITED);
+  }
+
+  /**
+   * Decodes an RLP input into a transaction, refusing an EIP-7702 authorization list longer than
+   * the limit allows. Use this for transactions received from peers, so that a list that can never
+   * be valid is refused before its entries are decoded.
+   *
+   * @param rlpInput the RLP input
+   * @param encodingContext the encoding context
+   * @param codeDelegationListLimit the longest authorization list to decode
+   * @return the decoded transaction
+   */
+  public static Transaction decodeRLP(
+      final RLPInput rlpInput,
+      final EncodingContext encodingContext,
+      final CodeDelegationListLimit codeDelegationListLimit) {
     if (isTypedTransaction(rlpInput)) {
-      return decodeTransaction(rlpInput, encodingContext);
+      return decodeTransaction(rlpInput, encodingContext, codeDelegationListLimit);
     } else {
       return FrontierTransactionDecoder.decode(rlpInput.readAsRlp());
     }
@@ -75,7 +91,9 @@ public class TransactionDecoder {
    * @return the decoded transaction
    */
   private static Transaction decodeTransaction(
-      final RLPInput rlpInput, final EncodingContext context) {
+      final RLPInput rlpInput,
+      final EncodingContext context,
+      final CodeDelegationListLimit codeDelegationListLimit) {
     // Read the typed transaction bytes from the RLP input
     final Bytes typedTransactionBytes = rlpInput.readBytes();
     if (typedTransactionBytes.isEmpty()) {
@@ -86,7 +104,8 @@ public class TransactionDecoder {
     TransactionType transactionType =
         getTransactionType(typedTransactionBytes)
             .orElseThrow((() -> new IllegalArgumentException("Unsupported transaction type")));
-    return decodeTransaction(typedTransactionBytes, transactionType, context);
+    return decodeTransaction(
+        typedTransactionBytes, transactionType, context, codeDelegationListLimit);
   }
 
   /**
@@ -97,15 +116,17 @@ public class TransactionDecoder {
    * @param transactionBytes the transaction bytes
    * @param transactionType the type of the transaction
    * @param context the encoding context
+   * @param codeDelegationListLimit the longest authorization list to decode
    * @return the decoded transaction
    */
   private static Transaction decodeTransaction(
       final Bytes transactionBytes,
       final TransactionType transactionType,
-      final EncodingContext context) {
+      final EncodingContext context,
+      final CodeDelegationListLimit codeDelegationListLimit) {
     // Slice the transaction bytes to exclude the transaction type and prepare for decoding
     // Use the appropriate decoder for the transaction type to decode the remaining bytes
-    return getDecoder(transactionType, context).decode(transactionBytes);
+    return getDecoder(transactionType, context, codeDelegationListLimit).decode(transactionBytes);
   }
 
   /**
@@ -131,7 +152,8 @@ public class TransactionDecoder {
     }
     var transactionType = getTransactionType(opaqueBytes);
     if (transactionType.isPresent()) {
-      return decodeTransaction(opaqueBytes, transactionType.get(), context);
+      return decodeTransaction(
+          opaqueBytes, transactionType.get(), context, CodeDelegationListLimit.UNLIMITED);
     }
     if (context == EncodingContext.BLOCK_BODY) {
       throw new IllegalArgumentException(
@@ -181,10 +203,17 @@ public class TransactionDecoder {
    *
    * @param transactionType the transaction type
    * @param encodingContext the encoding context
+   * @param codeDelegationListLimit the longest authorization list to decode
    * @return the decoder
    */
   private static Decoder getDecoder(
-      final TransactionType transactionType, final EncodingContext encodingContext) {
+      final TransactionType transactionType,
+      final EncodingContext encodingContext,
+      final CodeDelegationListLimit codeDelegationListLimit) {
+    if (transactionType == TransactionType.DELEGATE_CODE) {
+      // The same in every context, but bounded by the caller: the limit depends on the fork.
+      return input -> CodeDelegationTransactionDecoder.decode(input, codeDelegationListLimit);
+    }
     if (!encodingContext.encodeForBlock()) {
       if (POOLED_TRANSACTION_DECODERS.containsKey(transactionType)) {
         // Whether the blob payloads may be absent is a property of the context, so the decoder is

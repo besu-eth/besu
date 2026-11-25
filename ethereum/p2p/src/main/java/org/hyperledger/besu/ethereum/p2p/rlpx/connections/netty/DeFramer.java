@@ -21,13 +21,13 @@ import org.hyperledger.besu.ethereum.p2p.network.exceptions.PeerDisconnectedExce
 import org.hyperledger.besu.ethereum.p2p.network.exceptions.UnexpectedPeerConnectionException;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
-import org.hyperledger.besu.ethereum.p2p.peers.LocalNode;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnectionEventDispatcher;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerLookup;
 import org.hyperledger.besu.ethereum.p2p.rlpx.framing.Framer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.CapabilityMultiplexer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
@@ -70,7 +70,8 @@ final class DeFramer extends ByteToMessageDecoder {
   private final PeerConnectionEventDispatcher connectionEventDispatcher;
 
   private final Framer framer;
-  private final LocalNode localNode;
+  // those of the hello sent, as a capability added later is not in it
+  private final List<Capability> localCapabilities;
   // The peer we are expecting to connect to, if such a peer is known
   private final Optional<Peer> expectedPeer;
   private final List<SubProtocol> subProtocols;
@@ -85,7 +86,7 @@ final class DeFramer extends ByteToMessageDecoder {
   DeFramer(
       final Framer framer,
       final List<SubProtocol> subProtocols,
-      final LocalNode localNode,
+      final List<Capability> localCapabilities,
       final Optional<Peer> expectedPeer,
       final PeerConnectionEventDispatcher connectionEventDispatcher,
       final CompletableFuture<PeerConnection> connectFuture,
@@ -96,7 +97,7 @@ final class DeFramer extends ByteToMessageDecoder {
       final Bytes authenticatedNodeId) {
     this.framer = framer;
     this.subProtocols = subProtocols;
-    this.localNode = localNode;
+    this.localCapabilities = localCapabilities;
     this.expectedPeer = expectedPeer;
     this.connectFuture = connectFuture;
     this.connectionEventDispatcher = connectionEventDispatcher;
@@ -196,10 +197,7 @@ final class DeFramer extends ByteToMessageDecoder {
         }
 
         final CapabilityMultiplexer capabilityMultiplexer =
-            new CapabilityMultiplexer(
-                subProtocols,
-                localNode.getPeerInfo().getCapabilities(),
-                peerInfo.getCapabilities());
+            new CapabilityMultiplexer(subProtocols, localCapabilities, peerInfo.getCapabilities());
 
         Optional<Peer> peer;
         if (expectedPeer.isPresent()) {
