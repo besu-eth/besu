@@ -19,13 +19,14 @@ import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import java.util.Objects;
 
 /**
- * BFT {@code pertxgaslimit} / {@code transactiongaslimit} override of the per-transaction gas caps.
+ * BFT {@code pertxgaslimit} override of the per-transaction gas caps.
  *
- * <p>A configured value of {@code 0} means "no BFT override": both {@link
- * #transactionGasLimitCap()} and {@link #transactionIntrinsicGasLimitCap()} stay on the fork (Osaka
- * EIP-7825 / Amsterdam EIP-8037). A positive value {@code N} sets both caps to {@code N}, so
- * operators can raise the limit above those Ethereum defaults (for example the QBFT soak {@code
- * pertxgaslimit} of 40M above Osaka's 2^24) or lower it.
+ * <p>A configured value of {@code 0} (or any non-positive value) means "no BFT override": both
+ * {@link #transactionGasLimitCap()} and {@link #transactionIntrinsicGasLimitCap()} stay on the fork
+ * (Osaka EIP-7825 / Amsterdam EIP-8037). Genesis parsing already rejects a negative {@code
+ * pertxgaslimit}; the {@code > 0} check here is defensive. A positive value {@code N} sets both
+ * caps to {@code N}, so operators can raise the limit above those Ethereum defaults (for example
+ * the QBFT soak {@code pertxgaslimit} of 40M above Osaka's 2^24) or lower it.
  */
 public final class TransactionGasLimitOverrideGasLimitCalculator implements GasLimitCalculator {
 
@@ -36,7 +37,8 @@ public final class TransactionGasLimitOverrideGasLimitCalculator implements GasL
    * Instantiates a new TransactionGasLimitOverrideGasLimitCalculator.
    *
    * @param delegate the delegate gas limit calculator
-   * @param transactionGasLimitCap the BFT per-transaction gas limit; {@code 0} keeps the fork caps
+   * @param transactionGasLimitCap the BFT per-transaction gas limit; {@code 0} disables the BFT
+   *     override
    */
   public TransactionGasLimitOverrideGasLimitCalculator(
       final GasLimitCalculator delegate, final long transactionGasLimitCap) {
@@ -68,19 +70,19 @@ public final class TransactionGasLimitOverrideGasLimitCalculator implements GasL
 
   @Override
   public long transactionGasLimitCap() {
-    if (transactionGasLimitCap == 0L) {
-      return delegate.transactionGasLimitCap();
+    if (transactionGasLimitCap > 0L) {
+      return transactionGasLimitCap;
     }
-    return transactionGasLimitCap;
+    return delegate.transactionGasLimitCap();
   }
 
   @Override
   public long transactionIntrinsicGasLimitCap() {
-    if (transactionGasLimitCap == 0L) {
-      return delegate.transactionIntrinsicGasLimitCap();
+    if (transactionGasLimitCap > 0L) {
+      // Same N for tx.gas and intrinsic/storage budget (matthew1001 / #11492 review).
+      return transactionGasLimitCap;
     }
-    // Same N for tx.gas and intrinsic/storage budget (matthew1001 / #11492 review).
-    return transactionGasLimitCap;
+    return delegate.transactionIntrinsicGasLimitCap();
   }
 
   @Override

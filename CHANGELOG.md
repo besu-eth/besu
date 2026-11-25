@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- BFT `pertxgaslimit` of `0` (or unset) no longer disables Osaka's EIP-7825 per-transaction gas caps; those fork caps apply instead. Previously `0` meant no per-transaction gas limit. [#11492](https://github.com/besu-eth/besu/issues/11492)
 - Remove the unused `RunnableTimedCounter` from `metrics/core`. Its last internal caller was removed with fast sync. [#11554](https://github.com/besu-eth/besu/pull/11554)
 - `--rpc-tx-feecap` now treats a value of 0 as limiting fees to 0, so every transaction submitted through RPC with a positive gas price is rejected. Previously 0 meant "do not cap fees". To get the previous behaviour, set it to a suitably large value. This change was first announced as an upcoming breaking change in 26.7.0. [#11993](https://github.com/besu-eth/besu/pull/11993)
 - `eth_call`, `eth_estimateGas`, `eth_createAccessList`, `trace_call` and `debug_traceCall` now reject a request with a fourth parameter with `Invalid params` (`-32602`, message `Too many arguments: expected at most 3`), and `debug_traceCall` also rejects a `blockOverrides` member in its trace config (`-32602`, message `Block overrides are not supported in the trace config; use eth_simulateV1`). Block overrides are only supported by `eth_simulateV1`; these methods previously dropped them silently and returned a result for the unmodified block. Remove the fourth parameter or the `blockOverrides` member, or use `eth_simulateV1` for calls that need block overrides. [#11629](https://github.com/besu-eth/besu/pull/11629)
@@ -25,7 +26,6 @@
 - The `evmstacksize` genesis option is deprecated and will be removed in a future release; system calls already ignore it and use a stack size of 1024. [#11871](https://github.com/besu-eth/besu/pull/11871)
 
 ### Bug fixes
-- BFT `config.bft.transactiongaslimit` / `pertxgaslimit` of `0` (or unset) no longer disables Amsterdam's EIP-8037 / Osaka's EIP-7825 per-transaction gas caps. A positive value sets both the `tx.gas` cap and the intrinsic/storage gas cap to that value, so BFT operators can raise the limit above the Ethereum defaults. [#11492](https://github.com/besu-eth/besu/issues/11492)
 - A call to an account whose code is an EIP-7702 delegation designator no longer runs the delegated code before Prague. [#12003](https://github.com/besu-eth/besu/pull/12003)
 - `admin_logsRemoveCache` now removes every log bloom cache segment intersecting the requested block range, including the final segment when the start block is not aligned to a cache segment boundary. [#11949](https://github.com/besu-eth/besu/pull/11949)
 - `debug_traceBlock`, `debug_traceBlockByHash`, `debug_traceBlockByNumber` and `trace_block` return `Pruned history unavailable` (4444) when the parent block's world state cannot be loaded and the chain head's state is available, and `World state unavailable` (-32000) when the head state is also unavailable. They previously returned an empty trace for a block that has transactions. A trace that starts and then fails returns `Internal error` (-32603) instead of a missing-state error. The genesis block still returns an empty trace. [#11946](https://github.com/besu-eth/besu/issues/11946)
@@ -40,6 +40,7 @@
 - Keep `vmTrace` parent instructions, top-level and child bytecode and CALL resumption gas correct after omitted halted opcodes. [#11352](https://github.com/besu-eth/besu/pull/11352)
 
 ### Additions and Improvements
+- BFT `pertxgaslimit` also overrides Amsterdam's EIP-8037 total gas cap. A positive value sets both the `tx.gas` cap and the intrinsic/storage gas cap to that value, so operators can raise (or lower) the limit relative to the Ethereum defaults. [#11492](https://github.com/besu-eth/besu/issues/11492)
 - The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
 - Update besu-native to 2.2.0 and recover secp256k1 public keys, such as transaction senders, in a single native call. A recovery id outside 0 to 3 recovers nothing, where it used to abort a node running native secp256k1. [#11921](https://github.com/besu-eth/besu/pull/11921)
 - An `engine_forkchoiceUpdated` call no longer waits for `engine_newPayload` calls that are still being validated once the blocks it names are stored, so a slow payload does not delay a fork choice update or the build of the next block. [#11954](https://github.com/besu-eth/besu/pull/11954)

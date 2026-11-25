@@ -84,6 +84,22 @@ public class TransactionGasLimitOverrideGasLimitCalculatorTest {
   }
 
   @Test
+  public void negativeFallsBackToDelegateCaps() {
+    // Genesis parsing rejects negatives; the calculator still treats them as "no override".
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    when(delegate.transactionIntrinsicGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, -1L);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    assertThat(calculator.transactionIntrinsicGasLimitCap())
+        .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+  }
+
+  @Test
   public void nextGasLimitDelegates() {
     final TransactionGasLimitOverrideGasLimitCalculator calculator =
         new TransactionGasLimitOverrideGasLimitCalculator(delegate, 0L);

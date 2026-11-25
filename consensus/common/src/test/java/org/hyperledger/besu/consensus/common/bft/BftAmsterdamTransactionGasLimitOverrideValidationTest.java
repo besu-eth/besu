@@ -98,7 +98,7 @@ public class BftAmsterdamTransactionGasLimitOverrideValidationTest {
   }
 
   @Test
-  void positiveOverrideRaisesTxGasCapAboveOsakaDefault() {
+  void positiveOverrideRaisesTxGasCapAboveEIP7825() {
     final long override = 40_000_000L;
     final MainnetTransactionValidator validator = amsterdamValidatorWithBftOverride(override);
     final Transaction transaction =
@@ -112,7 +112,7 @@ public class BftAmsterdamTransactionGasLimitOverrideValidationTest {
   }
 
   @Test
-  void positiveOverrideRaisesIntrinsicCapAboveOsakaDefault() {
+  void positiveOverrideRaisesIntrinsicCapAboveEIP7825() {
     when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(20_000_000L);
     final long override = 40_000_000L;
     final MainnetTransactionValidator validator = amsterdamValidatorWithBftOverride(override);
