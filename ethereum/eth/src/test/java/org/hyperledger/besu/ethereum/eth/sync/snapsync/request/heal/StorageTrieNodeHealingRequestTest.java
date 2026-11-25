@@ -14,28 +14,42 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal;
 
+import static org.mockito.Mockito.mock;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.TrieGenerator;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PatriciaTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -114,5 +128,52 @@ class StorageTrieNodeHealingRequestTest {
         new StorageTrieNodeHealingRequest(Hash.EMPTY, account0Hash, Hash.EMPTY, Bytes.EMPTY);
 
     Assertions.assertThat(request.getExistingData(worldStateStorageCoordinator)).isEmpty();
+  }
+
+  @Test
+  void shouldNotStoreAClearedParentWhenItsLastChildIsPersisted() {
+    final ForestWorldStateKeyValueStorage storage =
+        new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage());
+    final WorldStateStorageCoordinator coordinator = new WorldStateStorageCoordinator(storage);
+    final Map<Bytes32, Bytes> nodes = new HashMap<>();
+    final StoredMerklePatriciaTrie<Bytes32, Bytes> trie =
+        new StoredMerklePatriciaTrie<>(
+            (location, hash) -> Optional.ofNullable(nodes.get(hash)),
+            Function.identity(),
+            Function.identity());
+    // 40-byte values keep both leaves large enough to be stored by their hash
+    final Bytes value = Bytes.wrap(new byte[40]);
+    trie.put(Bytes32.fromHexString("0x11" + "00".repeat(31)), value);
+    trie.put(Bytes32.fromHexString("0x20" + "00".repeat(31)), value);
+    trie.commit((location, hash, node) -> nodes.put(hash, node));
+
+    final StorageTrieNodeHealingRequest parent =
+        new StorageTrieNodeHealingRequest(
+            Hash.wrap(trie.getRootHash()), accounts.get(0).addressHash(), Hash.EMPTY, Bytes.EMPTY);
+    parent.setData(nodes.get(trie.getRootHash()));
+    final SnapRequestContext downloadState = mock(SnapRequestContext.class);
+    final SnapSyncProcessState snapSyncState = mock(SnapSyncProcessState.class);
+    final SnapSyncConfiguration snapSyncConfiguration = mock(SnapSyncConfiguration.class);
+    final List<TrieNodeHealingRequest> children =
+        parent
+            .getChildRequests(downloadState, coordinator, snapSyncState)
+            .map(TrieNodeHealingRequest.class::cast)
+            .toList();
+    // a failed write clears the parent for a retry after its children were queued
+    parent.clear();
+
+    final WorldStateKeyValueStorage.Updater updater = coordinator.updater();
+    for (final TrieNodeHealingRequest child : children) {
+      child.setData(nodes.get(child.getNodeHash()));
+      child.persist(
+          coordinator, updater, downloadState, snapSyncState, snapSyncConfiguration, new UndoLog());
+    }
+    updater.commit();
+
+    Assertions.assertThat(children).hasSize(2);
+    Assertions.assertThat(storage.getAccountStorageTrieNode(parent.getNodeHash())).isEmpty();
+    for (final TrieNodeHealingRequest child : children) {
+      Assertions.assertThat(storage.getAccountStorageTrieNode(child.getNodeHash())).isPresent();
+    }
   }
 }

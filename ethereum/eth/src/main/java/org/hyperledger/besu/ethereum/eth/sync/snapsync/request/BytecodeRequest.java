@@ -50,6 +50,35 @@ public class BytecodeRequest extends SnapDataRequest {
   }
 
   @Override
+  public int persist(
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final WorldStateKeyValueStorage.Updater updater,
+      final SnapRequestContext downloadState,
+      final SnapSyncProcessState snapSyncState,
+      final SnapSyncConfiguration snapSyncConfiguration,
+      final UndoLog undoLog) {
+    final int saved =
+        doPersist(
+            worldStateStorageCoordinator,
+            updater,
+            downloadState,
+            snapSyncState,
+            snapSyncConfiguration);
+    return possibleParent
+        .map(
+            trieNodeDataRequest ->
+                trieNodeDataRequest.saveParent(
+                        worldStateStorageCoordinator,
+                        updater,
+                        downloadState,
+                        snapSyncState,
+                        snapSyncConfiguration,
+                        undoLog)
+                    + saved)
+        .orElse(saved);
+  }
+
+  @Override
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
@@ -66,17 +95,7 @@ public class BytecodeRequest extends SnapDataRequest {
           onForest.putCode(codeHash, code);
         });
     downloadState.getMetricsManager().notifyCodeDownloaded();
-    return possibleParent
-        .map(
-            trieNodeDataRequest ->
-                trieNodeDataRequest.saveParent(
-                        worldStateStorageCoordinator,
-                        updater,
-                        downloadState,
-                        snapSyncState,
-                        snapSyncConfiguration)
-                    + 1)
-        .orElse(1);
+    return 1;
   }
 
   @Override

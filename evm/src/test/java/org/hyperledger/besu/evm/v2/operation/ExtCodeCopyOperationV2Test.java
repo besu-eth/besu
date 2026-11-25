@@ -48,6 +48,9 @@ class ExtCodeCopyOperationV2Test {
     assertThat(result.getHaltReason()).isNull();
     assertThat(frame.stackTopV2()).isZero();
     assertThat(frame.readMemory(0, 8)).isEqualTo(Bytes.fromHexString("0x0002016003000000"));
+    assertThat(frame.getMaybeUpdatedMemory()).isPresent();
+    assertThat(frame.getMaybeUpdatedMemory().get().getOffset()).isEqualTo(1);
+    assertThat(frame.getMaybeUpdatedMemory().get().getValue()).isEqualTo(frame.readMemory(1, 6));
     // 3 for the word copied, 3 for the word of memory and 2600 for the cold account
     assertThat(result.getGasCost()).isEqualTo(2606);
   }

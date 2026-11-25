@@ -47,7 +47,7 @@ public class OpCodeLoggerTracerResult {
     returnValue = output.toHexString();
     structLogs = new ArrayList<>(transactionTrace.getTraceFrames().size());
     transactionTrace.getTraceFrames().parallelStream()
-        .filter(frame -> !isSyntheticEndOfCodeStop(frame))
+        .filter(frame -> !isSyntheticEndOfCodeStop(frame) && !isRootPrecompileCall(frame))
         .map(OpCodeLoggerTracerResult::createStructLog)
         .forEachOrdered(structLogs::add);
     failed = !transactionTrace.getResult().isSuccessful();
@@ -71,6 +71,12 @@ public class OpCodeLoggerTracerResult {
         frame.isVirtualOperation(),
         frame.getOpcode(),
         frame.getMaybeCode().map(code -> code.getSize()).orElse(-1));
+  }
+
+  // Matches by the missing opcode rather than isVirtualOperation(): past the step limit, a later
+  // precompile call writes its data into the last traced frame, which can be a virtual STOP.
+  private static boolean isRootPrecompileCall(final TraceFrame frame) {
+    return frame.isPrecompile() && frame.getOpcode().isEmpty();
   }
 
   @JsonGetter(value = "structLogs")

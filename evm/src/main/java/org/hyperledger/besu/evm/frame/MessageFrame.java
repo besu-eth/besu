@@ -44,9 +44,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
-import com.google.common.collect.HashMultimap;
-import com.google.common.collect.Multimap;
-import com.google.common.collect.Table;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
@@ -215,10 +212,17 @@ public class MessageFrame {
   // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
   // significant). Null once released, so that a completed frame cannot touch a later frame's stack
   private long[] stackDataV2;
+  // EVM v2: the array the input data lies in, from inputDataOffsetV2 for inputDataSizeV2 bytes.
+  // For a frame a CALL creates it is the caller's memory, which cannot change while the caller is
+  // suspended; for any other frame it is materialised from the input data on first use, while the
+  // offset (0) and size (the input data's size) are set when the frame is built. Must not be
+  // modified
+  private byte[] inputDataArrayV2;
+  private int inputDataOffsetV2;
+  private int inputDataSizeV2;
   // the call depth whose free v2 stack this frame takes and returns
   private final int stackDepthV2;
   private int stackTopV2;
-  private final int stackMaxSizeV2;
   // Tracer view of the v2 stack: the item last handed out per slot, reused while the slot is
   // unchanged so that tracers snapshotting the stack every step share objects, as on v1
   private Bytes32[] stackViewV2;
@@ -298,14 +302,14 @@ public class MessageFrame {
     this.gasRemaining = initialGas;
     this.stack = enableEvmV2 ? null : new OperandStack(txValues.maxStackSize());
     this.stackDepthV2 = txValues.messageFrameStack().size();
-    this.stackDataV2 =
-        enableEvmV2 ? StacksV2.take(stackDepthV2, txValues.maxStackSize() * 4) : null;
+    // an EVM v2 frame always has the default stack size, as EvmConfiguration rejects any other
+    this.stackDataV2 = enableEvmV2 ? StacksV2.take(stackDepthV2) : null;
     this.stackTopV2 = 0;
-    this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
     this.recipient = recipient;
     this.contract = contract;
     this.inputData = inputData;
+    this.inputDataSizeV2 = inputData.size();
     this.sender = sender;
     this.value = value;
     this.apparentValue = apparentValue;
@@ -538,7 +542,7 @@ public class MessageFrame {
     }
     final int slot = stackTopV2 - 1 - offset;
     if (stackViewV2 == null) {
-      stackViewV2 = new Bytes32[stackMaxSizeV2];
+      stackViewV2 = new Bytes32[DEFAULT_MAX_STACK_SIZE];
     }
     final Bytes32 cached = stackViewV2[slot];
     if (cached != null && StackUtil.wordEquals(cached, stackDataV2, stackTopV2, offset)) {
@@ -556,6 +560,62 @@ public class MessageFrame {
    */
   public long[] stackDataV2() {
     return stackDataV2;
+  }
+
+  /**
+   * Sets the input data of a frame a CALL creates to read from the caller's memory, so that it is
+   * not copied. The caller is suspended while this frame runs, so its memory cannot change.
+   *
+   * @param caller the frame whose memory holds the input data, already expanded to cover it
+   * @param offset the offset of the input data in the caller's memory
+   * @param size the size of the input data
+   */
+  public void inputDataFromCallerMemoryV2(
+      final MessageFrame caller, final long offset, final long size) {
+    if (size == 0) {
+      inputDataArrayV2 = Bytes.EMPTY.toArrayUnsafe();
+      inputDataOffsetV2 = 0;
+      inputDataSizeV2 = 0;
+    } else {
+      inputDataArrayV2 = caller.memory.arrayV2();
+      inputDataOffsetV2 = (int) offset;
+      inputDataSizeV2 = (int) size;
+    }
+  }
+
+  /**
+   * Returns the array the input data lies in, from {@link #inputDataOffsetV2()} for {@link
+   * #inputDataSizeV2()} bytes. Unless a CALL set it, it is materialised from the input data on the
+   * first call. The array must not be modified.
+   *
+   * @return the array the input data lies in
+   */
+  public byte[] inputDataArrayV2() {
+    byte[] array = inputDataArrayV2;
+    if (array == null) {
+      // the offset is already 0 and the size the input data's size
+      array = inputData.toArrayUnsafe();
+      inputDataArrayV2 = array;
+    }
+    return array;
+  }
+
+  /**
+   * Returns the offset of the input data in {@link #inputDataArrayV2()}.
+   *
+   * @return the offset of the input data
+   */
+  public int inputDataOffsetV2() {
+    return inputDataOffsetV2;
+  }
+
+  /**
+   * Returns the size of the input data in {@link #inputDataArrayV2()}.
+   *
+   * @return the size of the input data
+   */
+  public int inputDataSizeV2() {
+    return inputDataSizeV2;
   }
 
   /**
@@ -593,7 +653,7 @@ public class MessageFrame {
    * @return true if the stack can accommodate n more items
    */
   public boolean stackHasSpaceV2(final int n) {
-    return stackTopV2 + n <= stackMaxSizeV2;
+    return stackTopV2 + n <= DEFAULT_MAX_STACK_SIZE;
   }
 
   /**
@@ -944,10 +1004,10 @@ public class MessageFrame {
 
   private void setUpdatedMemory(
       final long offset, final long sourceOffset, final long length, final Bytes value) {
-    final long endIndex = sourceOffset + length;
-    if (sourceOffset >= 0 && endIndex > 0) {
+    if (sourceOffset >= 0 && length > 0) {
       final int srcSize = value.size();
-      if (endIndex > srcSize) {
+      // sourceOffset + length can overflow, as the source offset is clamped to Long.MAX_VALUE
+      if (sourceOffset >= srcSize || length > srcSize - sourceOffset) {
         final MutableBytes paddedAnswer = MutableBytes.create((int) length);
         if (sourceOffset < srcSize) {
           value.slice((int) sourceOffset, (int) (srcSize - sourceOffset)).copyTo(paddedAnswer, 0);
@@ -1350,7 +1410,16 @@ public class MessageFrame {
    * @return true if the storage slot was already warmed up
    */
   public boolean warmUpStorage(final Address address, final Bytes32 slot) {
-    return txValues.warmedUpStorage().put(address, slot, Boolean.TRUE) != null;
+    return !txValues.warmedUpStorage().add(new AddressStorageSlotKey(address, slot));
+  }
+
+  /**
+   * "Warms up" the storage slots as per EIP-2929
+   *
+   * @param addressToSlotKeys the set of joint address/slot keys that are being warmed up
+   */
+  public void warmUpStorage(final Set<AddressStorageSlotKey> addressToSlotKeys) {
+    txValues.warmedUpStorage().addAll(addressToSlotKeys);
   }
 
   /**
@@ -1624,7 +1693,7 @@ public class MessageFrame {
    *
    * @return the warmed up storage
    */
-  public Table<Address, Bytes32, Boolean> getWarmedUpStorage() {
+  public UndoSet<AddressStorageSlotKey> getWarmedUpStorage() {
     return txValues.warmedUpStorage();
   }
 
@@ -1737,7 +1806,7 @@ public class MessageFrame {
     private Map<String, Object> contextVariables;
     private Optional<Bytes> reason = Optional.empty();
     private Set<Address> eip2930AccessListWarmAddresses = emptySet();
-    private Multimap<Address, Bytes32> eip2930AccessListWarmStorage = HashMultimap.create();
+    private Set<AddressStorageSlotKey> eip2930AccessListWarmStorage = emptySet();
     private Optional<Eip7928AccessList> eip7928AccessList = Optional.empty();
 
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
@@ -1929,7 +1998,8 @@ public class MessageFrame {
     }
 
     /**
-     * Sets Max stack size.
+     * Sets Max stack size. A frame on EVM v2 ignores it and always uses {@link
+     * MessageFrame#DEFAULT_MAX_STACK_SIZE}.
      *
      * @param maxStackSize the max stack size
      * @return the builder
@@ -2012,7 +2082,7 @@ public class MessageFrame {
      * @return the builder
      */
     public Builder eip2930AccessListWarmStorage(
-        final Multimap<Address, Bytes32> accessListWarmStorage) {
+        final Set<AddressStorageSlotKey> accessListWarmStorage) {
       this.eip2930AccessListWarmStorage = accessListWarmStorage;
       return this;
     }
@@ -2146,9 +2216,7 @@ public class MessageFrame {
       for (Address a : eip2930AccessListWarmAddresses) {
         messageFrame.warmUpAddress(a);
       }
-      for (var e : eip2930AccessListWarmStorage.entries()) {
-        messageFrame.warmUpStorage(e.getKey(), e.getValue());
-      }
+      messageFrame.warmUpStorage(eip2930AccessListWarmStorage);
       return messageFrame;
     }
   }

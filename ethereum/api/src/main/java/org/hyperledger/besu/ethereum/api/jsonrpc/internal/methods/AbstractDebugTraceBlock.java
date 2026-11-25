@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -103,8 +104,19 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
     }
     final TraceOptions traceOptions = getTraceOptions(request);
     final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, maybeBlock);
-    return new JsonRpcSuccessResponse(
-        request.getRequest().getId(), streamer.accumulateAll(request::isAlive));
+    return tracedResponse(request.getRequest().getId(), streamer, request::isAlive);
+  }
+
+  protected static JsonRpcResponse tracedResponse(
+      final Object id, final DebugTraceBlockStreamer streamer, final BooleanSupplier isAlive) {
+    if (streamer == null) {
+      return new JsonRpcSuccessResponse(id, null);
+    }
+    try {
+      return new JsonRpcSuccessResponse(id, streamer.accumulateAll(isAlive));
+    } catch (final UnavailableParentStateException e) {
+      return new JsonRpcErrorResponse(id, e.getErrorType());
+    }
   }
 
   protected DebugTraceBlockStreamer createStreamer(
@@ -133,8 +145,14 @@ public abstract class AbstractDebugTraceBlock implements StreamingJsonRpcMethod 
     final byte[] prefix =
         ("{\"jsonrpc\":\"2.0\",\"id\":" + mapper.writeValueAsString(id) + ",\"result\":")
             .getBytes(StandardCharsets.UTF_8);
-    out.write(prefix);
-    streamer.streamTo(out, mapper, isAlive);
+    // Prefix is the first byte on the HTTP stream. Write it only after the parent state is open,
+    // so a missing state can still be returned as a JSON-RPC error.
+    final Optional<RpcErrorType> unavailable =
+        streamer.streamTo(out, mapper, isAlive, () -> out.write(prefix));
+    if (unavailable.isPresent()) {
+      mapper.writeValue(out, new JsonRpcErrorResponse(id, unavailable.get()));
+      return;
+    }
     out.write("}".getBytes(StandardCharsets.UTF_8));
   }
 }

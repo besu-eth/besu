@@ -50,6 +50,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataR
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
@@ -281,7 +282,8 @@ class StorageRootRefreshTest {
           updater,
           context,
           null,
-          SnapSyncConfiguration.getDefault());
+          SnapSyncConfiguration.getDefault(),
+          new UndoLog());
       updater.commit();
       assertThat(target.getAccount(accountHash)).isEmpty();
     }

@@ -30,6 +30,7 @@ import org.hyperledger.besu.consensus.ibft.messagewrappers.Proposal;
 import org.hyperledger.besu.consensus.ibft.payload.MessageFactory;
 import org.hyperledger.besu.consensus.ibft.payload.PreparePayload;
 import org.hyperledger.besu.consensus.ibft.validation.MessageValidator;
+import org.hyperledger.besu.consensus.ibft.validation.SignedDataValidator;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
@@ -263,6 +264,44 @@ public class RoundStateTest {
     assertThat(roundState.isPrepared()).isFalse();
     assertThat(roundState.isCommitted()).isFalse();
     assertThat(roundState.getCommitSeals()).containsOnly(validCommit.getCommitSeal());
+  }
+
+  @Test
+  public void priorCommitWithNonRecoverableSealIsDiscardedUponSubsequentProposal() {
+    // Validate with a real SignedDataValidator, so the buffered Commit is revalidated the way a
+    // node does it when the Proposal arrives.
+    final SignedDataValidator signedDataValidator =
+        new SignedDataValidator(validators, validators.get(0), roundIdentifier);
+    when(messageValidator.validateProposal(any()))
+        .thenAnswer(
+            i ->
+                signedDataValidator.validateProposal(
+                    i.<Proposal>getArgument(0).getSignedPayload()));
+    when(messageValidator.validateCommit(any()))
+        .thenAnswer(
+            i -> signedDataValidator.validateCommit(i.<Commit>getArgument(0).getSignedPayload()));
+
+    // A Commit from a current validator whose seal does not recover to an address: with recovery
+    // id 0 the point's x-coordinate is r, and no secp256k1 point has x = 5.
+    final Commit badSealCommit =
+        validatorMessageFactories
+            .get(1)
+            .createCommit(
+                roundIdentifier,
+                blockHash,
+                SignatureAlgorithmFactory.getInstance()
+                    .createSignature(BigInteger.valueOf(5), BigInteger.ONE, (byte) 0));
+
+    // quorum 1: if the bad-seal Commit were kept, the round would commit
+    final RoundState roundState = new RoundState(roundIdentifier, 1, messageValidator);
+    roundState.addCommitMessage(badSealCommit);
+
+    final Proposal proposal =
+        validatorMessageFactories.get(0).createProposal(roundIdentifier, block, Optional.empty());
+
+    assertThat(roundState.setProposedBlock(proposal)).isTrue();
+    assertThat(roundState.isCommitted()).isFalse();
+    assertThat(roundState.getCommitSeals()).isEmpty();
   }
 
   @Test

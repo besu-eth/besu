@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -43,6 +44,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -177,10 +179,29 @@ public class BlockRangeBroadcasterTest {
         .disconnect(DisconnectMessage.DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_BLOCK_RANGE);
   }
 
+  @Test
+  public void shouldDisconnectIfBlockHashIsZero() {
+    final EthPeer peer = mock(EthPeer.class);
+    handleBlockRangeUpdateMessage(peer, 0L, 1L, Hash.ZERO);
+    verify(peer)
+        .disconnect(DisconnectMessage.DisconnectReason.SUBPROTOCOL_TRIGGERED_INVALID_BLOCK_RANGE);
+    verify(peer, never()).registerKnownBlock(any());
+    verify(peer, never()).registerBlockRange(any(), anyLong(), anyLong());
+  }
+
   private void handleBlockRangeUpdateMessage(
       final EthPeer peer, final long earliestBlockNumber, final long latestBlockNumber) {
+    handleBlockRangeUpdateMessage(
+        peer, earliestBlockNumber, latestBlockNumber, Hash.hash(Bytes.of(1)));
+  }
+
+  private void handleBlockRangeUpdateMessage(
+      final EthPeer peer,
+      final long earliestBlockNumber,
+      final long latestBlockNumber,
+      final Hash blockHash) {
     BlockRangeUpdateMessage message =
-        BlockRangeUpdateMessage.create(earliestBlockNumber, latestBlockNumber, Hash.ZERO);
+        BlockRangeUpdateMessage.create(earliestBlockNumber, latestBlockNumber, blockHash);
     EthMessage ethMessage = new EthMessage(peer, message);
     blockRangeBroadcaster.handleBlockRangeUpdateMessage(ethMessage);
   }

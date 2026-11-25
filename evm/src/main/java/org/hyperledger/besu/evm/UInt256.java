@@ -653,11 +653,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   public UInt256 signedMod(final UInt256 modulus) {
     if (isZero() || modulus.isZeroOrOne() || modulus.equals(MAX)) return ZERO;
-    UInt256 a = abs();
-    UInt256 m = modulus.abs();
-    UInt256 r = a.mod(m);
-    if (isNegative()) r = r.neg();
-    return r;
+    final boolean negate = isNegative();
+    final UInt256 r = abs().mod(modulus.abs());
+    return negate ? r.neg() : r;
   }
 
   /**
@@ -708,11 +706,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   public UInt256 signedDiv(final UInt256 divisor) {
     if (isZero() || divisor.isZero()) return ZERO;
-    UInt256 a = abs();
-    UInt256 d = divisor.abs();
-    UInt256 q = a.div(d);
-    if (isNegative() != divisor.isNegative()) q = q.neg();
-    return q;
+    final boolean negate = isNegative() != divisor.isNegative();
+    final UInt256 q = abs().div(divisor.abs());
+    return negate ? q.neg() : q;
   }
 
   /**
