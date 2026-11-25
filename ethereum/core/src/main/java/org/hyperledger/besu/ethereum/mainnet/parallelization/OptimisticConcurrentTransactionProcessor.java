@@ -753,16 +753,14 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionAccumulator();
       final TransactionProcessingResult transactionProcessingResult =
           parallelizedTransactionContext.transactionProcessingResult();
-      final Map<Address, CarriedAccount> carriedAccounts = new HashMap<>();
       // a reverted or halted execution is as repeatable as a successful one when nothing it read
       // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
-      if (!transactionProcessingResult.isInvalid()
-          && !transactionCollisionDetector.hasCollision(
-              transaction,
-              miningBeneficiary,
-              parallelizedTransactionContext,
-              blockAccumulator,
-              carriedAccounts)) {
+      final Optional<Map<Address, CarriedAccount>> carriedAccounts =
+          transactionProcessingResult.isInvalid()
+              ? Optional.empty()
+              : transactionCollisionDetector.carryOverIfNoCollision(
+                  transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
+      if (carriedAccounts.isPresent()) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
         // a result that touched the beneficiary before its reward already holds the reward
         if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
@@ -780,7 +778,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-        for (final Map.Entry<Address, CarriedAccount> carried : carriedAccounts.entrySet()) {
+        for (final Map.Entry<Address, CarriedAccount> carried : carriedAccounts.get().entrySet()) {
           final BonsaiAccount imported =
               ((BonsaiValue<? extends BonsaiAccount>)
                       blockAccumulator.getAccountsToUpdate().get(carried.getKey()))

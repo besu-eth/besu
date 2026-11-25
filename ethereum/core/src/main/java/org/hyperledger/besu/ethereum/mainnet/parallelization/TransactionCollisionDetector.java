@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.Account;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -57,16 +58,14 @@ public class TransactionCollisionDetector {
    * @param miningBeneficiary the mining beneficiary of the block
    * @param parallelizedTransactionContext the speculative result with the state it read and wrote
    * @param blockAccumulator the state changes of the earlier transactions of the block
-   * @param carriedAccounts receives what taking the result sets each account to whose change it
-   *     carries over, only to be read when the method returns false
-   * @return true if the speculative result must not be used
+   * @return what taking the result sets each account to whose change it carries over, or empty if
+   *     the speculative result must not be used
    */
-  public boolean hasCollision(
+  public Optional<Map<Address, CarriedAccount>> carryOverIfNoCollision(
       final Transaction transaction,
       final Address miningBeneficiary,
       final ParallelizedTransactionContext parallelizedTransactionContext,
-      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator,
-      final Map<Address, CarriedAccount> carriedAccounts) {
+      final PathBasedWorldStateUpdateAccumulator<? extends BonsaiAccount> blockAccumulator) {
     final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
         parallelizedTransactionContext.transactionAccumulator();
     final PathBasedWorldStateUpdateAccumulator<?> chainPredecessor =
@@ -77,25 +76,28 @@ public class TransactionCollisionDetector {
     if (transactionAccumulator.getDeletedAccountAddresses().contains(miningBeneficiary)) {
       final Account beneficiary = blockAccumulator.get(miningBeneficiary);
       if (beneficiary != null && beneficiary.isEmpty()) {
-        return true;
+        return Optional.empty();
       }
     }
     if (chainPredecessor != null) {
       // earlier transactions paid the beneficiary their priority fees, and a chained result carries
       // no balance change over
       return isTouchedBeyondItsFee(transaction, transactionAccumulator, miningBeneficiary)
-          || hasCollisionWithChainedState(
-              transactionAccumulator, chainPredecessor, blockAccumulator);
+              || hasCollisionWithChainedState(
+                  transactionAccumulator, chainPredecessor, blockAccumulator)
+          ? Optional.empty()
+          : Optional.of(Map.of());
     }
+    final Map<Address, CarriedAccount> carriedAccounts = new HashMap<>();
     // an executed transaction loaded its sender and recipient, and the commit added the accounts
     // it deleted
     for (final Address address : transactionAccumulator.getAccountsToUpdate().keySet()) {
       if (hasCollision(
           transaction, address, transactionAccumulator, blockAccumulator, carriedAccounts)) {
-        return true;
+        return Optional.empty();
       }
     }
-    return false;
+    return Optional.of(carriedAccounts);
   }
 
   /**

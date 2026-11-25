@@ -41,6 +41,7 @@ import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -133,12 +134,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -163,12 +165,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -194,12 +197,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -236,12 +240,13 @@ class TransactionCollisionDetectorTest {
         .put(updateStorageSlotKey, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -277,12 +282,13 @@ class TransactionCollisionDetectorTest {
         .put(new StorageSlotKey(UInt256.ONE), new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(
         hasCollision,
@@ -319,12 +325,13 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = createTransaction(sender, address);
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(hasCollision, "Expected no collision for a transfer that touches no storage slots");
   }
@@ -366,12 +373,13 @@ class TransactionCollisionDetectorTest {
         .put(overlappingSlot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected collision when one of many block slots overlaps");
   }
@@ -404,12 +412,13 @@ class TransactionCollisionDetectorTest {
         .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(
         hasCollision, "Expected no collision when the block only read the overlapping slot");
@@ -445,12 +454,13 @@ class TransactionCollisionDetectorTest {
         .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(
         hasCollision, "Expected collision when tx read a slot that the block already modified");
@@ -481,12 +491,13 @@ class TransactionCollisionDetectorTest {
         .put(new StorageSlotKey(UInt256.ONE), new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
   }
@@ -508,12 +519,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(
         hasCollision,
@@ -655,12 +667,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>());
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(hasCollision, "Expected no collision with the read address");
   }
@@ -720,12 +733,14 @@ class TransactionCollisionDetectorTest {
   }
 
   private boolean hasChainedCollision(final Transaction transaction) {
-    return collisionDetector.hasCollision(
-        transaction,
-        Address.ZERO,
-        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO, predecessorUpdater),
-        bonsaiUpdater,
-        new HashMap<>());
+    return collisionDetector
+        .carryOverIfNoCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(
+                trxUpdater, null, false, Wei.ZERO, predecessorUpdater),
+            bonsaiUpdater)
+        .isEmpty();
   }
 
   @Test
@@ -769,12 +784,13 @@ class TransactionCollisionDetectorTest {
         .put(beneficiary, new BonsaiValue<>(emptyBeneficiary, emptyBeneficiary));
 
     assertTrue(
-        collisionDetector.hasCollision(
-            createTransaction(sender, Address.fromHexString("0x2")),
-            beneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>()),
+        collisionDetector
+            .carryOverIfNoCollision(
+                createTransaction(sender, Address.fromHexString("0x2")),
+                beneficiary,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty(),
         "Expected a collision as taking the result would not delete the beneficiary");
   }
 
@@ -794,12 +810,13 @@ class TransactionCollisionDetectorTest {
     trxUpdater.getStorageToClear().remove(beneficiary);
 
     assertFalse(
-        collisionDetector.hasCollision(
-            createTransaction(sender, Address.fromHexString("0x2")),
-            beneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>()),
+        collisionDetector
+            .carryOverIfNoCollision(
+                createTransaction(sender, Address.fromHexString("0x2")),
+                beneficiary,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty(),
         "Expected no collision as the block does not hold the beneficiary either");
   }
 
@@ -849,13 +866,14 @@ class TransactionCollisionDetectorTest {
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
 
     assertTrue(
-        collisionDetector.hasCollision(
-            createTransaction(sender, beneficiary),
-            beneficiary,
-            new ParallelizedTransactionContext(
-                trxUpdater, null, true, Wei.ZERO, predecessorUpdater),
-            bonsaiUpdater,
-            new HashMap<>()),
+        collisionDetector
+            .carryOverIfNoCollision(
+                createTransaction(sender, beneficiary),
+                beneficiary,
+                new ParallelizedTransactionContext(
+                    trxUpdater, null, true, Wei.ZERO, predecessorUpdater),
+                bonsaiUpdater)
+            .isEmpty(),
         "Expected a collision as a chained result carries no balance over");
   }
 
@@ -1054,12 +1072,14 @@ class TransactionCollisionDetectorTest {
 
   private boolean hasCollisionCarryingCredits(
       final Transaction transaction, final Map<Address, CarriedAccount> carriedAccounts) {
-    return collisionDetector.hasCollision(
-        transaction,
-        Address.ZERO,
-        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-        bonsaiUpdater,
-        carriedAccounts);
+    final Optional<Map<Address, CarriedAccount>> carried =
+        collisionDetector.carryOverIfNoCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+            bonsaiUpdater);
+    carried.ifPresent(carriedAccounts::putAll);
+    return carried.isEmpty();
   }
 
   private Transaction creditScenario(final long creditedBalance) {
@@ -1148,12 +1168,13 @@ class TransactionCollisionDetectorTest {
     unrecorded.getAccountsToUpdate().putAll(trxUpdater.getAccountsToUpdate());
 
     assertTrue(
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(unrecorded, null, false, Wei.ZERO),
-            bonsaiUpdater,
-            new HashMap<>()));
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(unrecorded, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty());
   }
 
   @Test

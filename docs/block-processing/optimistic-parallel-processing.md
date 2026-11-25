@@ -79,7 +79,7 @@ The timeline in [Same-sender chains](#same-sender-chains) is schematic. It keeps
 When block processing reaches a transaction, `getProcessingResult` does three things:
 
 1. If the transaction's run has not finished, block processing executes the transaction itself and the run is thrown away.
-2. `TransactionCollisionDetector.hasCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account usually finds its balance changed, since every transaction with a priority fee pays the fee to it. A change to a balance, or to a balance and a nonce, is often no collision, as [Balance changes](#balance-changes) explains.
+2. `TransactionCollisionDetector.carryOverIfNoCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account usually finds its balance changed, since every transaction with a priority fee pays the fee to it. A change to a balance, or to a balance and a nonce, is often no collision, as [Balance changes](#balance-changes) explains.
 3. Without a collision, block processing **takes** the result: it imports the run's changes into the block's accumulator and credits the transaction's fee to the coinbase account, which the run kept aside.
 
 A reverted or halted result is taken like a successful one when nothing it read has changed. An invalid result is never taken.
