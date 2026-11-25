@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.get
 
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.TrieNodeHealingRequest;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -27,6 +28,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.services.tasks.Task;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -54,43 +56,45 @@ public class PersistDataStep {
   }
 
   public List<Task<SnapDataRequest>> persist(final List<Task<SnapDataRequest>> tasks) {
+    final UndoLog undoLog = new UndoLog();
     try {
-      final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+      final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.batchUpdater();
+      final List<SnapDataRequest> childRequests = new ArrayList<>();
       for (Task<SnapDataRequest> task : tasks) {
-        if (task.getData().isResponseReceived()) {
-          // enqueue child requests
-          final Stream<SnapDataRequest> childRequests =
-              task.getData()
-                  .getChildRequests(downloadState, worldStateStorageCoordinator, snapSyncState);
-          if (!(task.getData() instanceof TrieNodeHealingRequest)) {
-            enqueueChildren(childRequests);
-          } else {
-            if (!task.getData().isExpired(snapSyncState)) {
-              enqueueChildren(childRequests);
-            } else {
-              continue;
-            }
-          }
+        final SnapDataRequest request = task.getData();
+        if (!request.isResponseReceived()
+            || (request instanceof TrieNodeHealingRequest && request.isExpired(snapSyncState))) {
+          continue;
+        }
+        // the children count in their parent from here on, so that it waits for them, but they are
+        // only enqueued once the batch is committed
+        request
+            .getChildRequests(downloadState, worldStateStorageCoordinator, snapSyncState)
+            .forEach(
+                child -> {
+                  undoLog.add(child::unregisterParent);
+                  childRequests.add(child);
+                });
 
-          // persist nodes
-          final int persistedNodes =
-              task.getData()
-                  .persist(
-                      worldStateStorageCoordinator,
-                      updater,
-                      downloadState,
-                      snapSyncState,
-                      snapSyncConfiguration);
-          if (persistedNodes > 0) {
-            if (task.getData() instanceof TrieNodeHealingRequest) {
-              downloadState.getMetricsManager().notifyTrieNodesHealed(persistedNodes);
-            } else {
-              downloadState.getMetricsManager().notifyNodesGenerated(persistedNodes);
-            }
+        // persist nodes
+        final int persistedNodes =
+            request.persist(
+                worldStateStorageCoordinator,
+                updater,
+                downloadState,
+                snapSyncState,
+                snapSyncConfiguration,
+                undoLog);
+        if (persistedNodes > 0) {
+          if (request instanceof TrieNodeHealingRequest) {
+            downloadState.getMetricsManager().notifyTrieNodesHealed(persistedNodes);
+          } else {
+            downloadState.getMetricsManager().notifyNodesGenerated(persistedNodes);
           }
         }
       }
       updater.commit();
+      enqueueChildren(childRequests.stream());
     } catch (StorageException storageException) {
       if (canRetryOnError(storageException)) {
         // We reset the task by setting it to null. This way, it is considered as failed by the
@@ -102,6 +106,8 @@ public class PersistDataStep {
               getRetryableErrorCounter(),
               storageException.getMessage());
         }
+        // nothing of the batch was stored, so the retried requests persist and count again
+        undoLog.undo();
         tasks.forEach(task -> task.getData().clear());
       } else {
         throw storageException;
@@ -127,7 +133,8 @@ public class PersistDataStep {
               updater,
               downloadState,
               snapSyncState,
-              snapSyncConfiguration);
+              snapSyncConfiguration,
+              new UndoLog());
       // enqueue child requests, these will be the right part of the ranges to complete if we have
       // not healed all the range
       enqueueChildren(

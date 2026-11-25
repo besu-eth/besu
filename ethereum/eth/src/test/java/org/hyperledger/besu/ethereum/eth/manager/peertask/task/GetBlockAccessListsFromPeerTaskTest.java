@@ -107,6 +107,53 @@ class GetBlockAccessListsFromPeerTaskTest {
   }
 
   @Test
+  void testProcessResponseRejectsMismatchedHashBeforeDecoding() {
+    final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
+    // Valid RLP, but not a decodable BAL. Its hash must be rejected first.
+    final Bytes payload = Bytes.fromHexString("0xc3c2c101");
+
+    final MalformedRlpFromPeerException exception =
+        assertThrows(
+            MalformedRlpFromPeerException.class,
+            () -> task.processResponse(BlockAccessListsMessage.createUnsafe(payload), Set.of()));
+    assertThat(exception.getCause()).isNull();
+    assertThat(exception.getMessageData()).isEqualTo(payload);
+  }
+
+  @Test
+  void testProcessResponseRejectsExtraEntryBeforeDecoding() {
+    final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
+    final Bytes payload = Bytes.fromHexString("0xc4c0c2c101");
+
+    final MalformedRlpFromPeerException exception =
+        assertThrows(
+            MalformedRlpFromPeerException.class,
+            () -> task.processResponse(BlockAccessListsMessage.createUnsafe(payload), Set.of()));
+    assertThat(exception.getCause()).isNull();
+    assertThat(exception.getMessageData()).isEqualTo(payload);
+  }
+
+  @Test
+  void testProcessResponseWithPartialResponseAfterUnavailableEntry()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final BlockAccessList bal = dataGenerator.blockAccessList(1);
+    final GetBlockAccessListsFromPeerTask task =
+        new GetBlockAccessListsFromPeerTask(
+            List.of(
+                mockBlockHeader(1, new BlockAccessList(List.of())),
+                mockBlockHeader(2, bal),
+                mockBlockHeader(3, new BlockAccessList(List.of()))));
+
+    final List<Optional<BlockAccessList>> response =
+        task.processResponse(
+            BlockAccessListsMessage.create(List.of(Optional.empty(), Optional.of(bal))), Set.of());
+
+    assertThat(response).containsExactly(Optional.empty(), Optional.of(bal));
+    assertThat(task.validateResult(response))
+        .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
+  }
+
+  @Test
   void testProcessResponseWithTruncatedListIsMalformed() {
     final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
     // a list header that declares more payload than is present
@@ -125,7 +172,11 @@ class GetBlockAccessListsFromPeerTaskTest {
 
   @Test
   void testProcessResponseWithMalformedEntryIsMalformed() {
-    final GetBlockAccessListsFromPeerTask task = taskForOneHeader();
+    final BlockHeader header = mockBlockHeader(1, new BlockAccessList(List.of()));
+    Mockito.when(header.getBalHash())
+        .thenReturn(Optional.of(BodyValidation.balHash(Bytes.fromHexString("0xc2c101"))));
+    final GetBlockAccessListsFromPeerTask task =
+        new GetBlockAccessListsFromPeerTask(List.of(header));
     // [[[0x01]]]: one BAL with one account whose address is a single byte instead of 20
     final Bytes badAddress =
         rlpList(
@@ -143,9 +194,11 @@ class GetBlockAccessListsFromPeerTaskTest {
   @Test
   void testProcessResponseWithMalformedEntryAfterValidOneIsMalformed() {
     final BlockAccessList valid = new BlockAccessList(List.of());
+    final BlockHeader malformedHeader = mockBlockHeader(2, valid);
+    Mockito.when(malformedHeader.getBalHash())
+        .thenReturn(Optional.of(BodyValidation.balHash(Bytes.fromHexString("0x83010203"))));
     final GetBlockAccessListsFromPeerTask task =
-        new GetBlockAccessListsFromPeerTask(
-            List.of(mockBlockHeader(1, valid), mockBlockHeader(2, valid)));
+        new GetBlockAccessListsFromPeerTask(List.of(mockBlockHeader(1, valid), malformedHeader));
     // entries are decoded lazily, so a bad entry behind a good one must still be caught
     final Bytes validThenBad =
         rlpList(
@@ -179,20 +232,6 @@ class GetBlockAccessListsFromPeerTaskTest {
     entries.accept(out);
     out.endList();
     return out.encoded();
-  }
-
-  @Test
-  void testValidateResultWithMismatchedBal() {
-    final BlockAccessList expectedBal = new BlockAccessList(List.of());
-    final BlockHeader header = mockBlockHeader(1, expectedBal);
-
-    final BlockAccessList mismatchingBal = dataGenerator.blockAccessList(1);
-
-    final GetBlockAccessListsFromPeerTask task =
-        new GetBlockAccessListsFromPeerTask(List.of(header));
-
-    assertThat(task.validateResult(List.of(Optional.of(mismatchingBal))))
-        .isEqualTo(PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY);
   }
 
   @Test
@@ -262,12 +301,6 @@ class GetBlockAccessListsFromPeerTaskTest {
         .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
     assertThat(task.validateResult(List.of(Optional.of(dataGenerator.emptyBlockAccessList()))))
         .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
-    assertThat(
-            task.validateResult(
-                List.of(
-                    Optional.of(new BlockAccessList(List.of())),
-                    Optional.of(new BlockAccessList(List.of())))))
-        .isEqualTo(PeerTaskValidationResponse.TOO_MANY_RESULTS_RETURNED);
   }
 
   private BlockHeader mockBlockHeader(final long blockNumber, final BlockAccessList bal) {

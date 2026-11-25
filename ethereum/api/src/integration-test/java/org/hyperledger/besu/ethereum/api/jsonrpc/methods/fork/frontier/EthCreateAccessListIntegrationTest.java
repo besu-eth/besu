@@ -38,7 +38,7 @@ import java.util.Map;
 
 import com.google.common.io.Resources;
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.units.bigints.UInt256;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -75,9 +75,9 @@ public class EthCreateAccessListIntegrationTest {
             new AccessListEntry(
                 Address.fromHexString("0xbb00000000000000000000000000000000000000"),
                 List.of(
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000001"),
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000003"))));
 
     final CallParameter callParameter =
@@ -97,9 +97,9 @@ public class EthCreateAccessListIntegrationTest {
             new AccessListEntry(
                 Address.fromHexString("0xbb00000000000000000000000000000000000000"),
                 List.of(
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000001"),
-                    UInt256.fromHexString(
+                    Bytes32.fromHexString(
                         "0x0000000000000000000000000000000000000000000000000000000000000003"))));
 
     final CallParameter callParameter =
@@ -226,6 +226,38 @@ public class EthCreateAccessListIntegrationTest {
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
   }
 
+  @Test
+  public void shouldReturnAccessListOrderedByAddress() {
+    final Address lowAddress = Address.fromHexString("0xaa00000000000000000000000000000000000000");
+    final Address midAddress = Address.fromHexString("0xbb00000000000000000000000000000000000000");
+    final Address highAddress = Address.fromHexString("0xcc00000000000000000000000000000000000000");
+    final Bytes32 slotOne =
+        Bytes32.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000001");
+    final Bytes32 slotThree =
+        Bytes32.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000003");
+
+    final List<AccessListEntry> descendingInput =
+        List.of(
+            new AccessListEntry(highAddress, List.of(slotOne)),
+            new AccessListEntry(midAddress, List.of(slotOne, slotThree)),
+            new AccessListEntry(lowAddress, List.of(slotOne)));
+
+    final CallParameter callParameter =
+        ImmutableCallParameter.builder()
+            .sender(Address.fromHexString("0x658bdf435d810c91414ec09147daa6db62406379"))
+            .to(midAddress)
+            .accessList(descendingInput)
+            .build();
+
+    final JsonRpcResponse response = method.response(requestWithParams(callParameter));
+    final CreateAccessListResult result =
+        (CreateAccessListResult) ((JsonRpcSuccessResponse) response).getResult();
+
+    assertThat(result.getAccessList())
+        .extracting(AccessListEntry::address)
+        .containsExactly(lowAddress, midAddress, highAddress);
+  }
+
   private void assertAccessListExpectedResult(
       final CallParameter callParameter,
       final List<AccessListEntry> accessList,
@@ -238,8 +270,8 @@ public class EthCreateAccessListIntegrationTest {
     assertThat(response)
         .usingRecursiveComparison()
         // customize the comparison for the type that lazy compute the hashCode
-        .withEqualsForType(UInt256::equals, UInt256.class)
-        .withEqualsForType(Address::equals, Address.class)
+        .withEqualsForType(Bytes32::equals, Bytes32.class)
+        .withEqualsForType((x, y) -> x.getBytes().equals(y.getBytes()), Address.class)
         .isEqualTo(expectedResponse);
   }
 

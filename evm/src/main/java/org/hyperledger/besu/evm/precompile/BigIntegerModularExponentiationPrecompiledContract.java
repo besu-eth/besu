@@ -117,36 +117,38 @@ public class BigIntegerModularExponentiationPrecompiledContract
           null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
     }
 
+    // The output is always length_of_MODULUS bytes, so a zero modulus length needs no work on any
+    // route.
+    if (length_of_MODULUS == 0) {
+      return PrecompileContractResult.success(Bytes.EMPTY);
+    }
+    final Bytes declared =
+        declaredInput(input, length_of_BASE, length_of_EXPONENT, length_of_MODULUS);
+
     // OPTIMIZATION: overwrite native setting for this case
     if (LibArithmetic.ENABLED) {
       final int baseOffset = clampedToInt(BASE_OFFSET);
       final int baseLength = clampedToInt(length_of_BASE);
       final int modulusLength = clampedToInt(length_of_MODULUS);
       if ((extractLastByte(input, baseOffset, baseLength) & 1) != 1) {
-        return computeNative(input, modulusLength);
+        return computeNative(declared, modulusLength);
       }
     }
 
     if (useNative) {
       final int modulusLength = clampedToInt(length_of_MODULUS);
-      return computeNative(input, modulusLength);
+      return computeNative(declared, modulusLength);
     } else {
       final int baseLength = clampedToInt(length_of_BASE);
       final int exponentLength = clampedToInt(length_of_EXPONENT);
       final int modulusLength = clampedToInt(length_of_MODULUS);
-      return computeDefault(input, baseLength, exponentLength, modulusLength);
+      return computeDefault(declared, baseLength, exponentLength, modulusLength);
     }
   }
 
   @NotNull
   private PrecompileContractResult computeDefault(
       final Bytes input, final int baseLength, final int exponentLength, final int modulusLength) {
-    // If baseLength and modulusLength are zero
-    // we could have a massively overflowing exp because it wouldn't have been filtered out at the
-    // gas cost phase
-    if ((baseLength == 0) && (modulusLength == 0)) {
-      return PrecompileContractResult.success(Bytes.EMPTY);
-    }
     final int exponentOffset = BASE_OFFSET + baseLength;
     final int modulusOffset = exponentOffset + exponentLength;
     final BigInteger base = extractParameter(input, BASE_OFFSET, baseLength);
@@ -233,6 +235,20 @@ public class BigIntegerModularExponentiationPrecompiledContract
       System.arraycopy(partial.toArray(), 0, raw, 0, partial.size());
       return new BigInteger(1, raw);
     }
+  }
+
+  /**
+   * Trims the input to the header plus the declared operands. Bytes past that extent never affect
+   * the result, so no route needs to see them, and the native routes don't copy them.
+   */
+  private static Bytes declaredInput(
+      final Bytes input,
+      final long baseLength,
+      final long exponentLength,
+      final long modulusLength) {
+    final long declaredSize =
+        clampedAdd(clampedAdd(clampedAdd(BASE_OFFSET, baseLength), exponentLength), modulusLength);
+    return declaredSize < input.size() ? input.slice(0, (int) declaredSize) : input;
   }
 
   private static byte extractLastByte(final Bytes input, final int offset, final int length) {

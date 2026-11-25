@@ -1,0 +1,25 @@
+# How we would like patches made
+
+## Size and scope of a fix
+- Fix the root cause, as narrowly as possible. If the same faulty pattern appears at other call sites, fix them in the same patch and list them.
+- Bound input before it is decoded or allocated, not after. When Besu already has a limit for the same data, reuse it rather than adding a new constant.
+- When a fix touches transaction execution or the world state, make it hold for both sequential and parallel transaction processing, and say how you checked.
+- Do not change behaviour that the Ethereum specifications require. Do not reject data that the other execution clients accept, unless the specification requires it.
+- Avoid new command-line options. If one is needed, give it a safe default and describe it.
+- No new dependencies, and no changes to `plugin-api` unless needed: its compatibility is checked against the last release.
+- Target the `main` branch, and send the patch privately with the report, as the threat model's Reporting section says. Do not open a public pull request or push a branch: we land the fix ourselves, and handle any backport to a release branch.
+
+## Problems in the Java runtime
+- Until a fixed JDK is released, mitigate in Besu. Cover every path to the affected code, including paths through libraries: changing Besu's own call site is enough only when no other path reaches it.
+- Put a JVM option in `applicationDefaultJvmArgs` in `build.gradle`; both start scripts and the official Docker image use it. `evmtool` has its own options. Prefer a product option that does not need `-XX:+UnlockDiagnosticVMOptions`, and check that operators can override it through `BESU_OPTS`. Say what the option costs, such as the speed lost by turning off an intrinsic.
+- Once a fixed JDK is available, update the `eclipse-temurin` tag and digest in `docker/Dockerfile` and `ethereum/evmtool/src/main/docker/Dockerfile`, and remove the workaround the update makes unnecessary.
+
+## Code style
+- Follow the style of the surrounding code. Format with `./gradlew spotlessApply`.
+- The code must compile with Error Prone and NullAway, whose warnings are errors in this build.
+- New files start with the Apache 2.0 header used in the repository, with the line `Copyright contributors to Besu.`.
+- Concise comments explain why the code does what it does. Describe the behaviour, not the attack.
+
+## Tests
+- Add a regression test next to the existing tests of the changed class (JUnit 5, AssertJ, Mockito). It must fail without the fix and pass with it.
+- Run the tests of the changed module, e.g. `./gradlew --offline :ethereum:eth:test`, and report the result.

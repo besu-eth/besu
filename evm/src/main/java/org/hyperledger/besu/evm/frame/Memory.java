@@ -54,6 +54,16 @@ public class Memory {
     memBytes = new byte[0];
   }
 
+  /**
+   * Returns the array backing this memory, for EVM v2 to read a child frame's call data from. The
+   * array is replaced when the memory grows, and must not be modified.
+   *
+   * @return the backing array
+   */
+  byte[] arrayV2() {
+    return memBytes;
+  }
+
   private static RuntimeException overflow(final long v) {
     return overflow(String.valueOf(v));
   }

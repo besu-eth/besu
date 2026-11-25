@@ -96,6 +96,17 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
+   * Returns whether a call to an account with an EIP-7702 delegation designator runs the code of
+   * the delegation target.
+   *
+   * @return true from Prague on
+   * @see EVM#followsCodeDelegation()
+   */
+  public boolean followsCodeDelegation() {
+    return evm.followsCodeDelegation();
+  }
+
+  /**
    * Start.
    *
    * @param frame the frame
