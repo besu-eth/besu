@@ -35,6 +35,7 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.REVERTED_CREATION_CALLER;
 
 import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
@@ -57,10 +58,15 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.function.Function;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -588,7 +594,7 @@ class OptimisticParallelBlockProcessorIntegrationTest {
               21_000L,
               0L,
               5L,
-              ACCOUNT_4,
+              ACCOUNT_GENESIS_2,
               SignatureAlgorithmFactory.getInstance().generateKeyPair());
 
       final TransactionProcessingResult result =
@@ -618,6 +624,34 @@ class OptimisticParallelBlockProcessorIntegrationTest {
           .payload(payload)
           .chainId(BigInteger.valueOf(42))
           .signAndBuild(keyPair);
+    }
+  }
+
+  @Nested
+  @DisplayName("Reuse of Speculative Results on Osaka")
+  class SpeculativeResultReuseOnOsaka extends SpeculativeResultReuse {
+
+    // the optimistic processor runs the blocks before Amsterdam, which carry no block access list
+    @Override
+    protected ExecutionContextTestFixture createFreshContext() {
+      final ObjectNode genesis = JsonUtil.objectNodeFromString(readGenesis());
+      ((ObjectNode) genesis.get("config")).remove("amsterdamTime");
+      return ExecutionContextTestFixture.builder(GenesisConfig.fromConfig(genesis))
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .build();
+    }
+
+    @Override
+    protected boolean buildsBlockAccessLists() {
+      return false;
+    }
+
+    private String readGenesis() {
+      try (InputStream genesis = getClass().getResourceAsStream(GENESIS_CONFIG)) {
+        return new String(genesis.readAllBytes(), StandardCharsets.UTF_8);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
     }
   }
 
