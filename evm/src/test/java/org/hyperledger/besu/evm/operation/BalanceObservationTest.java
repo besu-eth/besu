@@ -73,10 +73,12 @@ class BalanceObservationTest {
     return push(0) + push(0) + push(value) + CREATE;
   }
 
-  private final Map<Address, Wei> margins = new HashMap<>();
+  /** The balances a run read and the smallest margins of the balances it spent within. */
+  private record Observations(Set<Address> balances, Map<Address, Wei> margins) {}
 
-  private Set<Address> observedBalances(final boolean evmV2, final String code, final Wei value) {
+  private Observations observe(final boolean evmV2, final String code, final Wei value) {
     final Set<Address> observed = new HashSet<>();
+    final Map<Address, Wei> margins = new HashMap<>();
     final SimpleWorld world =
         new SimpleWorld() {
           @Override
@@ -106,12 +108,13 @@ class BalanceObservationTest {
         .gas(1_000_000)
         .code(Bytes.fromHexString(code))
         .execute();
-    return observed;
+    return new Observations(observed, margins);
   }
 
   @Test
   void updaterWithoutOverridesPassesObservationsToItsParent() {
     final Set<Address> observed = new HashSet<>();
+    final Map<Address, Wei> margins = new HashMap<>();
     final SimpleWorld root =
         new SimpleWorld() {
           @Override
@@ -137,62 +140,76 @@ class BalanceObservationTest {
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void balanceObservesTheTarget(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, PUSH_OTHER + BALANCE + STOP, Wei.ZERO))
+    assertThat(observe(evmV2, PUSH_OTHER + BALANCE + STOP, Wei.ZERO).balances())
         .containsExactly(OTHER);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void selfBalanceObservesTheContract(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, SELFBALANCE + STOP, Wei.ZERO)).containsExactly(CONTRACT);
+    assertThat(observe(evmV2, SELFBALANCE + STOP, Wei.ZERO).balances()).containsExactly(CONTRACT);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void callWithValueOnlyNeedsASufficientBalance(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, callOther(1) + STOP, Wei.ZERO)).isEmpty();
-    assertThat(margins).containsExactly(Map.entry(CONTRACT, Wei.of(999)));
+    final Observations observations = observe(evmV2, callOther(1) + STOP, Wei.ZERO);
+
+    assertThat(observations.balances()).isEmpty();
+    assertThat(observations.margins()).containsExactly(Map.entry(CONTRACT, Wei.of(999)));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void callWithMoreValueThanTheBalanceObservesTheCaller(final boolean evmV2) {
     // the contract holds 1000
-    assertThat(observedBalances(evmV2, callOther(2000) + STOP, Wei.ZERO)).containsExactly(CONTRACT);
-    assertThat(margins).isEmpty();
+    final Observations observations = observe(evmV2, callOther(2000) + STOP, Wei.ZERO);
+
+    assertThat(observations.balances()).containsExactly(CONTRACT);
+    assertThat(observations.margins()).isEmpty();
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void theSmallestMarginOfSeveralSpendingsCounts(final boolean evmV2) {
-    observedBalances(evmV2, callOther(1) + callOther(100) + STOP, Wei.ZERO);
+    final Observations observations =
+        observe(evmV2, callOther(1) + callOther(100) + STOP, Wei.ZERO);
+
     // the second call spends 100 of the 999 left after the first
-    assertThat(margins).containsExactly(Map.entry(CONTRACT, Wei.of(899)));
+    assertThat(observations.margins()).containsExactly(Map.entry(CONTRACT, Wei.of(899)));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void callWithoutValueObservesNothing(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, callOther(0) + STOP, Wei.ZERO)).isEmpty();
+    final Observations observations = observe(evmV2, callOther(0) + STOP, Wei.ZERO);
+
+    assertThat(observations.balances()).isEmpty();
+    assertThat(observations.margins()).isEmpty();
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void createWithValueOnlyNeedsASufficientBalance(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, createWithValue(1) + STOP, Wei.ZERO)).isEmpty();
-    assertThat(margins).containsExactly(Map.entry(CONTRACT, Wei.of(999)));
+    final Observations observations = observe(evmV2, createWithValue(1) + STOP, Wei.ZERO);
+
+    assertThat(observations.balances()).isEmpty();
+    assertThat(observations.margins()).containsExactly(Map.entry(CONTRACT, Wei.of(999)));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void selfDestructObservesTheContract(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, PUSH_OTHER + SELFDESTRUCT, Wei.ZERO))
+    assertThat(observe(evmV2, PUSH_OTHER + SELFDESTRUCT, Wei.ZERO).balances())
         .containsExactly(CONTRACT);
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   void receivingValueObservesNothing(final boolean evmV2) {
-    assertThat(observedBalances(evmV2, STOP, Wei.of(5))).isEmpty();
+    final Observations observations = observe(evmV2, STOP, Wei.of(5));
+
+    assertThat(observations.balances()).isEmpty();
+    assertThat(observations.margins()).isEmpty();
   }
 }
