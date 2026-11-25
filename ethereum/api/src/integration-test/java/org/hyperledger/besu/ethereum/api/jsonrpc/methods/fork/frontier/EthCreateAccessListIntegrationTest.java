@@ -24,8 +24,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcTestMethodsFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessListResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
@@ -196,7 +199,6 @@ public class EthCreateAccessListIntegrationTest {
     final CallParameter callParameter =
         ImmutableCallParameter.builder()
             .sender(Address.fromHexString("0x0000000000000000000000000000000000000000"))
-            .gas(1L)
             .gasPrice(Wei.fromHexString("0x9999999999"))
             .input(
                 Bytes.fromHexString(
@@ -214,16 +216,21 @@ public class EthCreateAccessListIntegrationTest {
   }
 
   @Test
-  public void shouldReturnExpectedValueForInsufficientGas() {
+  public void shouldReturnIntrinsicGasErrorWhenGasLimitIsBelowIntrinsicCost() {
+    // https://github.com/besu-eth/besu/issues/11848: the gas limit is what is too small, so the
+    // request fails with an error that names it instead of returning a gasUsed above the limit.
     final CallParameter callParameter = ImmutableCallParameter.builder().gas(1L).build();
 
     final JsonRpcRequestContext request = requestWithParams(callParameter);
-    final JsonRpcResponse expectedResponse =
-        new JsonRpcSuccessResponse(null, new CreateAccessListResult(new ArrayList<>(), 0xcf08));
 
     final JsonRpcResponse response = method.response(request);
 
-    assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcError error = ((JsonRpcErrorResponse) response).getError();
+    assertThat(error.getCode()).isEqualTo(RpcErrorType.INTRINSIC_GAS_EXCEEDS_LIMIT.getCode());
+    assertThat(error.getMessage())
+        .isEqualTo(
+            "Intrinsic gas exceeds gas limit (intrinsic gas cost 21000 exceeds gas limit 1)");
   }
 
   private void assertAccessListExpectedResult(

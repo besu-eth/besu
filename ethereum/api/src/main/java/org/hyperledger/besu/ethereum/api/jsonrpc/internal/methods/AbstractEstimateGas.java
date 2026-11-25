@@ -113,14 +113,13 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var maybeStateOverrides = getAddressStateOverrideMap(requestContext);
     final var pendingBlockHeader = transactionSimulator.simulatePendingBlockHeader();
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(pendingBlockHeader);
+    final var calculatedGasLimitUpperBound =
+        calculateGasLimitUpperBound(callParameter, pendingBlockHeader);
     final var gasLimitUpperBound =
-        adjustGasLimitUpperBound(
-            callParameter,
-            calculateGasLimitUpperBound(callParameter, pendingBlockHeader),
-            minTxCost);
+        adjustGasLimitUpperBound(callParameter, calculatedGasLimitUpperBound, minTxCost);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(
-          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
+      return boundBelowIntrinsicCostError(
+          requestContext, calculatedGasLimitUpperBound, gasLimitUpperBound, minTxCost);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -155,12 +154,13 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
     final var validationParams = getTransactionValidationParams(callParameter);
     final var maybeStateOverrides = getAddressStateOverrideMap(requestContext);
     final var minTxCost = getBlockchainQueries().getMinimumTransactionCost(blockHeader);
+    final var calculatedGasLimitUpperBound =
+        calculateGasLimitUpperBound(callParameter, blockHeader);
     final var gasLimitUpperBound =
-        adjustGasLimitUpperBound(
-            callParameter, calculateGasLimitUpperBound(callParameter, blockHeader), minTxCost);
+        adjustGasLimitUpperBound(callParameter, calculatedGasLimitUpperBound, minTxCost);
     if (gasLimitUpperBound < minTxCost) {
-      return errorResponse(
-          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
+      return boundBelowIntrinsicCostError(
+          requestContext, calculatedGasLimitUpperBound, gasLimitUpperBound, minTxCost);
     }
     final TransactionSimulationFunction simulationFunction =
         (cp, op) ->
@@ -212,11 +212,49 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
    * @param callParameter the call parameters of the request
    * @param gasLimitUpperBound the bound computed from the chain and the sender's account
    * @param minTxCost the intrinsic cost of the call at the simulated block
-   * @return the gas limit the call is simulated with
+   * @return the gas limit the call is simulated with. A value below {@code minTxCost} makes the
+   *     request fail with {@link RpcErrorType#INTRINSIC_GAS_EXCEEDS_LIMIT} when the bound computed
+   *     from the chain and the sender's account was at least {@code minTxCost}, so the gas limit
+   *     the caller provided is what is too small, and with {@link
+   *     RpcErrorType#TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE} otherwise.
    */
   protected long adjustGasLimitUpperBound(
       final CallParameter callParameter, final long gasLimitUpperBound, final long minTxCost) {
     return gasLimitUpperBound;
+  }
+
+  /**
+   * Chooses the error for a gas limit the call is simulated with that is below the intrinsic cost.
+   *
+   * <p>When the bound computed from the chain and the sender's account was already below the
+   * intrinsic cost, the sender cannot pay for the call, which is what {@link
+   * RpcErrorType#TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE} reports. Otherwise the bound was
+   * lowered by the gas limit the caller provided, which is the problem, so the error names the gas
+   * limit, with the same code and message that {@code eth_call} uses for a call whose gas limit is
+   * below its intrinsic cost.
+   *
+   * @param requestContext the request context
+   * @param calculatedGasLimitUpperBound the bound computed from the chain and the sender's account
+   * @param gasLimitUpperBound the gas limit the call is simulated with
+   * @param minTxCost the intrinsic cost of the call at the simulated block
+   * @return the error response
+   */
+  private JsonRpcErrorResponse boundBelowIntrinsicCostError(
+      final JsonRpcRequestContext requestContext,
+      final long calculatedGasLimitUpperBound,
+      final long gasLimitUpperBound,
+      final long minTxCost) {
+    if (calculatedGasLimitUpperBound < minTxCost) {
+      return errorResponse(
+          requestContext, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
+    }
+    return errorResponse(
+        requestContext,
+        JsonRpcError.from(
+            ValidationResult.invalid(
+                TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+                String.format(
+                    "intrinsic gas cost %d exceeds gas limit %d", minTxCost, gasLimitUpperBound))));
   }
 
   private Optional<RpcErrorType> validateBlockHeader(final Optional<BlockHeader> maybeBlockHeader) {

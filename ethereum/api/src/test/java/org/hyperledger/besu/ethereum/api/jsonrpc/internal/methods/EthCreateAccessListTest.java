@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -296,6 +297,58 @@ public class EthCreateAccessListTest {
   }
 
   @Test
+  public void shouldReturnIntrinsicGasErrorWhenProvidedGasLimitIsBelowIntrinsicCost() {
+    // https://github.com/besu-eth/besu/issues/11848: the gas limit is what is too small, not the
+    // sender's balance, so the error names the gas limit.
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO))
+            .withGas(MIN_TX_GAS_COST - 1_000L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethCreateAccessListRequest(callParameter, "latest");
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, intrinsicGasError(MIN_TX_GAS_COST - 1_000L));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verifyNoInteractions(transactionSimulator);
+  }
+
+  @Test
+  public void shouldReturnIntrinsicGasErrorWhenProvidedGasLimitIsBelowIntrinsicCostOnPending() {
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.ZERO))
+            .withGas(MIN_TX_GAS_COST - 1_000L)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethCreateAccessListRequest(callParameter);
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, intrinsicGasError(MIN_TX_GAS_COST - 1_000L));
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(transactionSimulator).simulatePendingBlockHeader();
+    verify(transactionSimulator, never())
+        .processOnPending(any(), any(), any(), any(), eq(pendingBlockHeader));
+  }
+
+  @Test
+  public void shouldKeepUpfrontGasCostErrorWhenTheSenderCannotPayForTheIntrinsicCost() {
+    // the bound is lowered by the sender's balance rather than by the gas limit of the request, so
+    // the balance is what is too low
+    when(blockchainQueries.accountBalance(any(), any())).thenReturn(Optional.of(Wei.of(1_000L)));
+    final CallParameter callParameter =
+        ImmutableCallParameter.copyOf(legacyTransactionCallParameter(Wei.of(1L)))
+            .withGas(MIN_TX_GAS_COST * 2)
+            .withInput(Bytes.fromHexString("0x6000"));
+    final JsonRpcRequestContext request = ethCreateAccessListRequest(callParameter, "latest");
+
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcErrorResponse(null, RpcErrorType.TRANSACTION_UPFRONT_GAS_COST_EXCEEDS_BALANCE);
+
+    assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verifyNoInteractions(transactionSimulator);
+  }
+
+  @Test
   public void shouldReportOutOfGasWhenProvidedGasLimitIsTooLow() {
     // https://github.com/besu-eth/besu/issues/11848
     final CallParameter callParameter =
@@ -543,6 +596,14 @@ public class EthCreateAccessListTest {
         .isEqualTo(expectedResponse);
     verify(transactionSimulator, times(2))
         .processOnPending(any(), eq(Optional.empty()), any(), any(), eq(pendingBlockHeader));
+  }
+
+  private JsonRpcError intrinsicGasError(final long gasLimit) {
+    return JsonRpcError.from(
+        ValidationResult.invalid(
+            TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+            String.format(
+                "intrinsic gas cost %d exceeds gas limit %d", MIN_TX_GAS_COST, gasLimit)));
   }
 
   private JsonRpcResponse responseWithMockTracer(

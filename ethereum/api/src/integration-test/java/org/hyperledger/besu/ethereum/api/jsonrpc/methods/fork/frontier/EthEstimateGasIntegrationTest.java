@@ -113,7 +113,6 @@ public class EthEstimateGasIntegrationTest {
     final CallParameter callParameter =
         ImmutableCallParameter.builder()
             .sender(Address.fromHexString("0x0000000000000000000000000000000000000000"))
-            .gas(1L)
             .gasPrice(Wei.fromHexString("0x9999999999"))
             .input(
                 Bytes.fromHexString(

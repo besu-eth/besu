@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CreateAccessListResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.CallParameter;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -138,12 +139,13 @@ public class EthCreateAccessList extends AbstractEstimateGas {
             result.isSuccessful() ? Optional.empty() : Optional.of(failureMessage(result)));
   }
 
-  private String failureMessage(final TransactionSimulatorResult result) {
-    if (result.result().getRevertReason().isPresent()) {
-      return DEFAULT_FAILURE_MESSAGE;
-    }
+  private String failureMessage(final TransactionSimulatorResult simulationResult) {
+    // A failing precompile sets a revert reason and also halts, so the halt wins, as in
+    // BlockStateCallResult. Geth reports the halt error in this field as well, for example
+    // "out of gas", so the halt reason is more useful to a caller than a generic revert message.
+    // A plain REVERT sets no halt reason, so it still reports "execution reverted".
+    final TransactionProcessingResult result = simulationResult.result();
     return result
-        .result()
         .getExceptionalHaltReason()
         .map(ExceptionalHaltReason::getDescription)
         .orElse(DEFAULT_FAILURE_MESSAGE);
