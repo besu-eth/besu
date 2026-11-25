@@ -17,7 +17,13 @@ package org.hyperledger.besu.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.net.URLConnection;
+import java.net.URLStreamHandler;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -721,6 +727,65 @@ public class JsonUtilTest {
     assertThat(result.get("a").asInt()).isEqualTo(1);
     assertThat(result.has("b")).isFalse();
     assertThat(result.get("c").asInt()).isEqualTo(3);
+  }
+
+  @Test
+  public void objectNodeFromURL_closesSourceWithoutExcludedFields() throws IOException {
+    final TrackingInputStream source = new TrackingInputStream("{\"a\":1,\"b\":2}");
+
+    final ObjectNode result = JsonUtil.objectNodeFromURL(urlFor(source), false);
+
+    assertThat(result.get("a").asInt()).isEqualTo(1);
+    assertThat(source.isClosed()).isTrue();
+  }
+
+  @Test
+  public void objectNodeFromURL_closesSourceWithExcludedFields() throws IOException {
+    final TrackingInputStream source = new TrackingInputStream("{\"a\":1,\"b\":2}");
+
+    final ObjectNode result = JsonUtil.objectNodeFromURL(urlFor(source), false, "b");
+
+    assertThat(result.get("a").asInt()).isEqualTo(1);
+    assertThat(result.has("b")).isFalse();
+    assertThat(source.isClosed()).isTrue();
+  }
+
+  private static URL urlFor(final InputStream inputStream) throws IOException {
+    return new URL(
+        null,
+        "test://json",
+        new URLStreamHandler() {
+          @Override
+          protected URLConnection openConnection(final URL url) {
+            return new URLConnection(url) {
+              @Override
+              public void connect() {}
+
+              @Override
+              public InputStream getInputStream() {
+                return inputStream;
+              }
+            };
+          }
+        });
+  }
+
+  private static class TrackingInputStream extends ByteArrayInputStream {
+    private boolean closed;
+
+    TrackingInputStream(final String input) {
+      super(input.getBytes(StandardCharsets.UTF_8));
+    }
+
+    @Override
+    public void close() throws IOException {
+      closed = true;
+      super.close();
+    }
+
+    boolean isClosed() {
+      return closed;
+    }
   }
 
   @Test
