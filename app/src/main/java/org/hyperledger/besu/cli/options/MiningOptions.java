@@ -28,6 +28,7 @@ import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DE
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_FINALIZATION_TIMEOUT_MS;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_SLOT_DURATION_SECS;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE;
 
 import org.hyperledger.besu.cli.converter.PositiveNumberConverter;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
@@ -178,6 +179,13 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         description =
             "Gas the prewarming executes for each head, as a multiple of the block gas limit (default: ${DEFAULT-VALUE})")
     Integer mempoolPrewarmGasLimitMultiplier = DEFAULT_MEMPOOL_PREWARM_GAS_LIMIT_MULTIPLIER;
+
+    @CommandLine.Option(
+        hidden = true,
+        names = {"--Xpos-validated-block-cache-size"},
+        description =
+            "Number of blocks built by this node whose validation results are cached, so that importing them does not execute them again. 0 disables the cache, so that every imported block is executed (default: ${DEFAULT-VALUE})")
+    private Long posValidatedBlockCacheSize = DEFAULT_POS_VALIDATED_BLOCK_CACHE_SIZE;
   }
 
   private TransactionSelectionService transactionSelectionService;
@@ -267,6 +275,11 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
           commandLine, "--Xmempool-prewarm-gas-limit-multiplier must be positive");
     }
 
+    if (unstableOptions.posValidatedBlockCacheSize < 0) {
+      throw new ParameterException(
+          commandLine, "--Xpos-validated-block-cache-size must be a non-negative value");
+    }
+
     CommandLineUtils.failIfOptionDoesntMeetRequirement(
         commandLine,
         "--block-txs-selection-max-time can only be used on networks with PoS support in the genesis file,"
@@ -344,6 +357,8 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         miningConfiguration.getUnstable().getMempoolPrewarmThreads();
     miningOptions.unstableOptions.mempoolPrewarmGasLimitMultiplier =
         miningConfiguration.getUnstable().getMempoolPrewarmGasLimitMultiplier();
+    miningOptions.unstableOptions.posValidatedBlockCacheSize =
+        miningConfiguration.getUnstable().getPosValidatedBlockCacheSize();
 
     miningConfiguration.getTargetGasLimit().ifPresent(tgl -> miningOptions.targetGasLimit = tgl);
     return miningOptions;
@@ -387,6 +402,7 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
                 .posBlockFinalizationTimeoutMs(unstableOptions.posBlockFinalizationTimeoutMs)
                 .mempoolPrewarmThreads(unstableOptions.mempoolPrewarmThreads)
                 .mempoolPrewarmGasLimitMultiplier(unstableOptions.mempoolPrewarmGasLimitMultiplier)
+                .posValidatedBlockCacheSize(unstableOptions.posValidatedBlockCacheSize)
                 .build())
         .build();
   }
