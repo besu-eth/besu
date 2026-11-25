@@ -50,6 +50,7 @@ public class TraceReplayTransactionStep
     transactionTrace
         .getResult()
         .getRevertReason()
+        .filter(__ -> transactionTrace.getResult().getExceptionalHaltReason().isEmpty())
         .ifPresent(revertReason -> builder.revertReason(revertReason.toHexString()));
 
     builder.output(transactionTrace.getResult().getOutput().toString());

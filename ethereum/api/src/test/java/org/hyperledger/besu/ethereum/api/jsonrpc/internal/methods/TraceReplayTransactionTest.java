@@ -71,6 +71,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 class TraceReplayTransactionTest {
@@ -81,6 +82,11 @@ class TraceReplayTransactionTest {
       Address.fromHexString("0x3000000000000000000000000000000000000003");
   // Increments storage slot zero, so each transaction depends on the ones before it.
   private static final Bytes COUNTER = Bytes.fromHexString("0x60005460010160005500");
+
+  private static final Address REVERTER =
+      Address.fromHexString("0x4000000000000000000000000000000000000004");
+  // Stores 0xaa in memory and reverts with that single byte.
+  private static final Bytes REVERT_WITH_DATA = Bytes.fromHexString("0x60aa60005360016000fd");
 
   private final Blockchain blockchain = mock(Blockchain.class);
   private final WorldStateArchive archive = mock(WorldStateArchive.class);
@@ -124,6 +130,7 @@ class TraceReplayTransactionTest {
     final WorldUpdater updater = state.updater();
     updater.getOrCreate(sender).setBalance(Wei.of(1_000_000_000));
     updater.getOrCreate(RECIPIENT).setCode(COUNTER);
+    updater.getOrCreate(REVERTER).setCode(REVERT_WITH_DATA);
     updater.commit();
     return state;
   }
@@ -136,6 +143,19 @@ class TraceReplayTransactionTest {
         .gasLimit(100_000)
         .gasPrice(Wei.of(2))
         .value(Wei.of(7))
+        .chainId(Optional.of(BigInteger.valueOf(20211)))
+        .createTransaction(keys);
+  }
+
+  private Transaction transactionTo(final Address to, final Bytes payload) {
+    return new TransactionTestFixture()
+        .sender(sender)
+        .nonce(0)
+        .to(Optional.of(to))
+        .gasLimit(200_000)
+        .gasPrice(Wei.of(2))
+        .value(Wei.ZERO)
+        .payload(payload)
         .chainId(Optional.of(BigInteger.valueOf(20211)))
         .createTransaction(keys);
   }
@@ -220,6 +240,45 @@ class TraceReplayTransactionTest {
     assertThat(expected.findValues("stateDiff")).hasSize(3).allMatch(diff -> !diff.isEmpty());
     schedule.setPermissionTransactionFilter((transaction, checkLocalPermissions) -> false);
     assertThat(replayBlock(types)).isEqualTo(expected);
+  }
+
+  static Stream<Arguments> rejectedPrecompileCalls() {
+    return Stream.of(
+        Arguments.of("0x0000000000000000000000000000000000000006", 128),
+        Arguments.of("0x0000000000000000000000000000000000000007", 96),
+        Arguments.of("0x0000000000000000000000000000000000000008", 192),
+        Arguments.of("0x000000000000000000000000000000000000000b", 256));
+  }
+
+  @ParameterizedTest
+  @MethodSource("rejectedPrecompileCalls")
+  void shouldNotReportRevertReasonForHaltedPrecompileCall(final String to, final int length) {
+    setBlock(
+        List.of(
+            transactionTo(
+                Address.fromHexString(to), Bytes.fromHexString("0x" + "01".repeat(length)))));
+    final List<String> types = List.of("trace");
+
+    final JsonNode single = replay(0, types);
+    assertThat(single.get("output").asText()).isEqualTo("0x");
+    assertThat(single.has("revertReason")).isFalse();
+    assertThat(single.at("/trace/0/error").asText()).isEqualTo("Precompile error");
+    assertThat(single.at("/trace/0").has("revertReason")).isFalse();
+
+    final JsonNode envelope = replayBlock(types).get(0);
+    assertThat(envelope).isEqualTo(single);
+  }
+
+  @Test
+  void shouldStillReportRevertReasonForRevertedTransaction() {
+    setBlock(List.of(transactionTo(REVERTER, Bytes.EMPTY)));
+    final List<String> types = List.of("trace");
+
+    final JsonNode single = replay(0, types);
+    assertThat(single.get("revertReason").asText()).isEqualTo("0xaa");
+    assertThat(single.at("/trace/0/error").asText()).isEqualTo("Reverted");
+    assertThat(single.at("/trace/0/revertReason").asText()).isEqualTo("0xaa");
+    assertThat(replayBlock(types).get(0)).isEqualTo(single);
   }
 
   @Test
