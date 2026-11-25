@@ -37,16 +37,17 @@ import org.apache.tuweni.units.bigints.UInt256;
 import org.jspecify.annotations.Nullable;
 
 /**
- * The footprints of one block's speculative runs, by transaction index: the storage slots each run
- * read and wrote, indexed by slot. A footprint that read a slot at a value other than the one the
- * transactions before it now leave there is invalidated, and can be refreshed: run again on those
- * values. The transactions block processing executes itself report their writes, which take the
- * place of what their footprints predicted.
+ * The read/write sets of one block's speculative runs, by transaction index: the storage slots each
+ * run read and wrote, indexed by slot. A run that read a slot at a value other than the one the
+ * transactions before it now leave there has its read/write set invalidated, and can be refreshed:
+ * run again on those values. The transactions block processing executes itself report their writes,
+ * which take the place of what their read/write sets predicted.
  *
- * <p>Workers store footprints and a refresh worker indexes reports under a lock. Block processing
- * only reads the latest footprint of a position and queues reports, so it never waits for the lock.
+ * <p>Workers store read/write sets and a refresh worker indexes reports under a lock. Block
+ * processing only reads the latest read/write set of a position and queues reports, so it never
+ * waits for the lock.
  */
-final class BlockFootprints {
+final class BlockReadWriteSets {
 
   /** Writers or readers indexed for one slot; past it, the slot is no longer tracked. */
   static final int MAX_INDEXED_PER_SLOT = 64;
@@ -64,7 +65,7 @@ final class BlockFootprints {
   record Write(Cell cell, UInt256 value) {}
 
   /** What a speculative run read and wrote. */
-  static final class Footprint {
+  static final class ReadWriteSet {
     final ParallelizedTransactionContext context;
     final Read[] reads;
     final Write[] writes;
@@ -73,7 +74,7 @@ final class BlockFootprints {
     final boolean refreshable;
 
     @VisibleForTesting
-    Footprint(
+    ReadWriteSet(
         final ParallelizedTransactionContext context,
         final Read[] reads,
         final Write[] writes,
@@ -89,16 +90,16 @@ final class BlockFootprints {
     }
 
     /**
-     * The footprint of a finished run. Every slot of the run's state was loaded, so each counts as
-     * read; it started from its seed, its chain predecessor's value or the parent's, in that order.
-     * The mining beneficiary's slots are left out, as in the collision check.
+     * The read/write set of a finished run. Every slot of the run's state was loaded, so each
+     * counts as read; it started from its seed, its chain predecessor's value or the parent's, in
+     * that order. The mining beneficiary's slots are left out, as in the collision check.
      *
      * @param context the finished run
      * @param miningBeneficiary the mining beneficiary of the block
      * @param seeds the values a refresh started from, or null for a run that is no refresh
-     * @return the footprint
+     * @return the read/write set
      */
-    static Footprint of(
+    static ReadWriteSet of(
         final ParallelizedTransactionContext context,
         final Address miningBeneficiary,
         final @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds) {
@@ -135,7 +136,7 @@ final class BlockFootprints {
         }
       }
       final Set<Address> cleared = Set.copyOf(accumulator.getStorageToClear());
-      return new Footprint(
+      return new ReadWriteSet(
           context,
           reads.toArray(Read[]::new),
           writes.toArray(Write[]::new),
@@ -146,7 +147,7 @@ final class BlockFootprints {
     }
   }
 
-  /** A transaction block processing executed itself, or took a footprint of. */
+  /** A transaction block processing executed itself, or took a read/write set of. */
   private record Report(
       int position, @Nullable List<RawWrite> writes, @Nullable Set<Address> cleared) {}
 
@@ -161,9 +162,9 @@ final class BlockFootprints {
 
   private final int size;
   private final Object lock = new Object();
-  private final AtomicReferenceArray<Footprint> latest;
+  private final AtomicReferenceArray<ReadWriteSet> latest;
   // guarded by lock
-  private final Footprint[] indexed;
+  private final ReadWriteSet[] indexed;
   private final Write[][] executedWrites;
   private final boolean[] executed;
   private final Map<Cell, Slot> slots = new HashMap<>();
@@ -175,10 +176,10 @@ final class BlockFootprints {
   private final Semaphore changed = new Semaphore(0);
   private volatile boolean finished;
 
-  BlockFootprints(final int size) {
+  BlockReadWriteSets(final int size) {
     this.size = size;
     this.latest = new AtomicReferenceArray<>(size);
-    this.indexed = new Footprint[size];
+    this.indexed = new ReadWriteSet[size];
     this.executedWrites = new Write[size][];
     this.executed = new boolean[size];
     this.invalidated = new BitSet(size);
@@ -188,8 +189,8 @@ final class BlockFootprints {
     return size;
   }
 
-  /** The footprint stored last for the position, refreshed or not. */
-  @Nullable Footprint latest(final int position) {
+  /** The read/write set stored last for the position, refreshed or not. */
+  @Nullable ReadWriteSet latest(final int position) {
     return position < size ? latest.get(position) : null;
   }
 
@@ -204,19 +205,19 @@ final class BlockFootprints {
   }
 
   /**
-   * Stores the footprint of a run, unless block processing already executed the transaction, or
-   * with {@code onlyIfEmpty} another footprint is stored for it.
+   * Stores the read/write set of a run, unless block processing already executed the transaction,
+   * or with {@code onlyIfEmpty} another read/write set is stored for it.
    *
    * @return whether it was stored
    */
-  boolean store(final int position, final Footprint footprint, final boolean onlyIfEmpty) {
+  boolean store(final int position, final ReadWriteSet readWriteSet, final boolean onlyIfEmpty) {
     final boolean wake;
     synchronized (lock) {
       if (executed[position] || (onlyIfEmpty && latest.get(position) != null)) {
         return false;
       }
-      latest.set(position, footprint);
-      wake = index(position, footprint);
+      latest.set(position, readWriteSet);
+      wake = index(position, readWriteSet);
     }
     if (wake) {
       changed.release();
@@ -224,7 +225,7 @@ final class BlockFootprints {
     return true;
   }
 
-  /** Queues that block processing took the footprint stored for the position. */
+  /** Queues that block processing took the read/write set stored for the position. */
   void reportTaken(final int position) {
     reported.add(new Report(position, null, null));
   }
@@ -260,12 +261,12 @@ final class BlockFootprints {
       executed[position] = true;
       invalidated.clear(position);
       if (report.writes() == null) {
-        // taken: the writes are the ones its footprint predicted, its reads no longer matter
-        final Footprint footprint = indexed[position];
-        if (footprint != null) {
-          unindexReads(position, footprint);
+        // taken: the writes are the ones its read/write set predicted, its reads no longer matter
+        final ReadWriteSet readWriteSet = indexed[position];
+        if (readWriteSet != null) {
+          unindexReads(position, readWriteSet);
           indexed[position] = null;
-          executedWrites[position] = footprint.writes;
+          executedWrites[position] = readWriteSet.writes;
         }
         return;
       }
@@ -307,18 +308,18 @@ final class BlockFootprints {
   }
 
   /**
-   * The seeds of a refresh of the footprint: for each slot it read, the value the footprints and
-   * writes before it now leave there. A refresh counts against the block's refreshes once it has
-   * seeds.
+   * The seeds of a refresh of the read/write set: for each slot it read, the value the read/write
+   * sets and writes before it now leave there. A refresh counts against the block's refreshes once
+   * it has seeds.
    *
    * @return the seeds by account, or null if no slot it read moved or one of them is not tracked
    */
   @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seedsFor(
-      final int position, final Footprint footprint) {
+      final int position, final ReadWriteSet readWriteSet) {
     synchronized (lock) {
       final Map<Address, Map<StorageSlotKey, UInt256>> seeds = new HashMap<>();
       boolean moved = false;
-      for (final Read read : footprint.reads) {
+      for (final Read read : readWriteSet.reads) {
         final Slot slot = slots.get(read.cell());
         if (untrackedAccounts.contains(read.cell().address()) || (slot != null && slot.untracked)) {
           return null;
@@ -341,15 +342,15 @@ final class BlockFootprints {
     }
   }
 
-  // Called under the lock. Indexes the footprint's writes and reads; marks it invalidated if one of
-  // its reads no longer holds, and the later readers its writes invalidate.
-  private boolean index(final int position, final Footprint footprint) {
-    for (final Address address : footprint.cleared) {
+  // Called under the lock. Indexes the read/write set's writes and reads; marks it invalidated if
+  // one of its reads no longer holds, and the later readers its writes invalidate.
+  private boolean index(final int position, final ReadWriteSet readWriteSet) {
+    for (final Address address : readWriteSet.cleared) {
       untrack(address);
     }
-    boolean wake = replace(position, footprint.writes, footprint);
+    boolean wake = replace(position, readWriteSet.writes, readWriteSet);
     boolean outdated = false;
-    for (final Read read : footprint.reads) {
+    for (final Read read : readWriteSet.reads) {
       if (untrackedAccounts.contains(read.cell().address())) {
         continue;
       }
@@ -371,8 +372,8 @@ final class BlockFootprints {
   // Called under the lock. Puts what the position now writes in place of what was indexed for it,
   // and marks the later readers of the slots either writes.
   private boolean replace(
-      final int position, final Write[] writes, final @Nullable Footprint footprint) {
-    final Footprint previous = indexed[position];
+      final int position, final Write[] writes, final @Nullable ReadWriteSet readWriteSet) {
+    final ReadWriteSet previous = indexed[position];
     final Write[] previousWrites = previous != null ? previous.writes : executedWrites[position];
     if (previousWrites != null) {
       for (final Write write : previousWrites) {
@@ -385,8 +386,8 @@ final class BlockFootprints {
     if (previous != null) {
       unindexReads(position, previous);
     }
-    indexed[position] = footprint;
-    executedWrites[position] = footprint == null ? writes : null;
+    indexed[position] = readWriteSet;
+    executedWrites[position] = readWriteSet == null ? writes : null;
     for (final Write write : writes) {
       if (untrackedAccounts.contains(write.cell().address())) {
         continue;
@@ -419,8 +420,8 @@ final class BlockFootprints {
     return wake;
   }
 
-  private void unindexReads(final int position, final Footprint footprint) {
-    for (final Read read : footprint.reads) {
+  private void unindexReads(final int position, final ReadWriteSet readWriteSet) {
+    for (final Read read : readWriteSet.reads) {
       final Slot slot = slots.get(read.cell());
       if (slot != null) {
         slot.readers.remove(position);
@@ -432,8 +433,8 @@ final class BlockFootprints {
     untrackedAccounts.add(address);
   }
 
-  // Marks the later footprints that read the slot at a value other than the one the block now
-  // leaves before them.
+  // Marks the later read/write sets whose runs read the slot at a value other than the one the
+  // block now leaves before them.
   private boolean invalidateReaders(final Cell cell, final int position) {
     final Slot slot = slots.get(cell);
     if (slot == null || slot.untracked) {
