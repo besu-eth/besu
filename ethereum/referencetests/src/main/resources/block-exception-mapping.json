@@ -108,7 +108,8 @@
     "_comment_tx_blob": "Blob transaction (EIP-4844) errors — type 3 tx specific validations",
     "TR_TypeNotSupportedBlob":                                   "Transaction type BLOB is invalid, accepted transaction types are|replay protected signatures is not supported",
     "TransactionException.TYPE_3_TX_BLOB_COUNT_EXCEEDED":        "Blob transaction has too many blobs: \\d+|Invalid Blob Count: \\d+|Header validation failed \\(",
-    "TransactionException.TYPE_3_TX_MAX_BLOB_GAS_ALLOWANCE_EXCEEDED": "Blob transaction 0x[0-9a-f]+ exceeds block blob gas limit: \\d+ > \\d+|total blob gas \\d+ exceeds max blob gas per block \\d+|Header validation failed \\("
+    "_comment_blob_count_block": "Invalid Blob Count is EngineNewPayloadV3's check of the blobs of all transactions in the block against the block's limit",
+    "TransactionException.TYPE_3_TX_MAX_BLOB_GAS_ALLOWANCE_EXCEEDED": "Blob transaction 0x[0-9a-f]+ exceeds block blob gas limit: \\d+ > \\d+|total blob gas \\d+ exceeds max blob gas per block \\d+|Header validation failed \\(|Invalid Blob Count: \\d+"
   },
 
   "engine": {

@@ -38,7 +38,6 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -115,8 +114,9 @@ public class EngineTestCaseSpec {
 
   /**
    * Builds {@link BlobScheduleOptions} from the fixture's {@code config.blobSchedule}. Fork keys
-   * are lower-cased because Besu reads them as {@code cancun}/{@code prague}/{@code bpo1}..{@code
-   * bpo5} whereas fixtures use {@code Cancun}/{@code BPO1} etc.
+   * go through {@link ReferenceTestProtocolSchedules#blobScheduleKey} because Besu reads them as
+   * {@code cancun}/{@code prague}/{@code bpo1}..{@code bpo5} whereas fixtures use {@code
+   * Cancun}/{@code BPO1} etc.
    *
    * @return the blob schedule options, or empty when the fixture carries no blob schedule
    */
@@ -140,7 +140,7 @@ public class EngineTestCaseSpec {
       entry.put("target", asInt(value.get("target")));
       entry.put("max", asInt(value.get("max")));
       entry.put("basefeeupdatefraction", asInt(value.get("baseFeeUpdateFraction")));
-      root.set(fork.getKey().toLowerCase(Locale.ROOT), entry);
+      root.set(ReferenceTestProtocolSchedules.blobScheduleKey(fork.getKey()), entry);
     }
     return Optional.of(new BlobScheduleOptions(root));
   }
