@@ -80,7 +80,7 @@ When block processing reaches a transaction, `getProcessingResult` does three th
 
 1. If the transaction's run has not finished, block processing executes the transaction itself and the run is thrown away.
 2. `TransactionCollisionDetector.carryOverIfNoCollision` checks whether the earlier transactions of the block changed anything the run touched: the nonce, balance or code of an account, a storage slot, or storage that was cleared. A run that touched the coinbase account usually finds its balance changed, since every transaction with a priority fee pays the fee to it. A change to a balance, or to a balance and a nonce, is often no collision, as [Balance changes](#balance-changes) explains.
-3. Without a collision, block processing **takes** the result: it imports the run's changes into the block's accumulator and credits the transaction's fee to the coinbase account, which the run kept aside.
+3. Without a collision, block processing **takes** the result: it imports the run's changes into the block's accumulator and credits the transaction's fee to the coinbase account, which the run kept aside. A run whose transaction touched the coinbase account itself already holds the fee, as [The coinbase account](#balance-changes) explains.
 
 A reverted or halted result is taken like a successful one when nothing it read has changed. An invalid result is never taken.
 
@@ -90,7 +90,7 @@ A collision means the run read something that has changed since, so block proces
 
 Many transactions touch an account whose balance an earlier transaction of the block changed: a payment to WETH, to the Uniswap v4 pool manager, to the ERC-4337 entry point, or to an account that received ETH earlier in the block. Most of them only add to that balance, or only need it to be large enough for what they spend. Their result still holds when the transaction's balance change is carried over to the balance the block has reached.
 
-**Balance observations.** The EVM reports which balances a transaction depends on. BALANCE, SELFBALANCE and SELFDESTRUCT report through `WorldUpdater.observeBalance`, and so does a value-carrying CALL, CREATE or PAY whose balance is too small. One whose balance is large enough reports by how much it was large enough (`observeSufficientBalance`). Each updater passes the reports on to its parent. Only a worker's accumulator records them (`recordBalanceObservations`), keeping the smallest margin per account.
+**Balance observations.** The EVM reports which balances a transaction depends on. BALANCE, SELFBALANCE and SELFDESTRUCT report through `WorldUpdater.observeBalance`, and so does a value-carrying CALL, CREATE or PAY whose balance is too small. One whose balance is large enough reports by how much it was large enough (`observeSufficientBalance`). Each updater sends the reports straight to the updater that records them, which it looks up once when it is created (`WorldUpdater.balanceObserver()`); an updater that does not say otherwise reports where its parent does. Only a worker's accumulator records them (`recordBalanceObservations`), keeping the smallest margin per account.
 
 **When a balance change is carried over.** An earlier transaction may have changed the balance of an account the run touched, but not its code. That is no collision when all of these hold:
 
