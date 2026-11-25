@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.slots;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -42,9 +44,11 @@ import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
+import java.util.Optional;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
@@ -95,6 +99,29 @@ class StateWriterTest {
     assertThat(coverage.isPending(written.storageTasks().getFirst())).isTrue();
     assertThat(written.codeHashes()).containsExactly(Bytes32.wrap(Hash.hash(CODE).getBytes()));
     assertThat(writer.accountsWritten()).isEqualTo(2);
+  }
+
+  // the sorted writes ask whether the storage of an account is pending when they get the account
+  @Test
+  void makesTheStorageOfAnAccountPendingBeforeTheSortedWritesGetTheAccount() {
+    final SyncStateStorage mocked = mock(SyncStateStorage.class, Answers.CALLS_REAL_METHODS);
+    when(mocked.batch()).thenReturn(mock(SyncStateStorage.Batch.class));
+    final SyncStateStorage.SortedWrites sorted = mock(SyncStateStorage.SortedWrites.class);
+    when(mocked.sortedWrites()).thenReturn(Optional.of(sorted));
+    final List<Boolean> pendingWhenHandedOver = new ArrayList<>();
+    doAnswer(invocation -> pendingWhenHandedOver.add(coverage.storageTask(FIRST) != null))
+        .when(sorted)
+        .accounts(any(), any(), any(), any(), anyBoolean());
+    final Bytes withStorage = account(Hash.wrap(root(storage)), Hash.EMPTY);
+    final Bytes plain = account(Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+
+    new StateWriter(mocked, coverage)
+        .accounts(
+            accountRange(FIRST, THIRD),
+            new AccountRangeRequest.Result(
+                List.of(FIRST, SECOND), List.of(withStorage, plain), false));
+
+    assertThat(pendingWhenHandedOver).containsExactly(true);
   }
 
   @Test

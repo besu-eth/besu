@@ -88,6 +88,8 @@ final class StateWriter {
             writeAccounts(
                 result, count, sorted.isEmpty() ? batch : null, storageTasks, codeHashes));
     final boolean done = reachesLimit(hashes, result.hasMore(), request.limit);
+    // before the sorted writes get the accounts: one whose storage is not pending counts as done
+    storageTasks.forEach(coverage::addStorageTask);
     sorted.ifPresent(
         writes ->
             writes.accounts(
@@ -98,7 +100,6 @@ final class StateWriter {
                 done));
     // a copy, as keys decoded from a response slice the whole message
     final Bytes32 end = coveredEnd(hashes, result.hasMore(), request.limit).copy();
-    storageTasks.forEach(coverage::addStorageTask);
     coverage.accounts().add(request.origin, end);
     accountsWritten.addAndGet(count);
     return new AccountsWritten(end, done, storageTasks, codeHashes);
