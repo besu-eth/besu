@@ -292,7 +292,8 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       builder.eip7928AccessList(frame.getEip7928AccessList().get());
     }
 
-    builder.build();
+    // the callee reads its call data straight from this frame's memory, without copying it
+    builder.build().inputDataFromCallerMemoryV2(frame, inputDataOffset, inputDataLength);
     // see note in stack depth check about incrementing cost
     frame.incrementRemainingGas(cost);
 
