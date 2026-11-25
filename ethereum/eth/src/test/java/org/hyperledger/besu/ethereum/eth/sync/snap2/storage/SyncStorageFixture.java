@@ -78,7 +78,7 @@ public final class SyncStorageFixture {
             (BonsaiWorldStateKeyValueStorage)
                 provider.createWorldStateStorage(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
         final BonsaiSyncStateStorage sync =
-            new BonsaiSyncStateStorage(bonsai, format == Format.BONSAI_SORTED, true);
+            new BonsaiSyncStateStorage(bonsai, format == Format.BONSAI_SORTED);
         if (format == Format.BONSAI_SORTED) {
           // starts the sorted writes, as a sync does
           sync.prepareForSync();

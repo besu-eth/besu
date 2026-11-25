@@ -244,20 +244,14 @@ public final class Snap2SyncFactory {
       final WorldStateStorageCoordinator coordinator,
       final StorageProvider storageProvider,
       final SnapSyncConfiguration snapConfig) {
-    final boolean sortedIngest = Boolean.TRUE.equals(snapConfig.isSnap2SortedIngestEnabled());
     return switch (coordinator.getDataStorageFormat()) {
       case BONSAI ->
           new BonsaiSyncStateStorage(
               coordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class),
-              sortedIngest,
-              Boolean.TRUE.equals(snapConfig.isSnap2SortedIngestTrieHeldBack()));
-      case FOREST -> {
-        if (sortedIngest) {
-          LOG.warn("The SNAP2 state is only written as sorted files with Bonsai");
-        }
-        yield new ForestSyncStateStorage(
-            coordinator.getStrategy(ForestWorldStateKeyValueStorage.class), storageProvider);
-      }
+              Boolean.TRUE.equals(snapConfig.isSnap2SortedIngestEnabled()));
+      case FOREST ->
+          new ForestSyncStateStorage(
+              coordinator.getStrategy(ForestWorldStateKeyValueStorage.class), storageProvider);
       case X_BONSAI_ARCHIVE ->
           throw new IllegalStateException(
               "SNAP2 sync needs the BONSAI or FOREST data storage format, not X_BONSAI_ARCHIVE");

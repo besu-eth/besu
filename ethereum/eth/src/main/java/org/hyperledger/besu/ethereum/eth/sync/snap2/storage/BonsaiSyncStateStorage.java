@@ -78,7 +78,6 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
   private final BonsaiWorldStateKeyValueStorage bonsai;
   private final long maxSortedStorageBytes;
   private final boolean sortedFlatState;
-  private final boolean trieHeldBack;
   // the bytes of account nodes that the partition writers open at the same time hold together
   private final long trieNodeBudget;
   private final AtomicInteger openTrieWriters = new AtomicInteger();
@@ -87,7 +86,7 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
   private volatile SegmentBulkLoad bulkLoad;
 
   public BonsaiSyncStateStorage(final BonsaiWorldStateKeyValueStorage bonsai) {
-    this(bonsai, false, false);
+    this(bonsai, false);
   }
 
   /**
@@ -95,20 +94,12 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
    *
    * @param bonsai the Bonsai storage
    * @param sortedFlatState whether to write the downloaded accounts and slots, and the nodes of the
-   *     final trie build, as sorted files, with the compaction of the flat state segments held back
-   *     until the sync is complete
-   * @param trieHeldBack whether the compaction of the trie node segment waits too
+   *     final trie build, as sorted files, with the compaction of the flat state and trie node
+   *     segments held back until the sync is complete
    */
   public BonsaiSyncStateStorage(
-      final BonsaiWorldStateKeyValueStorage bonsai,
-      final boolean sortedFlatState,
-      final boolean trieHeldBack) {
-    this(
-        bonsai,
-        MAX_SORTED_STORAGE_BYTES,
-        SortedStateIngest.memoryLimit(),
-        sortedFlatState,
-        trieHeldBack);
+      final BonsaiWorldStateKeyValueStorage bonsai, final boolean sortedFlatState) {
+    this(bonsai, MAX_SORTED_STORAGE_BYTES, SortedStateIngest.memoryLimit(), sortedFlatState);
   }
 
   @VisibleForTesting
@@ -122,21 +113,19 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
       final BonsaiWorldStateKeyValueStorage bonsai,
       final long maxSortedStorageBytes,
       final long trieNodeBudget) {
-    this(bonsai, maxSortedStorageBytes, trieNodeBudget, true, true);
+    this(bonsai, maxSortedStorageBytes, trieNodeBudget, true);
   }
 
   private BonsaiSyncStateStorage(
       final BonsaiWorldStateKeyValueStorage bonsai,
       final long maxSortedStorageBytes,
       final long trieNodeBudget,
-      final boolean sortedFlatState,
-      final boolean trieHeldBack) {
+      final boolean sortedFlatState) {
     super(bonsai.getComposedWorldStateStorage(), ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE);
     this.bonsai = bonsai;
     this.maxSortedStorageBytes = maxSortedStorageBytes;
     this.trieNodeBudget = trieNodeBudget;
     this.sortedFlatState = sortedFlatState;
-    this.trieHeldBack = trieHeldBack;
   }
 
   @Override
@@ -416,13 +405,12 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
     endSortedFlatState();
     bonsai.clear();
     if (sortedFlatState) {
-      // the compactions of the state segments wait, so that the files stay where they are put; the
-      // bytecodes come in no key order, and each compaction on their way down would rewrite them
+      // the compactions of the state and trie segments wait, so that the files stay where they are
+      // put; the bytecodes come in no key order, and each compaction on their way down would
+      // rewrite them
       bulkLoad =
           flat.startBulkLoad(
-              trieHeldBack
-                  ? List.of(ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE)
-                  : List.of(ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE),
+              List.of(ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE),
               List.of(CODE_STORAGE));
       // after the load, as a load that fails to start would leave its thread behind
       stats = new SortedIngestStats();
