@@ -161,6 +161,25 @@ class BonsaiSyncStateStorageTest {
     assertThat(storage.hasStorageTrie(SECOND, hash)).isFalse();
   }
 
+  // two partitions built at once: each writes its account nodes once it holds half the budget
+  @Test
+  void writesTheAccountNodesOfAPartitionOnceItHoldsItsShareOfTheBudget() {
+    final SyncStateStorage sorted = new BonsaiSyncStateStorage(bonsai, 1L << 30, 100);
+    final SyncStateStorage.TrieWriter first = sorted.partitionTrieWriter();
+    final SyncStateStorage.TrieWriter second = sorted.partitionTrieWriter();
+    final Bytes rlp = Bytes.fromHexString("0x" + "c2".repeat(30));
+    final Bytes32 hash = Bytes32.wrap(Hash.hash(rlp).getBytes());
+
+    first.accountNode(Bytes.of(1), hash, rlp);
+    assertThat(bonsai.getTrieNodeUnsafe(Bytes.of(1))).isEmpty();
+    first.accountNode(Bytes.of(2), hash, rlp);
+
+    assertThat(bonsai.getTrieNodeUnsafe(Bytes.of(1))).contains(rlp);
+    assertThat(bonsai.getTrieNodeUnsafe(Bytes.of(2))).contains(rlp);
+    first.commit();
+    second.commit();
+  }
+
   @Test
   void savesTheWorldStateOfTheBlock() {
     final Bytes rootNode = Bytes.fromHexString("0xc28080");

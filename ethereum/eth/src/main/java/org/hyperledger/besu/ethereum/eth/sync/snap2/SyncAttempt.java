@@ -152,8 +152,9 @@ final class SyncAttempt {
             .start(firstPivot)
             .exceptionallyCompose(this::stateFailed)
             .thenCompose(unused -> moves.settle())
-            .thenCompose(unused -> moves.catchUp())
+            // the merge first, so that the catch-up moves the pivot next to the head as it is then
             .thenCompose(unused -> prepareTrieBuild())
+            .thenCompose(unused -> moves.catchUp())
             .thenComposeAsync(unused -> buildTriesWithWindow(), context.executor())
             .thenApply(
                 pivot -> {
@@ -408,6 +409,7 @@ final class SyncAttempt {
     if (cancelled) {
       return CompletableFuture.failedFuture(new CancellationException("attempt abandoned"));
     }
+    stage = Stage.TRIES;
     trieBuildPrepared = context.storage().prepareTrieBuild();
     return trieBuildPrepared;
   }

@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -83,26 +84,40 @@ final class StateWriter {
     final List<StorageTask> storageTasks = new ArrayList<>();
     final Set<Bytes32> codeHashes = new LinkedHashSet<>();
     final Optional<SyncStateStorage.SortedWrites> sorted = storage.sortedWrites();
-    storage.write(
-        batch ->
-            writeAccounts(
-                result, count, sorted.isEmpty() ? batch : null, storageTasks, codeHashes));
+    writeFlat(sorted, batch -> writeAccounts(result, count, batch, storageTasks, codeHashes));
     final boolean done = reachesLimit(hashes, result.hasMore(), request.limit);
     // before the sorted writes get the accounts: one whose storage is not pending counts as done
     storageTasks.forEach(coverage::addStorageTask);
-    sorted.ifPresent(
-        writes ->
-            writes.accounts(
-                request.limit,
-                hashes.subList(0, count),
-                result.accounts().subList(0, count),
-                storageTasks.stream().map(StorageTask::accountHash).toList(),
-                done));
+    try {
+      sorted.ifPresent(
+          writes ->
+              writes.accounts(
+                  request.limit,
+                  hashes.subList(0, count),
+                  result.accounts().subList(0, count),
+                  storageTasks.stream().map(StorageTask::accountHash).toList(),
+                  done));
+    } catch (final RuntimeException e) {
+      // no queue holds them, and the range asked again may no longer return their accounts
+      storageTasks.forEach(coverage::removeStorageTask);
+      throw e;
+    }
     // a copy, as keys decoded from a response slice the whole message
     final Bytes32 end = coveredEnd(hashes, result.hasMore(), request.limit).copy();
     coverage.accounts().add(request.origin, end);
     accountsWritten.addAndGet(count);
     return new AccountsWritten(end, done, storageTasks, codeHashes);
+  }
+
+  // with sorted writes, the accounts and slots go into them: a batch would stay empty
+  private void writeFlat(
+      final Optional<SyncStateStorage.SortedWrites> sorted,
+      final Consumer<SyncStateStorage.Batch> writes) {
+    if (sorted.isPresent()) {
+      writes.accept(null);
+    } else {
+      storage.write(writes);
+    }
   }
 
   // the accounts go into the batch, or into the sorted files without one
@@ -242,7 +257,8 @@ final class StateWriter {
     final List<Covered> covered = new ArrayList<>();
     final Optional<SyncStateStorage.SortedWrites> sorted = storage.sortedWrites();
     final List<SortedSlots> sortedSlots = new ArrayList<>();
-    storage.write(
+    writeFlat(
+        sorted,
         batch -> {
           for (int i = 0; i < result.accounts().size(); i++) {
             final StorageTask task = request.tasks.get(i);
@@ -351,13 +367,16 @@ final class StateWriter {
         slotsWritten.addAndGet(range.slots());
       }
       if (outcome == COMPLETED) {
-        // its slots can go into the sorted files once those of the accounts before it are in
-        storage.sortedWrites().ifPresent(writes -> writes.storageComplete(task.accountHash()));
         coverage.removeStorageTask(task);
         completed.add(task);
       }
     }
     writeRootNodes(completed, writer);
+    // last: a range asked again after a failure here finds its storage complete, and the next flush
+    // stores the slots the sorted writes still hold
+    storage
+        .sortedWrites()
+        .ifPresent(writes -> completed.forEach(task -> writes.storageComplete(task.accountHash())));
   }
 
   // a completed storage gets the root node of its trie, or is left to the final build

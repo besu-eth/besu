@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -111,6 +112,32 @@ class SyncAttemptTest {
                                         Bytes.concatenate(account, slot).toArrayUnsafe())
                                     .map(value -> UInt256.fromBytes(Bytes.wrap(value))))
                             .contains(UInt256.fromBytes(RLP.decodeOne(leaf)))));
+  }
+
+  // the tries are built next to the head as it is once the storage is ready for the build
+  @Test
+  void movesThePivotNextToTheHeadOnceTheStorageIsReadyForTheBuild() {
+    chain.extend(12);
+    final CompletableFuture<Void> ready = new CompletableFuture<>();
+    final AtomicBoolean preparing = new AtomicBoolean();
+    doAnswer(
+            invocation -> {
+              preparing.set(true);
+              return ready;
+            })
+        .when(node.storage)
+        .prepareTrieBuild();
+    final SyncAttempt attempt = attempt(8);
+    final CompletableFuture<BlockHeader> synced = attempt.start();
+
+    node.runUntil(preparing::get);
+    assertThat(attempt.stage()).isEqualTo(SyncAttempt.Stage.TRIES);
+    chain.extend(8);
+    ready.complete(null);
+    node.runUntil(synced::isDone);
+
+    assertThat(synced).isCompletedWithValue(chain.header(16));
+    assertThat(node.bonsai.getWorldStateRootHash()).contains(chain.world(16).root());
   }
 
   @Test

@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStorageFixture.Format;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 
@@ -160,6 +161,36 @@ class Snap2SyncControllerTest {
     assertThat(node.blockchain.getChainHeadBlockNumber()).isZero();
   }
 
+  // the next sync, a resync on the same database, starts its own bulk load
+  @Test
+  void endsTheSortedStateWhenStopped() {
+    final SyncFixture sorted = new SyncFixture(31, Format.BONSAI_SORTED);
+    sorted.chain.extend(12);
+    final Snap2SyncController controller = controller(sorted, Optional.empty());
+    controller.start();
+    sorted.round();
+    assertThat(sorted.storage.sortedWrites()).isPresent();
+
+    controller.stop();
+
+    assertThat(sorted.storage.sortedWrites()).isEmpty();
+  }
+
+  @Test
+  void endsTheSortedStateWhenTheSyncFails() {
+    final SyncFixture sorted = new SyncFixture(31, Format.BONSAI_SORTED);
+    sorted.chain.extend(12);
+    // a checkpoint no peer serves starts each attempt over
+    final Snap2SyncController controller =
+        controller(sorted, Optional.of(checkpoint(2, Hash.ZERO)));
+    final CompletableFuture<SnapSyncProcessState> result = controller.start();
+
+    sorted.runUntil(result::isDone);
+
+    assertThat(result).isCompletedExceptionally();
+    assertThat(sorted.storage.sortedWrites()).isEmpty();
+  }
+
   @Test
   void wipesNothingOnceStopped() {
     final Snap2SyncController controller = controller(Optional.empty());
@@ -192,14 +223,19 @@ class Snap2SyncControllerTest {
   }
 
   private Snap2SyncController controller(final Optional<Checkpoint> checkpoint) {
+    return controller(node, checkpoint);
+  }
+
+  private Snap2SyncController controller(
+      final SyncFixture fixture, final Optional<Checkpoint> checkpoint) {
     return new Snap2SyncController(
-        node.context(checkpoint),
-        node.network,
+        fixture.context(checkpoint),
+        fixture.network,
         checkpoint.map(Checkpoint::blockNumber).orElse(0L),
         Duration.ofSeconds(2),
         Snap2SyncController.markerFile(dataDirectory),
         handedOver::add,
-        node.executor,
+        fixture.executor,
         control,
         metricsSystem);
   }

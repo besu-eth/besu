@@ -100,6 +100,12 @@ public interface SyncStateStorage {
   void completeSync();
 
   /**
+   * Ends what {@link #prepareForSync} started once the sync stopped or failed, so that a later sync
+   * on the same database can start again. What was written stays.
+   */
+  default void abandonSync() {}
+
+  /**
    * Returns the writer of the downloaded accounts and slots as sorted files, when the storage takes
    * them in that way. Without it they are written with {@link #batch()}.
    */

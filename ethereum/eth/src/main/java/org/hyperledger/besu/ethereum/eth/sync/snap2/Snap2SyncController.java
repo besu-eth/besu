@@ -142,6 +142,8 @@ final class Snap2SyncController implements SnapSyncController {
     if (attempt != null) {
       attempt.cancel();
     }
+    // now, as a resync starts on the same database without waiting for this one to end
+    context.storage().abandonSync();
     result.cancel(false);
   }
 
@@ -382,6 +384,7 @@ final class Snap2SyncController implements SnapSyncController {
       if (!stopped) {
         LOG.error("SNAP2 sync failed", error);
       }
+      context.storage().abandonSync();
       scheduler.stop();
       result.completeExceptionally(error);
     }
