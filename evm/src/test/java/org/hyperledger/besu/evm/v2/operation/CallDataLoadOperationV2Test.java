@@ -43,9 +43,18 @@ class CallDataLoadOperationV2Test extends UnaryOperationV2Test {
   @ParameterizedTest(name = "calldataload({0}) = {1}")
   @CsvSource({
     "0x00, 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    // the last word that lies wholly in the call data
     "0x08, 0x090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728",
     // past the end of the call data the word is padded with zeros
     "0x09, 0x0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526272800",
+    // the call data ends inside a limb
+    "0x11, 0x12131415161718191a1b1c1d1e1f202122232425262728000000000000000000",
+    // the call data ends one byte into a limb, after a whole limb
+    "0x1f, 0x2021222324252627280000000000000000000000000000000000000000000000",
+    // the call data ends on a limb boundary
+    "0x10, 0x1112131415161718191a1b1c1d1e1f2021222324252627280000000000000000",
+    "0x18, 0x191a1b1c1d1e1f20212223242526272800000000000000000000000000000000",
+    "0x20, 0x2122232425262728000000000000000000000000000000000000000000000000",
     "0x27, 0x2800000000000000000000000000000000000000000000000000000000000000",
     "0x28, 0x00",
     "0x7fffffff, 0x00",
@@ -67,6 +76,136 @@ class CallDataLoadOperationV2Test extends UnaryOperationV2Test {
     assertThat(frame.stackTopV2()).isEqualTo(1);
     assertThat(getV2StackItem(frame, 0))
         .isEqualTo(UInt256.fromBytesBE(Bytes32.fromHexString(expected).toArrayUnsafe()));
+  }
+
+  @ParameterizedTest(name = "calldataload({1}) of {0} = {2}")
+  @CsvSource({
+    "0x, 0x00, 0x00",
+    "0x0102030405, 0x00, 0x0102030405000000000000000000000000000000000000000000000000000000",
+    "0x0102030405, 0x03, 0x0405000000000000000000000000000000000000000000000000000000000000",
+    "0x0102030405, 0x05, 0x00",
+    // the dispatcher loading the selector of a function without arguments
+    "0x18160ddd, 0x00, 0x18160ddd00000000000000000000000000000000000000000000000000000000"
+  })
+  void loadsAWordOfCallDataShorterThanAWord(
+      final String callData, final String offset, final String expected) {
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .inputData(Bytes.fromHexString(callData))
+            .pushStackItem(Bytes32.fromHexString(offset))
+            .build();
+
+    final Operation.OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isNull();
+    assertThat(getV2StackItem(frame, 0))
+        .isEqualTo(UInt256.fromBytesBE(Bytes32.fromHexString(expected).toArrayUnsafe()));
+  }
+
+  @ParameterizedTest(name = "calldataload({0}) of a slice = {1}")
+  @CsvSource({
+    "0x00, 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    // the bytes after the slice are not part of the call data
+    "0x27, 0x2800000000000000000000000000000000000000000000000000000000000000",
+    "0x28, 0x00"
+  })
+  void loadsAWordOfCallDataThatIsASliceOfLargerBytes(final String offset, final String expected) {
+    final Bytes backing =
+        Bytes.concatenate(
+            Bytes.fromHexString("0xeeeeeeee"),
+            CALL_DATA,
+            Bytes.fromHexString("0xffffffffffffffff"));
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .inputData(backing.slice(4, CALL_DATA.size()))
+            .pushStackItem(Bytes32.fromHexString(offset))
+            .build();
+
+    operation.execute(frame, null);
+
+    assertThat(getV2StackItem(frame, 0))
+        .isEqualTo(UInt256.fromBytesBE(Bytes32.fromHexString(expected).toArrayUnsafe()));
+  }
+
+  @ParameterizedTest(name = "calldataload({0}) from the caller's memory = {1}")
+  @CsvSource({
+    "0x00, 0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+    "0x08, 0x090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728",
+    // the caller's memory after the call data is not part of it
+    "0x09, 0x0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526272800",
+    "0x27, 0x2800000000000000000000000000000000000000000000000000000000000000",
+    "0x28, 0x00"
+  })
+  void loadsAWordOfCallDataFromTheCallersMemory(final String offset, final String expected) {
+    final MessageFrame caller = new TestMessageFrameBuilderV2().build();
+    // the call data at 0x80, between bytes that are not part of it
+    caller.writeMemory(0x00, 0x80, Bytes.repeat((byte) 0xee, 0x80));
+    caller.writeMemory(0x80, CALL_DATA.size(), CALL_DATA);
+    caller.writeMemory(0x80 + CALL_DATA.size(), 0x40, Bytes.repeat((byte) 0xff, 0x40));
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .inputData(CALL_DATA)
+            .pushStackItem(Bytes32.fromHexString(offset))
+            .build();
+    frame.inputDataFromCallerMemoryV2(caller, 0x80, CALL_DATA.size());
+
+    operation.execute(frame, null);
+
+    assertThat(getV2StackItem(frame, 0))
+        .isEqualTo(UInt256.fromBytesBE(Bytes32.fromHexString(expected).toArrayUnsafe()));
+  }
+
+  @Test
+  void loadsZeroFromEmptyCallDataFromTheCallersMemory() {
+    final MessageFrame caller = new TestMessageFrameBuilderV2().build();
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .inputData(Bytes.EMPTY)
+            .pushStackItem(Bytes32.fromHexString("0x00"))
+            .build();
+    frame.inputDataFromCallerMemoryV2(caller, Long.MAX_VALUE, 0);
+
+    operation.execute(frame, null);
+
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.ZERO);
+  }
+
+  @Test
+  void loadsFromTheSameCallDataArrayAgain() {
+    // a slice of larger bytes, so that toArrayUnsafe() copies and only the cache returns the same
+    // array again
+    final Bytes backing =
+        Bytes.concatenate(
+            Bytes.fromHexString("0xeeeeeeee"),
+            CALL_DATA,
+            Bytes.fromHexString("0xffffffffffffffff"));
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .inputData(backing.slice(4, CALL_DATA.size()))
+            .pushStackItem(Bytes32.fromHexString("0x09"))
+            .pushStackItem(Bytes32.fromHexString("0x00"))
+            .build();
+
+    operation.execute(frame, null);
+    final byte[] callDataArray = frame.inputDataArrayV2();
+    assertThat(getV2StackItem(frame, 0))
+        .isEqualTo(
+            UInt256.fromBytesBE(
+                Bytes32.fromHexString(
+                        "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20")
+                    .toArrayUnsafe()));
+
+    // drop the loaded word, leaving the second offset on top
+    frame.setTopV2(1);
+    operation.execute(frame, null);
+
+    assertThat(frame.inputDataArrayV2()).isSameAs(callDataArray);
+    assertThat(getV2StackItem(frame, 0))
+        .isEqualTo(
+            UInt256.fromBytesBE(
+                Bytes32.fromHexString(
+                        "0x0a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20212223242526272800")
+                    .toArrayUnsafe()));
   }
 
   @Test
