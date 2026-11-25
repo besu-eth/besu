@@ -27,7 +27,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.BiPredicate;
 
 import org.apache.tuweni.units.bigints.UInt256;
@@ -267,8 +266,8 @@ public class TransactionCollisionDetector {
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final Address address,
       final BonsaiValue<? extends BonsaiAccount> inBlock) {
-    final Set<Address> observedBalances = transactionAccumulator.getObservedBalances();
-    if (observedBalances == null || observedBalances.contains(address)) {
+    if (!transactionAccumulator.recordsBalanceObservations()
+        || transactionAccumulator.isBalanceObserved(address)) {
       return false;
     }
     final BonsaiValue<? extends BonsaiAccount> inTransaction =

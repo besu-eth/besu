@@ -117,12 +117,23 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   }
 
   /**
-   * The balances the transaction executed on this accumulator depends on.
+   * Whether this accumulator records the balances the transaction executed on it depends on.
    *
-   * @return the accounts, or null if they were not recorded
+   * @return true once {@link #recordBalanceObservations()} was called
    */
-  public @Nullable Set<Address> getObservedBalances() {
-    return observedBalances;
+  public boolean recordsBalanceObservations() {
+    return observedBalances != null;
+  }
+
+  /**
+   * Whether the transaction executed on this accumulator depends on the balance of an account.
+   *
+   * @param address the account
+   * @return true if the transaction read the balance or tried to spend more than it holds, false
+   *     otherwise or if nothing was recorded
+   */
+  public boolean isBalanceObserved(final Address address) {
+    return observedBalances != null && observedBalances.contains(address);
   }
 
   /**
