@@ -130,6 +130,7 @@ class BlockReadWriteSetsTest {
     readWriteSets.applyReported();
 
     assertThat(readWriteSets.takeInvalidated(-1)).isEqualTo(-1);
+
     // a later reader still sees what the taken transaction wrote
     readWriteSets.store(2, readWrite(10, 10, 11), true);
     assertThat(readWriteSets.takeInvalidated(-1)).isEqualTo(2);
@@ -142,6 +143,7 @@ class BlockReadWriteSetsTest {
     readWriteSets.applyReported();
 
     assertThat(readWriteSets.store(1, readWrite(10, 10, 11), false)).isFalse();
+
     readWriteSets.store(0, readWrite(10, 10, 11), true);
     assertThat(readWriteSets.takeInvalidated(-1)).isEqualTo(-1);
   }
@@ -210,6 +212,7 @@ class BlockReadWriteSetsTest {
     for (int i = 0; i < writers; i++) {
       readWriteSets.store(i, readWrite(10, 10 + i, 11 + i), true);
     }
+
     final ReadWriteSet reader = readWrite(10, 10, 11);
     readWriteSets.store(writers, reader, true);
 
@@ -313,6 +316,7 @@ class BlockReadWriteSetsTest {
   void aChainedRunStartsFromItsPredecessorsValues() {
     final BonsaiWorldStateUpdateAccumulator predecessor = accumulator();
     putSlot(predecessor, CONTRACT, 1, 10, 11);
+
     final BonsaiWorldStateUpdateAccumulator run = accumulator();
     putSlot(run, CONTRACT, 1, 10, 12);
     putSlot(run, CONTRACT, 2, 5, 5);

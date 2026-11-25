@@ -108,14 +108,17 @@ final class BlockReadWriteSets {
           context.chainPredecessorAccumulator();
       final List<Read> reads = new ArrayList<>();
       final List<Write> writes = new ArrayList<>();
+
       for (final var account : accumulator.getStorageToUpdate().entrySet()) {
         final Address address = account.getKey();
         if (address.equals(miningBeneficiary)) {
           continue;
         }
+
         final Map<StorageSlotKey, UInt256> seeded = seeds == null ? null : seeds.get(address);
         final Map<StorageSlotKey, ? extends BonsaiValue<UInt256>> before =
             predecessor == null ? null : predecessor.getStorageToUpdate().get(address);
+
         for (final var slot : account.getValue().entrySet()) {
           final BonsaiValue<UInt256> value = slot.getValue();
           final UInt256 parent = zeroIfNull(value.getPrior());
@@ -127,14 +130,17 @@ final class BlockReadWriteSets {
           } else {
             start = parent;
           }
+
           final Cell cell = new Cell(address, slot.getKey());
           reads.add(new Read(cell, start, parent));
+
           final UInt256 end = zeroIfNull(value.getUpdated());
           if (!end.equals(start)) {
             writes.add(new Write(cell, end));
           }
         }
       }
+
       final Set<Address> cleared = Set.copyOf(accumulator.getStorageToClear());
       return new ReadWriteSet(
           context,
@@ -216,12 +222,15 @@ final class BlockReadWriteSets {
       if (executed[position] || (onlyIfEmpty && latest.get(position) != null)) {
         return false;
       }
+
       latest.set(position, readWriteSet);
       wake = index(position, readWriteSet);
     }
+
     if (wake) {
       changed.release();
     }
+
     return true;
   }
 
@@ -257,9 +266,11 @@ final class BlockReadWriteSets {
     if (position >= size) {
       return;
     }
+
     synchronized (lock) {
       executed[position] = true;
       invalidated.clear(position);
+
       if (report.writes() == null) {
         // taken: the writes are the ones its read/write set predicted, its reads no longer matter
         final ReadWriteSet readWriteSet = indexed[position];
@@ -270,16 +281,19 @@ final class BlockReadWriteSets {
         }
         return;
       }
+
       if (report.cleared() != null) {
         for (final Address address : report.cleared()) {
           untrack(address);
         }
       }
+
       final Write[] writes = new Write[report.writes().size()];
       for (int i = 0; i < writes.length; i++) {
         final RawWrite raw = report.writes().get(i);
         writes[i] = new Write(new Cell(raw.address(), new StorageSlotKey(raw.key())), raw.value());
       }
+
       replace(position, writes, null);
     }
   }
@@ -295,13 +309,16 @@ final class BlockReadWriteSets {
       if (refreshesRun >= MAX_REFRESHES_PER_BLOCK) {
         return -1;
       }
+
       if (after >= 0) {
         invalidated.clear(0, Math.min(size, after + 1));
       }
+
       final int position = invalidated.nextSetBit(after + 1);
       if (position < 0) {
         return -1;
       }
+
       invalidated.clear(position);
       return position;
     }
@@ -319,11 +336,13 @@ final class BlockReadWriteSets {
     synchronized (lock) {
       final Map<Address, Map<StorageSlotKey, UInt256>> seeds = new HashMap<>();
       boolean moved = false;
+
       for (final Read read : readWriteSet.reads) {
         final Slot slot = slots.get(read.cell());
         if (untrackedAccounts.contains(read.cell().address()) || (slot != null && slot.untracked)) {
           return null;
         }
+
         final UInt256 before = slot == null ? null : valueBefore(slot, position);
         if (before != null) {
           seeds
@@ -334,9 +353,11 @@ final class BlockReadWriteSets {
           moved |= !read.parent().equals(read.value());
         }
       }
+
       if (!moved) {
         return null;
       }
+
       refreshesRun++;
       return seeds;
     }
@@ -348,8 +369,10 @@ final class BlockReadWriteSets {
     for (final Address address : readWriteSet.cleared) {
       untrack(address);
     }
+
     boolean wake = replace(position, readWriteSet.writes, readWriteSet);
     boolean outdated = false;
+
     for (final Read read : readWriteSet.reads) {
       if (untrackedAccounts.contains(read.cell().address())) {
         continue;
@@ -358,14 +381,17 @@ final class BlockReadWriteSets {
       if (slot.untracked) {
         continue;
       }
+
       outdated |= !expected(slot, position, read).equals(read.value());
       if (slot.readers.size() < MAX_INDEXED_PER_SLOT) {
         slot.readers.put(position, read);
       }
     }
+
     if (outdated) {
       wake |= invalidate(position);
     }
+
     return wake;
   }
 
@@ -375,6 +401,7 @@ final class BlockReadWriteSets {
       final int position, final Write[] writes, final @Nullable ReadWriteSet readWriteSet) {
     final ReadWriteSet previous = indexed[position];
     final Write[] previousWrites = previous != null ? previous.writes : executedWrites[position];
+
     if (previousWrites != null) {
       for (final Write write : previousWrites) {
         final Slot slot = slots.get(write.cell());
@@ -383,11 +410,14 @@ final class BlockReadWriteSets {
         }
       }
     }
+
     if (previous != null) {
       unindexReads(position, previous);
     }
+
     indexed[position] = readWriteSet;
     executedWrites[position] = readWriteSet == null ? writes : null;
+
     for (final Write write : writes) {
       if (untrackedAccounts.contains(write.cell().address())) {
         continue;
@@ -396,6 +426,7 @@ final class BlockReadWriteSets {
       if (slot.untracked) {
         continue;
       }
+
       slot.writers.put(position, write.value());
       if (slot.writers.size() > MAX_INDEXED_PER_SLOT) {
         slot.untracked = true;
@@ -403,6 +434,7 @@ final class BlockReadWriteSets {
         slot.readers.clear();
       }
     }
+
     boolean wake = false;
     final Set<Cell> visited = new HashSet<>();
     for (final Write write : writes) {
@@ -410,6 +442,7 @@ final class BlockReadWriteSets {
         wake |= invalidateReaders(write.cell(), position);
       }
     }
+
     if (previousWrites != null) {
       for (final Write write : previousWrites) {
         if (visited.add(write.cell())) {
@@ -417,6 +450,7 @@ final class BlockReadWriteSets {
         }
       }
     }
+
     return wake;
   }
 
@@ -440,6 +474,7 @@ final class BlockReadWriteSets {
     if (slot == null || slot.untracked) {
       return false;
     }
+
     boolean wake = false;
     for (final var reader : slot.readers.tailMap(position, false).entrySet()) {
       final Read read = reader.getValue();
@@ -447,6 +482,7 @@ final class BlockReadWriteSets {
         wake |= invalidate(reader.getKey());
       }
     }
+
     return wake;
   }
 
@@ -454,6 +490,7 @@ final class BlockReadWriteSets {
     if (executed[position] || invalidated.get(position)) {
       return false;
     }
+
     invalidated.set(position);
     return true;
   }
