@@ -367,8 +367,10 @@ public class MainnetTransactionValidator implements TransactionValidator {
     return ValidationResult.valid();
   }
 
-  private static boolean canSendTransaction(final Account sender, final Hash codeHash) {
-    return codeHash.equals(Hash.EMPTY) || hasCodeDelegation(sender.getCode());
+  private boolean canSendTransaction(final Account sender, final Hash codeHash) {
+    return codeHash.equals(Hash.EMPTY)
+        || (acceptedTransactionTypes.contains(TransactionType.DELEGATE_CODE)
+            && hasCodeDelegation(sender.getCode()));
   }
 
   private ValidationResult<TransactionInvalidReason> validateTransactionSignature(

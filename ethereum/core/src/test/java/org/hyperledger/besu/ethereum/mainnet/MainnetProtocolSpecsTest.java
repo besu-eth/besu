@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams.processingBlockParams;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.CODE_DELEGATION_PREFIX;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.BlobSchedule;
@@ -24,17 +26,22 @@ import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.ImmutableCliqueConfigOptions;
 import org.hyperledger.besu.config.JsonBftConfigOptions;
 import org.hyperledger.besu.config.JsonQbftConfigOptions;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
+import org.hyperledger.besu.evm.fluent.SimpleAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
@@ -94,6 +101,74 @@ public class MainnetProtocolSpecsTest {
     when(pragueBlobSchedule.getTarget()).thenReturn(6);
     when(pragueBlobSchedule.getMax()).thenReturn(9);
     when(pragueBlobSchedule.getBaseFeeUpdateFraction()).thenReturn(1234);
+  }
+
+  @Test
+  public void cancunShouldRejectTransactionFromDelegatedSender() {
+    final ProtocolSpecBuilder protocolSpecBuilder =
+        MainnetProtocolSpecs.cancunDefinition(
+            chainId,
+            enableRevertReason,
+            genesisConfigOptions,
+            evmConfiguration,
+            MiningConfiguration.newDefault(),
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem);
+
+    assertThat(validateTransactionFromDelegatedSender(protocolSpecBuilder))
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.TX_SENDER_NOT_AUTHORIZED));
+  }
+
+  @Test
+  public void pragueShouldAcceptTransactionFromDelegatedSender() {
+    when(genesisConfigOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
+
+    final ProtocolSpecBuilder protocolSpecBuilder =
+        MainnetProtocolSpecs.pragueDefinition(
+            chainId,
+            enableRevertReason,
+            genesisConfigOptions,
+            evmConfiguration,
+            MiningConfiguration.newDefault(),
+            isParallelTxProcessingEnabled,
+            balConfiguration,
+            metricsSystem);
+
+    assertThat(validateTransactionFromDelegatedSender(protocolSpecBuilder))
+        .isEqualTo(ValidationResult.valid());
+  }
+
+  private ValidationResult<TransactionInvalidReason> validateTransactionFromDelegatedSender(
+      final ProtocolSpecBuilder protocolSpecBuilder) {
+    final TransactionValidator validator =
+        protocolSpecBuilder
+            .badBlocksManager(badBlockManager)
+            .build(protocolSchedule)
+            .getTransactionValidatorFactory()
+            .get();
+    final Transaction transaction =
+        Transaction.builder()
+            .type(TransactionType.FRONTIER)
+            .chainId(chainId)
+            .nonce(0)
+            .gasLimit(21_000)
+            .gasPrice(Wei.ONE)
+            .to(Address.ZERO)
+            .value(Wei.ONE)
+            .payload(Bytes.EMPTY)
+            .signAndBuild(SignatureAlgorithmFactory.getInstance().generateKeyPair());
+    final SimpleAccount sender =
+        new SimpleAccount(
+            transaction.getSender(), transaction.getNonce(), transaction.getUpfrontCost(0L));
+    sender.setCode(
+        Bytes.concatenate(CODE_DELEGATION_PREFIX, Address.fromHexString("0x1234").getBytes()));
+
+    assertThat(
+            validator.validate(
+                transaction, Optional.of(Wei.ZERO), Optional.empty(), processingBlockParams))
+        .isEqualTo(ValidationResult.valid());
+    return validator.validateForSender(transaction, sender, processingBlockParams);
   }
 
   @Test

@@ -22,7 +22,9 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INVALID_TRANSACTION_FORMAT;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.MAX_PRIORITY_FEE_PER_GAS_EXCEEDS_MAX_FEE_PER_GAS;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TX_SENDER_NOT_AUTHORIZED;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.UPFRONT_GAS_COST_EXCEEDS_BALANCE;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.CODE_DELEGATION_PREFIX;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -400,6 +402,81 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
 
     assertThat(validator.validateForSender(basicTransaction, invalidEOA, processingBlockParams))
         .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.TX_SENDER_NOT_AUTHORIZED));
+  }
+
+  @ParameterizedTest
+  @MethodSource("senderCodeValidationCases")
+  public void shouldValidateSenderCodeAccordingToFork(
+      final boolean supportsCodeDelegation,
+      final Bytes code,
+      final ValidationResult<TransactionInvalidReason> expectedResult) {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.legacy(),
+            false,
+            Optional.of(BigInteger.ONE),
+            supportsCodeDelegation
+                ? Set.of(TransactionType.FRONTIER, TransactionType.DELEGATE_CODE)
+                : Set.of(TransactionType.FRONTIER),
+            Integer.MAX_VALUE);
+    final Account sender = accountWithCode(code);
+
+    assertThat(validator.validateForSender(basicTransaction, sender, processingBlockParams))
+        .isEqualTo(expectedResult);
+    assertThat(validator.validateForSender(basicTransaction, sender, transactionPoolParams))
+        .isEqualTo(expectedResult);
+  }
+
+  static Stream<Arguments> senderCodeValidationCases() {
+    final Bytes delegation =
+        Bytes.concatenate(CODE_DELEGATION_PREFIX, Address.fromHexString("0x1234").getBytes());
+    final Bytes contractCode = Bytes.fromHexString("0x60006000f3");
+    final Bytes shortDelegation = delegation.slice(0, delegation.size() - 1);
+    final Bytes longDelegation = Bytes.concatenate(delegation, Bytes.of(0));
+    final Bytes wrongPrefix =
+        Bytes.concatenate(
+            Bytes.fromHexString("0xef0101"), Address.fromHexString("0x1234").getBytes());
+    final ValidationResult<TransactionInvalidReason> valid = ValidationResult.valid();
+    final ValidationResult<TransactionInvalidReason> invalid =
+        ValidationResult.invalid(TX_SENDER_NOT_AUTHORIZED);
+
+    return Stream.of(
+        Arguments.of(false, Bytes.EMPTY, valid),
+        Arguments.of(true, Bytes.EMPTY, valid),
+        Arguments.of(false, delegation, invalid),
+        Arguments.of(true, delegation, valid),
+        Arguments.of(false, contractCode, invalid),
+        Arguments.of(true, contractCode, invalid),
+        Arguments.of(false, shortDelegation, invalid),
+        Arguments.of(true, shortDelegation, invalid),
+        Arguments.of(false, longDelegation, invalid),
+        Arguments.of(true, longDelegation, invalid),
+        Arguments.of(false, wrongPrefix, invalid),
+        Arguments.of(true, wrongPrefix, invalid));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"0x60006000f3", "0xef01000000000000000000000000000000000000001234"})
+  public void shouldAllowSenderWithCodeWhenSimulatingBeforePrague(final String code) {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
+
+    assertThat(
+            validator.validateForSender(
+                basicTransaction,
+                accountWithCode(Bytes.fromHexString(code)),
+                transactionSimulatorParams))
+        .isEqualTo(ValidationResult.valid());
+  }
+
+  private Account accountWithCode(final Bytes code) {
+    final Account account = accountWithNonce(basicTransaction.getNonce());
+    when(account.getCode()).thenReturn(code);
+    when(account.getCodeHash()).thenReturn(Hash.hash(code));
+    return account;
   }
 
   static List<Arguments> transactionWithMaxFeeTimesGasLimitGreaterThanBalanceArguments =
