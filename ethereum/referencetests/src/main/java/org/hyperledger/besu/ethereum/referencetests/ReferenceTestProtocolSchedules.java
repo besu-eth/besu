@@ -61,6 +61,13 @@ public class ReferenceTestProtocolSchedules {
   private static final Map<String, String> FORK_ALIASES =
       Map.of("tangerinewhistle", "eip150", "spuriousdragon", "eip158");
 
+  /**
+   * Fixture blob schedule entries Besu reads under another key: the test-only BPO scenarios after
+   * Amsterdam carry their parameters under their own name, but take the first BPO slot after it.
+   */
+  private static final Map<String, String> BLOB_SCHEDULE_ALIASES =
+      Map.of("amsterdambpoincrease", "bpo3", "amsterdambpodecrease", "bpo3");
+
   private static final Set<String> FORKS_WITHOUT_BLOCK_BUILDING =
       Set.of(
           "frontier",
@@ -309,6 +316,56 @@ public class ReferenceTestProtocolSchedules {
                             .bpo2Time(0)
                             .amsterdamTime(15000),
                         evmConfiguration)),
+                // Test-only BPO scenarios after Amsterdam. Both take the first BPO slot after it
+                // and differ only in the blob parameters their fixtures carry.
+                Map.entry(
+                    "AmsterdamBPOIncrease",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamBPODecrease",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamToBPOIncreaseAtTime15k",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(15000),
+                        evmConfiguration)),
+                Map.entry(
+                    "AmsterdamToBPODecreaseAtTime15k",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0)
+                            .bpo3Time(15000),
+                        evmConfiguration)),
                 Map.entry(
                     "Bogota",
                     createSchedule(
@@ -368,6 +425,17 @@ public class ReferenceTestProtocolSchedules {
   private static String canonicalForkName(final String fork) {
     final String lowerCase = fork.toLowerCase(Locale.ROOT);
     return FORK_ALIASES.getOrDefault(lowerCase, lowerCase);
+  }
+
+  /**
+   * The key Besu reads a fixture's blob schedule entry under.
+   *
+   * @param fixtureFork the fork name a fixture's {@code config.blobSchedule} uses
+   * @return the blob schedule key Besu reads it under
+   */
+  public static String blobScheduleKey(final String fixtureFork) {
+    final String lowerCase = fixtureFork.toLowerCase(Locale.ROOT);
+    return BLOB_SCHEDULE_ALIASES.getOrDefault(lowerCase, lowerCase);
   }
 
   /**

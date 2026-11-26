@@ -176,6 +176,16 @@ public class WorldStateStorageCoordinator {
     return worldStateKeyValueStorage().updater();
   }
 
+  /**
+   * Returns an updater committed as one write batch, for writes that never conflict, such as sync
+   * writing nodes keyed by their hash. On Forest a transaction locks each key from its first write
+   * until its commit, so concurrent sync writers of the same node time out on each other's locks.
+   */
+  public WorldStateKeyValueStorage.Updater batchUpdater() {
+    return this.<WorldStateKeyValueStorage.Updater>applyForStrategy(
+        BonsaiWorldStateKeyValueStorage::updater, ForestWorldStateKeyValueStorage::batchUpdater);
+  }
+
   public void clear() {
     worldStateKeyValueStorage.clear();
   }
