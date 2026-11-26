@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -22,22 +22,18 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpServiceTest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.OsakaTargetingGasLimitCalculator;
+import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
@@ -46,11 +42,10 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 /** trace_rawTransaction applies the checks block processing applies to a signed transaction. */
-class TraceRawTransactionReplayChecksTest extends AbstractJsonRpcHttpServiceTest {
+class TraceRawTransactionReplayChecksTest extends AbstractTraceRawTransactionTest {
   private static final BigInteger CHAIN_ID = BigInteger.valueOf(3503995874084926L);
-  private static final Address MARKER = Address.fromHexString("0x1002");
-  private static final String WORD_42 = "0x" + "0".repeat(62) + "2a";
-  private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final long CAP =
+      OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP;
   // Public fixture keys: key 1 is a plain account with nonce 10, key 3 an account with code.
   private static final KeyPair PLAIN_SENDER = keyPair(1);
   private static final KeyPair CODE_SENDER = keyPair(3);
@@ -73,13 +68,13 @@ class TraceRawTransactionReplayChecksTest extends AbstractJsonRpcHttpServiceTest
         Arguments.of(
             "EIP-7825 cap, at the cap",
             "genesis-osaka.json",
-            raw(PLAIN_SENDER, 10, 16_777_216L, Bytes.EMPTY),
+            raw(PLAIN_SENDER, 10, CAP, Bytes.EMPTY),
             null,
             null),
         Arguments.of(
             "EIP-7825 cap, above the cap",
             "genesis-osaka.json",
-            raw(PLAIN_SENDER, 10, 16_777_217L, Bytes.EMPTY),
+            raw(PLAIN_SENDER, 10, CAP + 1, Bytes.EMPTY),
             RpcErrorType.EXCEEDS_TRANSACTION_GAS_LIMIT,
             "Transaction gas limit must be at most 16777216"),
         Arguments.of(
@@ -89,13 +84,12 @@ class TraceRawTransactionReplayChecksTest extends AbstractJsonRpcHttpServiceTest
             RpcErrorType.TX_SENDER_NOT_AUTHORIZED,
             "has deployed code and so is not authorized to send transactions"),
         // EIP-8037 raises the cap on the gas limit, and caps the larger of the intrinsic gas and
-        // the
-        // calldata floor at the EIP-7825 value instead. 262,144 bytes of calldata put the floor
-        // above it, while the gas limit covers it.
+        // the calldata floor at the EIP-7825 value instead. The gas limit is twice the cap and the
+        // floor lies halfway between them, so only the cap check can reject the transaction.
         Arguments.of(
             "EIP-8037 intrinsic gas cap",
             "genesis-amsterdam.json",
-            raw(PLAIN_SENDER, 10, 20_000_000L, Bytes.wrap(new byte[262_144])),
+            raw(PLAIN_SENDER, 10, 2 * CAP, floorPayload(3 * CAP / 2)),
             RpcErrorType.INTRINSIC_GAS_EXCEEDS_LIMIT,
             "exceeds gas limit 16777216"));
   }
@@ -127,7 +121,23 @@ class TraceRawTransactionReplayChecksTest extends AbstractJsonRpcHttpServiceTest
     return algorithm.createKeyPair(algorithm.createPrivateKey(Bytes32.leftPad(Bytes.of(key))));
   }
 
+  /** Calldata whose Amsterdam floor cost is the given gas, to within one byte's cost. */
+  private static Bytes floorPayload(final long floor) {
+    final AmsterdamGasCalculator gasCalculator = new AmsterdamGasCalculator();
+    final long base =
+        gasCalculator.transactionFloorCost(transaction(PLAIN_SENDER, 10, 2 * CAP, Bytes.EMPTY));
+    final long perByte =
+        gasCalculator.transactionFloorCost(transaction(PLAIN_SENDER, 10, 2 * CAP, Bytes.of(0)))
+            - base;
+    return Bytes.wrap(new byte[Math.toIntExact((floor - base) / perByte)]);
+  }
+
   private static String raw(
+      final KeyPair sender, final long nonce, final long gasLimit, final Bytes payload) {
+    return transaction(sender, nonce, gasLimit, payload).encoded().toHexString();
+  }
+
+  private static Transaction transaction(
       final KeyPair sender, final long nonce, final long gasLimit, final Bytes payload) {
     return Transaction.builder()
         .type(TransactionType.FRONTIER)
@@ -135,23 +145,9 @@ class TraceRawTransactionReplayChecksTest extends AbstractJsonRpcHttpServiceTest
         .nonce(nonce)
         .gasPrice(Wei.of(1_000_000_000L))
         .gasLimit(gasLimit)
-        .to(MARKER)
+        .to(Address.fromHexString(MARKER))
         .value(Wei.ZERO)
         .payload(payload)
-        .signAndBuild(sender)
-        .encoded()
-        .toHexString();
-  }
-
-  private JsonNode rpc(final String method, final List<?> params) throws Exception {
-    final String body =
-        MAPPER.writeValueAsString(
-            Map.of("jsonrpc", "2.0", "id", 1, "method", method, "params", params));
-    final Request request =
-        new Request.Builder().url(baseUrl).post(RequestBody.create(body, JSON)).build();
-    try (final Response response = client.newCall(request).execute()) {
-      assertThat(response.code()).isEqualTo(200);
-      return MAPPER.readTree(response.body().string());
-    }
+        .signAndBuild(sender);
   }
 }
