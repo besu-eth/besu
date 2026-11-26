@@ -605,7 +605,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
             .importStateChangesFromSource(previousInChain);
         contextBuilder.chainPredecessorAccumulator(previousInChain);
       } else {
-        // a chained result carries no balance change over, so only a run alone needs them
+        // a chained result carries nothing over, so only a run alone needs them
         roundWorldStateUpdater.recordBalanceObservations();
       }
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();

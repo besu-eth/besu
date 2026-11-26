@@ -88,7 +88,6 @@ public class TransactionCollisionDetector {
     }
 
     if (chainPredecessor != null) {
-      // a chained result carries no balance change over
       if (isTouchedBeyondItsFee(transaction, transactionAccumulator, miningBeneficiary)
           || hasCollisionWithChainedState(
               transactionAccumulator, chainPredecessor, blockAccumulator)) {
@@ -350,12 +349,12 @@ public class TransactionCollisionDetector {
   }
 
   /**
-   * Whether the transaction ends the same with the nonce the block has reached. The exact nonce is
-   * read for the sender, for an EIP-7702 authority, and to create a contract from the account. A
-   * creation in a frame that reverts leaves the nonce unchanged although the created address
-   * depended on it, so an account with code, which can create, does not qualify. Emptiness and the
-   * collision check of a created address only ask whether the nonce is zero, so it must be non-zero
-   * on both sides.
+   * Whether the run's result holds with the nonce the block has reached. The run must leave the
+   * nonce as it was, since the block's nonce stays. The exact nonce is read for the sender, for an
+   * EIP-7702 authority, and to create a contract from the account. A creation in a frame that
+   * reverts leaves the nonce unchanged although the created address depended on it, so an account
+   * with code, which can create, does not qualify. Emptiness and the collision check of a created
+   * address only ask whether the nonce is zero, so it must be non-zero on both sides.
    */
   private static boolean isNonceChangeCarried(
       final Transaction transaction,
@@ -379,9 +378,9 @@ public class TransactionCollisionDetector {
   /**
    * Whether everything the run spent from the account's balance still finds enough on the balance
    * the block has reached. The sender's upfront cost and every spending the run observed sufficed
-   * on the parent's balance, so they suffice when the block only raised it. Any other account's
-   * spendings each found the balance sufficient by at least the smallest margin; without spending,
-   * the run only added to the balance.
+   * on the parent's balance, so they suffice when the block only raised it. Any other account
+   * qualifies when the run only added to its balance, or when the block's balance plus the smallest
+   * margin still covers the balance the run started from.
    */
   private static boolean spendingStillSuffices(
       final Transaction transaction,

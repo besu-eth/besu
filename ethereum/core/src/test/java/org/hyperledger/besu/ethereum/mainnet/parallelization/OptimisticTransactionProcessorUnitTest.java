@@ -126,7 +126,8 @@ class OptimisticTransactionProcessorUnitTest {
     processor =
         new OptimisticConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
     env = createTestEnvironment();
-    // an unstubbed check finds no collision, as the boolean it replaced answered by default
+    // a mock's default empty Optional is a collision, so the check finds none unless a test stubs
+    // it
     lenient()
         .when(collisionDetector.carryOverIfNoCollision(any(), any(), any(), any()))
         .thenReturn(Optional.of(Map.of()));

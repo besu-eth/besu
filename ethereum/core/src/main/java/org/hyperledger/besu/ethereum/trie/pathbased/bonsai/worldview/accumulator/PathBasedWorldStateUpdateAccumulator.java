@@ -122,8 +122,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   }
 
   /**
-   * Sets an account whose change a transaction carried over, once its changes were imported, to the
-   * balance and nonce it ends with.
+   * Sets the balance and nonce of an account whose change a transaction carried over. Call it after
+   * importing the transaction's changes, which hold the account.
    *
    * @param address the account
    * @param balance the balance it ends with
