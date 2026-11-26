@@ -244,6 +244,57 @@ class JsonRpcIpcServiceTest {
                                         })))));
   }
 
+  @Test
+  void batchRequestLargerThanASingleSocketReadShouldBeHandled() {
+    final Path socketPath = tempDir.resolve("besu-test.ipc");
+    final JsonRpcMethod testMethod = mock(JsonRpcMethod.class);
+    when(testMethod.response(any())).thenReturn(new JsonRpcSuccessResponse(1, "TEST OK"));
+    final JsonRpcIpcService service =
+        new JsonRpcIpcService(
+            vertx,
+            socketPath,
+            new JsonRpcExecutor(new BaseJsonRpcProcessor(), Map.of("test_method", testMethod)));
+
+    // A request over the initial socket read size (about 2 KB) is delivered in several reads.
+    final JsonArray batch = new JsonArray();
+    for (int i = 1; i <= 100; i++) {
+      batch.add(new JsonObject().put("id", i).put("method", "test_method"));
+    }
+    final Buffer request = batch.toBuffer();
+    assertThat(request.length()).isGreaterThan(2048);
+
+    service
+        .start()
+        .onComplete(
+            testContext.succeeding(
+                server ->
+                    netClient
+                        .connect(SocketAddress.domainSocketAddress(socketPath.toString()))
+                        .onComplete(
+                            testContext.succeeding(
+                                socket -> {
+                                  final StringBuilder received = new StringBuilder();
+                                  socket.handler(
+                                      buffer -> {
+                                        received.append(buffer.toString());
+                                        // The whole batch response arrives as one JSON array.
+                                        if (received.toString().endsWith("\n")) {
+                                          testContext.verify(
+                                              () -> {
+                                                assertThat(
+                                                        new JsonArray(received.toString().trim()))
+                                                    .hasSize(100);
+                                                service
+                                                    .stop()
+                                                    .onComplete(
+                                                        testContext.succeedingThenComplete());
+                                              });
+                                        }
+                                      });
+                                  socket.write(request);
+                                }))));
+  }
+
   private void assertSocketCall(
       final JsonRpcIpcService service,
       final Path socketPath,

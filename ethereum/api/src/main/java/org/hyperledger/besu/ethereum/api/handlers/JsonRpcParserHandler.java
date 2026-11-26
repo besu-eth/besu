@@ -14,12 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.api.handlers;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.function.BiConsumer;
 
 import com.fasterxml.jackson.core.JsonFactory;
@@ -40,39 +42,158 @@ public class JsonRpcParserHandler {
 
   private static final JsonFactory JSON_FACTORY = new JsonFactory();
   private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper(JSON_FACTORY);
+  private static final int IPC_MAX_BUFFERED_BYTES =
+      (int) JsonRpcConfiguration.DEFAULT_MAX_REQUEST_CONTENT_LENGTH;
 
   private JsonRpcParserHandler() {}
 
   public static Handler<Buffer> ipcHandler(
       final BiConsumer<JsonObject, JsonArray> onParsed, final Runnable onError) {
+    return new IpcMessageHandler(onParsed, onError);
+  }
 
-    return buffer -> {
-      if (buffer.length() == 0) {
+  /**
+   * Buffers socket reads until at least one complete top-level JSON document is available.
+   *
+   * <p>Vert.x invokes the handler once per socket read, and a single JSON-RPC request or batch can
+   * span several reads. Parsing each read in isolation rejects those fragmented requests, so bytes
+   * are accumulated until a top-level JSON object or array is complete.
+   */
+  private static final class IpcMessageHandler implements Handler<Buffer> {
+
+    private final BiConsumer<JsonObject, JsonArray> onParsed;
+    private final Runnable onError;
+    private Buffer buffer = Buffer.buffer();
+
+    private IpcMessageHandler(
+        final BiConsumer<JsonObject, JsonArray> onParsed, final Runnable onError) {
+      this.onParsed = onParsed;
+      this.onError = onError;
+    }
+
+    @Override
+    public void handle(final Buffer chunk) {
+      if (chunk.length() == 0) {
         onError.run();
         return;
       }
 
-      try (ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer.getBytes());
-          JsonParser parser = JSON_FACTORY.createParser(inputStream)) {
+      buffer.appendBuffer(chunk);
 
-        // Read multiple JSON objects from the stream, similar to Go's json.Decoder
-        while (parser.nextToken() != null) {
-          JsonToken token = parser.currentToken();
+      if (!parseCompleteMessages()) {
+        reset();
+        onError.run();
+        return;
+      }
 
-          if (token == JsonToken.START_OBJECT) {
-            // Parse JSON object
-            JsonObject obj = new JsonObject(OBJECT_MAPPER.readTree(parser).toString());
-            onParsed.accept(obj, null);
-          } else if (token == JsonToken.START_ARRAY) {
-            // Parse JSON array
-            JsonArray arr = new JsonArray(OBJECT_MAPPER.readTree(parser).toString());
-            onParsed.accept(null, arr);
-          }
-        }
-      } catch (IOException e) {
+      if (buffer.length() > IPC_MAX_BUFFERED_BYTES) {
+        // A slow or malformed client must not be able to grow the buffer without bound.
+        reset();
         onError.run();
       }
-    };
+    }
+
+    /** Parses every complete JSON document currently buffered, keeping any partial suffix. */
+    private boolean parseCompleteMessages() {
+      final byte[] bytes = buffer.getBytes();
+      int offset = 0;
+
+      while (offset < bytes.length) {
+        final int start = skipWhitespace(bytes, offset);
+        if (start == bytes.length) {
+          offset = start;
+          break;
+        }
+
+        if (bytes[start] != '{' && bytes[start] != '[') {
+          // A JSON-RPC message must be a JSON object or a batch array.
+          return false;
+        }
+
+        final int end = findEndOfDocument(bytes, start);
+        if (end < 0) {
+          // The document is not complete yet, wait for more socket reads.
+          offset = start;
+          break;
+        }
+
+        if (!parseDocument(bytes, start, end)) {
+          return false;
+        }
+        offset = end;
+      }
+
+      if (offset == bytes.length) {
+        buffer = Buffer.buffer();
+      } else if (offset > 0) {
+        buffer = Buffer.buffer(Arrays.copyOfRange(bytes, offset, bytes.length));
+      }
+      return true;
+    }
+
+    private boolean parseDocument(final byte[] bytes, final int start, final int end) {
+      try (ByteArrayInputStream inputStream = new ByteArrayInputStream(bytes, start, end - start);
+          JsonParser parser = JSON_FACTORY.createParser(inputStream)) {
+
+        final JsonToken token = parser.nextToken();
+        if (token == JsonToken.START_OBJECT) {
+          onParsed.accept(new JsonObject(OBJECT_MAPPER.readTree(parser).toString()), null);
+        } else if (token == JsonToken.START_ARRAY) {
+          onParsed.accept(null, new JsonArray(OBJECT_MAPPER.readTree(parser).toString()));
+        }
+        return true;
+      } catch (IOException e) {
+        return false;
+      }
+    }
+
+    private void reset() {
+      buffer = Buffer.buffer();
+    }
+
+    private static int skipWhitespace(final byte[] bytes, final int offset) {
+      int index = offset;
+      while (index < bytes.length && bytes[index] <= ' ') {
+        index++;
+      }
+      return index;
+    }
+
+    /**
+     * Returns the index just past the first complete top-level JSON object or array starting at
+     * {@code start}, or {@code -1} if it is not complete yet.
+     */
+    private static int findEndOfDocument(final byte[] bytes, final int start) {
+      int depth = 0;
+      boolean inString = false;
+      boolean escaped = false;
+
+      for (int index = start; index < bytes.length; index++) {
+        final byte current = bytes[index];
+        if (inString) {
+          if (escaped) {
+            escaped = false;
+          } else if (current == '\\') {
+            escaped = true;
+          } else if (current == '"') {
+            inString = false;
+          }
+        } else if (current == '"') {
+          inString = true;
+        } else if (current == '{' || current == '[') {
+          depth++;
+        } else if (current == '}' || current == ']') {
+          depth--;
+          if (depth == 0) {
+            return index + 1;
+          }
+          if (depth < 0) {
+            return -1;
+          }
+        }
+      }
+      return -1;
+    }
   }
 
   public static Handler<RoutingContext> handler() {
