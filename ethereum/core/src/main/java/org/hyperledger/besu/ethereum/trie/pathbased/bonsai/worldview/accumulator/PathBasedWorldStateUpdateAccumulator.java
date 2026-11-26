@@ -121,6 +121,20 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     return Optional.ofNullable(balanceObservations);
   }
 
+  /**
+   * Sets an account whose change a transaction carried over, once its changes were imported, to the
+   * balance and nonce it ends with.
+   *
+   * @param address the account
+   * @param balance the balance it ends with
+   * @param nonce the nonce it ends with
+   */
+  public void carryOver(final Address address, final Wei balance, final long nonce) {
+    final ACCOUNT account = accountsToUpdate.get(address).getUpdated();
+    account.setBalance(balance);
+    account.setNonce(nonce);
+  }
+
   @Override
   public WorldUpdater balanceObserver() {
     // the accumulator records the observations itself

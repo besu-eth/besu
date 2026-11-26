@@ -26,10 +26,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector.CarriedAccount;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -763,9 +761,13 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                   transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
       if (carriedAccounts.isPresent()) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        // a result that touched the beneficiary before its reward already holds the reward
-        if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()
-            && (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts())) {
+        // a result that touched the beneficiary before its reward already holds it
+        final boolean resultHoldsReward =
+            parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction();
+        // a zero reward only creates an empty account that state clearing deletes again
+        final boolean rewardChangesState =
+            !reward.isZero() || !transactionProcessor.getClearEmptyAccounts();
+        if (!resultHoldsReward && rewardChangesState) {
           final MutableAccount miningBeneficiaryAccount =
               blockAccumulator.getOrCreate(miningBeneficiary);
           miningBeneficiaryAccount.incrementBalance(reward);
@@ -779,16 +781,13 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-        for (final Map.Entry<Address, CarriedAccount> carried : carriedAccounts.get().entrySet()) {
-          final BonsaiAccount imported =
-              ((BonsaiValue<? extends BonsaiAccount>)
-                      blockAccumulator.getAccountsToUpdate().get(carried.getKey()))
-                  .getUpdated();
-          imported.setBalance(carried.getValue().balance());
-          imported.setNonce(carried.getValue().nonce());
-          setPostBalance(
-              transactionProcessingResult, carried.getKey(), carried.getValue().balance());
-        }
+        carriedAccounts
+            .get()
+            .forEach(
+                (address, carried) -> {
+                  blockAccumulator.carryOver(address, carried.balance(), carried.nonce());
+                  setPostBalance(transactionProcessingResult, address, carried.balance());
+                });
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
