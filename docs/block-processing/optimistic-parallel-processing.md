@@ -98,7 +98,7 @@ Many transactions touch an account whose balance an earlier transaction of the b
 - The run did not observe the account's balance.
 - The account is not empty in the parent state, at the transaction's turn or after the run. Whether an account is empty decides call costs and state clearing.
 - If the account is the transaction's sender, the block only raised its balance. The upfront cost and every spending the run observed sufficed on the parent's balance, so they suffice on a higher one.
-- For any other account, the run only added to the balance. If it spent from it, the block's balance plus the smallest margin still covers the balance the run started from, so every spending would still find enough.
+- For any other account, the run only added to the balance, or the block's balance plus the smallest margin still covers the balance the run started from, so every spending would still find enough.
 
 When block processing takes such a result, it sets each of these balances to the block's balance plus the run's change, in the state and, when a block access list is being built, in its post balance. Where the block changed the nonce, the block's nonce stays.
 
@@ -112,7 +112,7 @@ On the parent state, a sender's second transaction in a block fails its nonce ch
 
 **Chains.** The transactions of one sender run in order on one worker, each on the state the one before it left (`runChain`). A chain holds at most 64 transactions, and the sender's later ones run alone. Each member's result carries the changes of the members before it, which block processing checks and imports again, so without the cap a chain would cost the square of its length.
 
-**Taking a chained result.** A chained result is taken when, for everything it touched, the block holds at its turn the value the chain started from: the predecessor's value where the predecessor touched it, the parent's otherwise. Storage cleared on either side is a collision, and so is touching the coinbase account. No balance change is carried over.
+**Taking a chained result.** A chained result is taken when, for everything it touched, the block holds at its turn the value the chain started from: the predecessor's value where the predecessor touched it, the parent's otherwise. Storage cleared on either side is a collision, and so is touching the coinbase account beyond its fee. A deletion of it follows [The coinbase account](#balance-changes). No balance change is carried over.
 
 **Where a chain stops.** A member whose run fails with an error is reported and executed by block processing, and so are the members after it. An invalid member ends the chain as well, because the sender's next transaction would fail its nonce check. So does a member that block processing reaches before it ran: the members after it would run without the state it leaves.
 
