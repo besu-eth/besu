@@ -92,6 +92,7 @@ public class BackwardSyncV2 implements BackwardSync {
                     KeyValueSegmentIdentifier.BACKWARD_SYNC_HEADERS),
                 ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)),
             finalizedBlockHash::get,
+            this::recentPayload,
             badChainListeners);
   }
 
@@ -129,6 +130,10 @@ public class BackwardSyncV2 implements BackwardSync {
     return Optional.ofNullable(recentPayloads.get(blockHash))
         .flatMap(Head::block)
         .map(Block::getHeader);
+  }
+
+  private synchronized Optional<Head> recentPayload(final Hash blockHash) {
+    return Optional.ofNullable(recentPayloads.get(blockHash));
   }
 
   @Override
