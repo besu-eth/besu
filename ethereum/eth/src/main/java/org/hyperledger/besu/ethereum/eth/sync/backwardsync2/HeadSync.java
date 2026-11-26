@@ -29,11 +29,10 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorRespon
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask.Direction;
-import org.hyperledger.besu.ethereum.eth.sync.DownloadSyncBodiesStep;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BadChainListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep;
-import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -67,7 +66,11 @@ class HeadSync {
   // enough batches downloaded ahead of the import to hide the download latency, few enough to
   // bound the memory their bodies and block access lists take
   static final int IMPORT_BATCH_SIZE = 64;
-  static final int DOWNLOADS_AHEAD = 2;
+  static final int DOWNLOADS_AHEAD = 4;
+  // the blocks of one request, so that the scheduler spreads a batch over several peers
+  static final int REQUEST_SIZE = 16;
+  // the import starts once the blocks of one request arrived
+  static final int FIRST_BATCH_SIZE = REQUEST_SIZE;
 
   private final ProtocolContext protocolContext;
   private final ProtocolSchedule protocolSchedule;
@@ -213,7 +216,12 @@ class HeadSync {
     // the head that came in a new payload is imported from it, peers may not serve it yet
     final long last = head.block().isPresent() ? target.getNumber() - 1 : target.getNumber();
     if (first <= last) {
-      runToEnd(importPipeline(first, last, finalizedNumber, importBlocks));
+      final RequestSender sender = ethContext.getRequestScheduler().scope();
+      try {
+        runToEnd(importPipeline(first, last, finalizedNumber, importBlocks, sender));
+      } finally {
+        sender.stop();
+      }
     }
     head.block()
         .ifPresent(
@@ -265,22 +273,22 @@ class HeadSync {
       final long first,
       final long last,
       final long finalizedNumber,
-      final ImportBlocksStep importBlocks) {
+      final ImportBlocksStep importBlocks,
+      final RequestSender sender) {
     final Iterator<Long> batchStarts =
-        LongStream.iterate(first, number -> number <= last, number -> number + IMPORT_BATCH_SIZE)
+        LongStream.iterate(first, number -> number <= last, number -> batchEnd(number, first) + 1)
             .boxed()
             .iterator();
-    final DownloadSyncBodiesStep downloadBodies =
-        new DownloadSyncBodiesStep(
+    final DownloadBlockDataStep downloadBlockData =
+        new DownloadBlockDataStep(
+            sender,
+            ethContext.getScheduler(),
             protocolSchedule,
-            ethContext,
-            Duration.ofMillis(syncConfig.getBodiesDownloadStepTimeoutMillis()));
-    final DownloadSyncReceiptsStep downloadReceipts =
-        new DownloadSyncReceiptsStep(
-            protocolSchedule,
-            ethContext,
             new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
-            DownloadBlockDataStep.OPTIONAL_DOWNLOAD_TIMEOUT);
+            REQUEST_SIZE,
+            Duration.ofMillis(syncConfig.getBodiesDownloadStepTimeoutMillis()),
+            finalizedNumber,
+            first);
     return PipelineBuilder.createPipelineFrom(
             "blockSource",
             batchStarts,
@@ -290,15 +298,16 @@ class HeadSync {
             "backwardSyncImport")
         .thenProcess(
             "loadHeaders",
-            start -> headerStore.getRange(start, Math.min(start + IMPORT_BATCH_SIZE - 1, last)))
-        .thenProcessAsyncOrdered("downloadBodies", downloadBodies, DOWNLOADS_AHEAD)
-        .thenProcessAsyncOrdered(
-            "downloadBlockData",
-            new DownloadBlockDataStep(ethContext, downloadReceipts, finalizedNumber),
-            DOWNLOADS_AHEAD)
+            start -> headerStore.getRange(start, Math.min(batchEnd(start, first), last)))
+        .thenProcessAsyncOrdered("downloadBlockData", downloadBlockData, DOWNLOADS_AHEAD)
         .thenProcessAsyncOrdered(
             "recoverSenders", new RecoverSendersStep(ethContext.getScheduler()), DOWNLOADS_AHEAD)
         .andFinishWith("importBlocks", importBlocks);
+  }
+
+  // the last block of the batch from start, the first batch of the import being smaller
+  private static long batchEnd(final long start, final long first) {
+    return start + (start == first ? FIRST_BATCH_SIZE : IMPORT_BATCH_SIZE) - 1;
   }
 
   private void runToEnd(final Pipeline<?> pipeline) {

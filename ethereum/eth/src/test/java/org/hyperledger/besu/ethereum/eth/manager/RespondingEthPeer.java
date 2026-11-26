@@ -321,7 +321,12 @@ public class RespondingEthPeer {
           response = EthServer.constructGetBodiesResponse(blockchain, msg, 200, maxMsgSize);
           break;
         case EthProtocolMessages.GET_RECEIPTS:
-          response = EthServer.constructGetReceiptsResponse(blockchain, msg, 200, maxMsgSize, cap);
+          // as the server, which pages the receipts from eth/70
+          response =
+              EthProtocol.isEth70Compatible(cap)
+                  ? EthServer.constructGetPaginatedReceiptsResponse(
+                      peer, blockchain, msg, 200, maxMsgSize)
+                  : EthServer.constructGetReceiptsResponse(blockchain, msg, 200, maxMsgSize, cap);
           break;
         case EthProtocolMessages.GET_POOLED_TRANSACTIONS:
           response =

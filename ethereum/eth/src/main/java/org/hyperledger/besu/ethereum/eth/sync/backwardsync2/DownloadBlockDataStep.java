@@ -14,157 +14,326 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync2;
 
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException.Reason.NO_PEER;
+import static org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException.Reason.STOPPED;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
-import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
-import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
-import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBlockAccessListsFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncBlockBodiesFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.PeerTaskRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestFailedException;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.RequestSender;
+import org.hyperledger.besu.ethereum.eth.sync.snap2.net.SyncRequest.Priority;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.BooleanSupplier;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
+import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Downloads, next to the bodies of a batch, what its import uses: the block access lists of the
- * blocks that have one, and the receipts of the finalized ones, which are imported from their block
- * access list instead of being executed, then decodes the bodies. Both are best effort: the batch
- * waits for them at most {@link #OPTIONAL_DOWNLOAD_TIMEOUT}, a block missing either being executed.
+ * Downloads the bodies of a batch, its block access lists and the receipts of its finalized blocks,
+ * in requests of a few blocks that the request scheduler spreads over the peers. Only the bodies
+ * are required: the rest is waited for at most {@link #OPTIONAL_DOWNLOAD_TIMEOUT}, and a block
+ * missing either is executed.
  */
-class DownloadBlockDataStep implements Function<List<SyncBlock>, CompletableFuture<BlockBatch>> {
+class DownloadBlockDataStep implements Function<List<BlockHeader>, CompletableFuture<BlockBatch>> {
 
   private static final Logger LOG = LoggerFactory.getLogger(DownloadBlockDataStep.class);
 
-  /** How long a batch waits for what it can be imported without. */
-  static final Duration OPTIONAL_DOWNLOAD_TIMEOUT = Duration.ofSeconds(10);
+  // how long a batch waits, once it has its bodies, for what it can be imported without
+  private static final Duration OPTIONAL_DOWNLOAD_TIMEOUT = Duration.ofSeconds(10);
 
-  private final EthContext ethContext;
-  private final Function<List<SyncBlock>, CompletableFuture<List<SyncBlockWithReceipts>>>
-      receiptsDownload;
+  // the requests at most for the block access lists or the receipts of a few blocks
+  private static final int OPTIONAL_ATTEMPTS = 4;
+
+  private static final CompletableFuture<Void> DONE = CompletableFuture.completedFuture(null);
+
+  private final RequestSender sender;
+  private final EthScheduler scheduler;
+  private final ProtocolSchedule protocolSchedule;
+  private final SyncTransactionReceiptEncoder receiptEncoder;
+  private final int requestSize;
+  private final Duration bodiesTimeout;
   private final long finalizedNumber;
+  private final long firstBlock;
 
+  /**
+   * @param requestSize the blocks of one request
+   * @param bodiesTimeout how long the bodies of a batch may take before the sync fails
+   * @param finalizedNumber the highest finalized block of the sync, -1 if none
+   * @param firstBlock the first block of the import, whose batch is asked ahead of the others
+   */
   DownloadBlockDataStep(
-      final EthContext ethContext,
-      final Function<List<SyncBlock>, CompletableFuture<List<SyncBlockWithReceipts>>>
-          receiptsDownload,
-      final long finalizedNumber) {
-    this.ethContext = ethContext;
-    this.receiptsDownload = receiptsDownload;
+      final RequestSender sender,
+      final EthScheduler scheduler,
+      final ProtocolSchedule protocolSchedule,
+      final SyncTransactionReceiptEncoder receiptEncoder,
+      final int requestSize,
+      final Duration bodiesTimeout,
+      final long finalizedNumber,
+      final long firstBlock) {
+    this.sender = sender;
+    this.scheduler = scheduler;
+    this.protocolSchedule = protocolSchedule;
+    this.receiptEncoder = receiptEncoder;
+    this.requestSize = requestSize;
+    this.bodiesTimeout = bodiesTimeout;
     this.finalizedNumber = finalizedNumber;
+    this.firstBlock = firstBlock;
   }
 
   @Override
-  public CompletableFuture<BlockBatch> apply(final List<SyncBlock> syncBlocks) {
-    final CompletableFuture<Map<Hash, BlockAccessList>> bals = downloadBals(headers(syncBlocks));
-    final CompletableFuture<Map<Hash, List<TransactionReceipt>>> receipts =
-        downloadReceipts(syncBlocks);
-    return bals.exceptionally(error -> failed("block access lists", error))
-        .thenCombine(
-            receipts.exceptionally(error -> failed("receipts", error)),
-            (balsByHash, receiptsByHash) ->
-                new BlockBatch(decodeBlocks(syncBlocks), balsByHash, receiptsByHash));
+  public CompletableFuture<BlockBatch> apply(final List<BlockHeader> headers) {
+    return new BatchDownload(headers).start();
   }
 
-  private CompletableFuture<Map<Hash, BlockAccessList>> downloadBals(
-      final List<BlockHeader> headers) {
-    final CompletableFuture<Map<Hash, BlockAccessList>> bals = new CompletableFuture<>();
-    final EthScheduler scheduler = ethContext.getScheduler();
-    scheduler.scheduleServiceTask(
-        () -> {
-          try {
-            bals.complete(requestBals(headers, bals::isDone));
-          } catch (final RuntimeException e) {
-            bals.completeExceptionally(e);
-          }
-        });
-    scheduler.failAfterTimeout(bals, OPTIONAL_DOWNLOAD_TIMEOUT);
-    return bals;
-  }
+  /** The downloads of one batch. */
+  private final class BatchDownload {
 
-  /**
-   * Asks for the BALs of {@code headers}, then again for the rest of a short answer, until a
-   * request brings nothing or the batch stops waiting.
-   */
-  private Map<Hash, BlockAccessList> requestBals(
-      final List<BlockHeader> headers, final BooleanSupplier abandoned) {
-    final List<BlockHeader> remaining =
-        headers.stream()
-            .filter(header -> header.getBalHash().isPresent())
-            .collect(Collectors.toCollection(ArrayList::new));
-    final Map<Hash, BlockAccessList> bals = HashMap.newHashMap(remaining.size());
-    boolean progress = true;
-    while (!remaining.isEmpty() && progress && !abandoned.getAsBoolean()) {
-      final PeerTaskExecutorResult<List<Optional<BlockAccessList>>> result =
-          ethContext
-              .getPeerTaskExecutor()
-              .execute(new GetBlockAccessListsFromPeerTask(List.copyOf(remaining)));
-      final List<Optional<BlockAccessList>> response =
-          result.responseCode() == PeerTaskExecutorResponseCode.SUCCESS
-              ? result.result().orElse(List.of())
-              : List.of();
-      final int answered = Math.min(response.size(), remaining.size());
-      for (int i = 0; i < answered; i++) {
-        final Hash hash = remaining.get(i).getHash();
-        response.get(i).ifPresent(bal -> bals.put(hash, bal));
+    private final List<BlockHeader> headers;
+    // the import waits for the first batch, the others are downloaded ahead of it
+    private final Priority priority;
+    private final Map<Hash, BlockAccessList> bals = new ConcurrentHashMap<>();
+    private final Map<Hash, List<SyncTransactionReceipt>> receipts = new ConcurrentHashMap<>();
+    // the requests not answered yet, cancelled when the batch stops waiting
+    private final Set<CompletableFuture<?>> pending = ConcurrentHashMap.newKeySet();
+    private final long startMillis = System.currentTimeMillis();
+    private volatile boolean abandoned;
+
+    BatchDownload(final List<BlockHeader> headers) {
+      this.headers = headers;
+      this.priority =
+          headers.getFirst().getNumber() == firstBlock ? Priority.HEADERS : Priority.BODIES;
+    }
+
+    CompletableFuture<BlockBatch> start() {
+      // queued first, as the batch cannot be imported without them
+      final CompletableFuture<List<SyncBlock>> bodies = downloadBodies();
+      // the block access lists only need the headers, so they come next to the bodies
+      final List<BlockHeader> withBal =
+          headers.stream().filter(header -> header.getBalHash().isPresent()).toList();
+      final CompletableFuture<Void> balsDone =
+          inRequests(withBal, chunk -> requestBals(chunk, new HashSet<>(), OPTIONAL_ATTEMPTS));
+      bodies.whenComplete(
+          (blocks, error) -> {
+            if (error != null) {
+              abandon();
+            }
+          });
+      return bodies.thenCompose(
+          blocks ->
+              waitAtMost(CompletableFuture.allOf(balsDone, downloadReceipts(blocks)))
+                  .thenApplyAsync(ignored -> batch(blocks), sender.workers()));
+    }
+
+    private CompletableFuture<List<SyncBlock>> downloadBodies() {
+      final List<CompletableFuture<List<SyncBlock>>> chunks =
+          Lists.partition(headers, requestSize).stream().map(this::requestBodies).toList();
+      final CompletableFuture<List<SyncBlock>> bodies =
+          CompletableFuture.allOf(chunks.toArray(CompletableFuture[]::new))
+              .thenApply(
+                  ignored -> chunks.stream().flatMap(chunk -> chunk.join().stream()).toList());
+      scheduler.failAfterTimeout(bodies, bodiesTimeout);
+      return bodies;
+    }
+
+    // a peer may send the first bodies only, the rest is asked again
+    private CompletableFuture<List<SyncBlock>> requestBodies(final List<BlockHeader> chunk) {
+      return track(
+              sender.submitWithRetries(
+                  new PeerTaskRequest<>(
+                      () -> new GetSyncBlockBodiesFromPeerTask(chunk, protocolSchedule),
+                      priority,
+                      "bodies")))
+          .thenCompose(
+              response -> {
+                final List<SyncBlock> received = response.value();
+                if (received.size() >= chunk.size()) {
+                  return CompletableFuture.completedFuture(received);
+                }
+                return requestBodies(chunk.subList(received.size(), chunk.size()))
+                    .thenApply(rest -> Stream.concat(received.stream(), rest.stream()).toList());
+              });
+    }
+
+    // asks again for the lists a response left out, never a peer that failed or lacked one
+    private CompletableFuture<Void> requestBals(
+        final List<BlockHeader> chunk, final Set<EthPeer> excluded, final int attempts) {
+      return track(
+              sender.submit(
+                  new PeerTaskRequest<>(
+                      () -> new GetBlockAccessListsFromPeerTask(chunk),
+                      priority,
+                      "block_access_lists"),
+                  excluded))
+          .handle(
+              (response, error) -> {
+                final boolean retry;
+                if (error == null) {
+                  storeBals(chunk, response, excluded);
+                  retry = true;
+                } else {
+                  final Optional<RequestFailedException> failure =
+                      RequestFailedException.from(error);
+                  failure.flatMap(RequestFailedException::peer).ifPresent(excluded::add);
+                  // no peer left to ask, or the batch stopped waiting
+                  retry =
+                      failure
+                          .map(f -> f.reason() != NO_PEER && f.reason() != STOPPED)
+                          .orElse(false);
+                }
+                final List<BlockHeader> missing =
+                    chunk.stream().filter(header -> !bals.containsKey(header.getHash())).toList();
+                return missing.isEmpty() || attempts <= 1 || abandoned || !retry
+                    ? DONE
+                    : requestBals(missing, excluded, attempts - 1);
+              })
+          .thenCompose(Function.identity());
+    }
+
+    private void storeBals(
+        final List<BlockHeader> chunk,
+        final RequestSender.Response<List<Optional<BlockAccessList>>> response,
+        final Set<EthPeer> excluded) {
+      final List<Optional<BlockAccessList>> lists = response.value();
+      for (int i = 0; i < lists.size(); i++) {
+        final Optional<BlockAccessList> list = lists.get(i);
+        if (list.isPresent()) {
+          bals.put(chunk.get(i).getHash(), list.get());
+        } else {
+          // a peer without a list will not have it a moment later
+          excluded.add(response.peer());
+        }
       }
-      remaining.subList(0, answered).clear();
-      progress = answered > 0;
     }
-    return bals;
-  }
 
-  private CompletableFuture<Map<Hash, List<TransactionReceipt>>> downloadReceipts(
-      final List<SyncBlock> syncBlocks) {
-    final List<SyncBlock> finalized =
-        syncBlocks.stream()
-            .filter(block -> block.getHeader().getNumber() <= finalizedNumber)
-            .filter(block -> block.getHeader().getBalHash().isPresent())
-            .toList();
-    if (finalized.isEmpty()) {
-      return CompletableFuture.completedFuture(Map.of());
+    // the receipts of a block without transactions are known without asking
+    private CompletableFuture<Void> downloadReceipts(final List<SyncBlock> blocks) {
+      final List<SyncBlock> finalized =
+          blocks.stream()
+              .filter(block -> block.getHeader().getNumber() <= finalizedNumber)
+              .filter(block -> block.getHeader().getBalHash().isPresent())
+              .toList();
+      finalized.stream()
+          .filter(block -> block.getHeader().getReceiptsRoot().equals(Hash.EMPTY_TRIE_HASH))
+          .forEach(block -> receipts.put(block.getHeader().getHash(), List.of()));
+      final List<SyncBlock> toRequest =
+          finalized.stream()
+              .filter(block -> !receipts.containsKey(block.getHeader().getHash()))
+              .toList();
+      return inRequests(toRequest, chunk -> requestReceipts(chunk, List.of()));
     }
-    return receiptsDownload
-        .apply(finalized)
-        .thenApply(
-            blocks ->
-                blocks.stream()
-                    .collect(
-                        Collectors.toMap(
-                            SyncBlockWithReceipts::getHash,
-                            block -> decodeReceipts(block.getReceipts()))));
-  }
 
-  private static <T> Map<Hash, T> failed(final String what, final Throwable error) {
-    LOG.atDebug()
-        .setMessage("Downloading {} failed ({}), the blocks without are executed")
-        .addArgument(what)
-        .addArgument(error::toString)
-        .log();
-    return Map.of();
-  }
+    // a peer may send the receipts of the first blocks only, or part of those of a block
+    private CompletableFuture<Void> requestReceipts(
+        final List<SyncBlock> chunk, final List<SyncTransactionReceipt> partial) {
+      final GetSyncReceiptsFromPeerTask.Request request =
+          new GetSyncReceiptsFromPeerTask.Request(chunk, partial);
+      return track(
+              sender.submitWithRetries(
+                  new PeerTaskRequest<>(
+                      () ->
+                          new GetSyncReceiptsFromPeerTask(
+                              request, protocolSchedule, receiptEncoder),
+                      priority,
+                      "receipts"),
+                  OPTIONAL_ATTEMPTS))
+          .handle(
+              (response, error) -> {
+                if (error != null || abandoned) {
+                  return DONE;
+                }
+                final GetSyncReceiptsFromPeerTask.Response answer = response.value();
+                final int complete = answer.completeCount();
+                for (int i = 0; i < complete; i++) {
+                  final SyncBlock block = chunk.get(i);
+                  receipts.put(
+                      block.getHeader().getHash(), answer.completeReceiptsByBlock().get(block));
+                }
+                return complete >= chunk.size()
+                    ? DONE
+                    : requestReceipts(
+                        chunk.subList(complete, chunk.size()), answer.lastBlockPartialReceipts());
+              })
+          .thenCompose(Function.identity());
+    }
 
-  private static List<BlockHeader> headers(final List<SyncBlock> syncBlocks) {
-    return syncBlocks.stream().map(SyncBlock::getHeader).toList();
+    private <T> CompletableFuture<Void> inRequests(
+        final List<T> items, final Function<List<T>, CompletableFuture<Void>> request) {
+      return CompletableFuture.allOf(
+          Lists.partition(items, requestSize).stream()
+              .map(request)
+              .toArray(CompletableFuture[]::new));
+    }
+
+    // completes once the downloads ended or the batch stopped waiting for them
+    private CompletableFuture<Void> waitAtMost(final CompletableFuture<Void> downloads) {
+      final CompletableFuture<Void> wait = new CompletableFuture<>();
+      downloads.whenComplete((ignored, error) -> wait.complete(null));
+      scheduler.failAfterTimeout(wait, OPTIONAL_DOWNLOAD_TIMEOUT);
+      return wait.handle(
+          (ignored, timeout) -> {
+            abandon();
+            return null;
+          });
+    }
+
+    private <T> CompletableFuture<T> track(final CompletableFuture<T> request) {
+      pending.add(request);
+      request.whenComplete((response, error) -> pending.remove(request));
+      // added before the check, so that a concurrent abandon either cancels it or is seen here
+      if (abandoned) {
+        request.cancel(false);
+      }
+      return request;
+    }
+
+    private void abandon() {
+      abandoned = true;
+      pending.forEach(request -> request.cancel(false));
+    }
+
+    private BlockBatch batch(final List<SyncBlock> blocks) {
+      final Map<Hash, List<TransactionReceipt>> decodedReceipts =
+          receipts.entrySet().stream()
+              .collect(
+                  Collectors.toMap(Map.Entry::getKey, entry -> decodeReceipts(entry.getValue())));
+      LOG.atDebug()
+          .setMessage(
+              "Backward sync downloaded #{} to #{} in {} ms: {} block access lists, {} receipts")
+          .addArgument(() -> headers.getFirst().getNumber())
+          .addArgument(() -> headers.getLast().getNumber())
+          .addArgument(() -> System.currentTimeMillis() - startMillis)
+          .addArgument(bals::size)
+          .addArgument(decodedReceipts::size)
+          .log();
+      return new BlockBatch(decodeBlocks(blocks), Map.copyOf(bals), decodedReceipts);
+    }
   }
 
   private static List<Block> decodeBlocks(final List<SyncBlock> syncBlocks) {
