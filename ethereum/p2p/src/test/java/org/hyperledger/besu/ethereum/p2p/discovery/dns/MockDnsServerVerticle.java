@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
@@ -39,6 +40,10 @@ public class MockDnsServerVerticle extends AbstractVerticle {
   private static final Logger LOG = LoggerFactory.getLogger(MockDnsServerVerticle.class);
   private static final int MAX_CHARACTER_STRING = 255;
   private final Map<String, List<String>> txtRecords = new HashMap<>();
+  private final List<Runnable> heldResponses = new ArrayList<>();
+  private boolean holdingResponses;
+  private volatile Consumer<String> queryListener = name -> {};
+  private int receivedQueries;
   private int dnsPort;
 
   @Override
@@ -84,6 +89,42 @@ public class MockDnsServerVerticle extends AbstractVerticle {
     txtRecords.computeIfAbsent(key, unused -> new ArrayList<>()).add(value);
   }
 
+  /** The single TXT record published at a name. */
+  public String txtRecord(final String key) {
+    return txtRecords.get(key).getFirst();
+  }
+
+  /** Removes the TXT records at a name, so that queries for it fail. */
+  public void removeTxtRecord(final String key) {
+    txtRecords.remove(key);
+  }
+
+  /** Stops answering queries until {@link #releaseResponses()}: they are answered then. */
+  public synchronized void holdResponses() {
+    holdingResponses = true;
+  }
+
+  /** Answers the queries held since {@link #holdResponses()}, and the next ones right away. */
+  public void releaseResponses() {
+    final List<Runnable> toSend;
+    synchronized (this) {
+      holdingResponses = false;
+      toSend = new ArrayList<>(heldResponses);
+      heldResponses.clear();
+    }
+    toSend.forEach(Runnable::run);
+  }
+
+  /** Calls the listener with the name of each query received, before it is answered. */
+  public void onQuery(final Consumer<String> listener) {
+    queryListener = listener;
+  }
+
+  /** The number of queries received so far. */
+  public synchronized int receivedQueries() {
+    return receivedQueries;
+  }
+
   @Override
   public void stop() {
     LOG.info("Stopping Mock DNS Server");
@@ -94,6 +135,7 @@ public class MockDnsServerVerticle extends AbstractVerticle {
     Buffer data = packet.data();
     final short queryId = getQueryId(data);
     final String queryName = extractQueryName(data.getBytes());
+    queryListener.accept(queryName);
 
     final Buffer response;
     if (txtRecords.containsKey(queryName)) {
@@ -104,7 +146,16 @@ public class MockDnsServerVerticle extends AbstractVerticle {
       response = createErrorResponse(queryId, queryName);
     }
 
-    socket.send(response, packet.sender().port(), packet.sender().host());
+    final Runnable send =
+        () -> socket.send(response, packet.sender().port(), packet.sender().host());
+    synchronized (this) {
+      receivedQueries++;
+      if (holdingResponses) {
+        heldResponses.add(send);
+        return;
+      }
+    }
+    send.run();
   }
 
   private String extractQueryName(final byte[] buffer) {

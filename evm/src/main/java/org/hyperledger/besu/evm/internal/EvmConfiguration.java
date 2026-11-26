@@ -55,6 +55,31 @@ public record EvmConfiguration(
       new EvmConfiguration(32_000L, WorldUpdaterMode.STACKED, true, false);
 
   /**
+   * Checks the configuration once, so that EVM v2 frames need no stack size check at runtime.
+   *
+   * @param jumpDestCacheWeightKB the jump destination cache weight in kb
+   * @param worldUpdaterMode the world updater mode
+   * @param enableOptimizedOpcodes enable optimized implementation of certain opcodes in the EVM
+   * @param enableEvmV2 enable experimental EVM v2 with long[] stack representation
+   * @param evmStackSize the maximum evm stack size
+   * @param maxCodeSizeOverride An optional override of the maximum code size set by the EVM fork
+   * @param maxInitcodeSizeOverride An optional override of the maximum initcode size set by the EVM
+   *     fork
+   * @throws IllegalArgumentException if EVM v2 is enabled with a stack size other than {@link
+   *     MessageFrame#DEFAULT_MAX_STACK_SIZE}
+   */
+  @SuppressWarnings(
+      "MethodInputParametersMustBeFinal") // needed since record constructors are not yet supported
+  public EvmConfiguration {
+    if (enableEvmV2
+        && evmStackSize != null
+        && evmStackSize != MessageFrame.DEFAULT_MAX_STACK_SIZE) {
+      throw new IllegalArgumentException(
+          "EVM v2 supports only a stack size of " + MessageFrame.DEFAULT_MAX_STACK_SIZE);
+    }
+  }
+
+  /**
    * Create an EVM Configuration without any overrides
    *
    * @param jumpDestCacheWeightKilobytes the jump dest cache weight (in kibibytes)

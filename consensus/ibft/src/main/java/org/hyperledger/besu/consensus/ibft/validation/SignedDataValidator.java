@@ -150,6 +150,14 @@ public class SignedDataValidator {
     final Address commitSealCreator =
         Util.signatureToAddress(msg.getPayload().getCommitSeal(), proposedBlockDigest);
 
+    // A crafted Commit can carry a seal that does not recover to an address, for which
+    // Util.signatureToAddress returns null. Reject it rather than dereference null below, which
+    // would throw and lose the round for every validator processing the message.
+    if (commitSealCreator == null) {
+      LOG.info("Invalid Commit message. Seal did not recover to an address.");
+      return false;
+    }
+
     if (!commitSealCreator.equals(msg.getAuthor())) {
       LOG.info("Invalid Commit message. Seal was not created by the message transmitter.");
       return false;

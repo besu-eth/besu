@@ -514,7 +514,7 @@ dependencies {
   referenceTestImplementation project(path: ':util')
   // the following will be resolved via custom ivy repository declared in root build.gradle
   referenceTestImplementation(
-    'ethereum:execution-specs:tests@v21.0.1:fixtures@tar.gz'
+    'ethereum:execution-specs:tests@v21.0.3:fixtures@tar.gz'
     )
   devnetTarConfig(
     'ethereum:execution-specs:tests-glamsterdam-devnet@v8.1.4:fixtures_glamsterdam-devnet@tar.gz'

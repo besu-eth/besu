@@ -399,7 +399,8 @@ public class BlockchainReferenceTestCaseSpec {
         final ObjectNode root = JsonUtil.createEmptyObjectNode();
         blobSchedule.forEach(
             (fork, params) -> {
-              final ObjectNode forkNode = root.putObject(fork.toLowerCase(Locale.ROOT));
+              final ObjectNode forkNode =
+                  root.putObject(ReferenceTestProtocolSchedules.blobScheduleKey(fork));
               params.forEach(
                   (key, hexValue) ->
                       forkNode.put(

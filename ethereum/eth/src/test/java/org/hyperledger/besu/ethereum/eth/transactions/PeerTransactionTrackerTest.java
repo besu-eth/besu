@@ -219,6 +219,81 @@ public class PeerTransactionTrackerTest {
     assertThat(tracker.hasPeerSeenTransaction(ethPeer2, transaction2)).isFalse();
   }
 
+  @Test
+  public void shouldNotLetANewPeerInheritTheSeenStateOfTheSlotItReuses() {
+    tracker.markTransactionsAsSeen(ethPeer1, List.of(transaction1.getHash()));
+    tracker.receivedAnnouncements(ethPeer1, TransactionAnnouncements.create(List.of(transaction2)));
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer1, transaction1)).isTrue();
+    assertThat(tracker.hasPeerSeenAnnouncement(ethPeer1, transaction2.getHash())).isTrue();
+
+    // peer1 leaves, which frees its slot index for the next peer to connect
+    when(ethPeers.streamAllConnectedPeers()).thenReturn(Stream.of(ethPeer2));
+    tracker.onDisconnect(ethPeer1);
+
+    final EthPeer ethPeer3 = mockPeer();
+    tracker.onPeerConnected(ethPeer3);
+
+    // peer3 took over peer1's slot index, but has seen nothing of its own
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer3, transaction1)).isFalse();
+    assertThat(tracker.hasPeerSeenAnnouncement(ethPeer3, transaction2.getHash())).isFalse();
+    assertThat(tracker.hasPeerSeenTransactionOrAnnouncement(ethPeer3, transaction1.getHash()))
+        .isFalse();
+    assertThat(tracker.hasPeerSeenTransactionOrAnnouncement(ethPeer3, transaction2.getHash()))
+        .isFalse();
+
+    // and the slot can record peer3's own seen state from scratch
+    tracker.markTransactionsAsSeen(ethPeer3, List.of(transaction3.getHash()));
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer3, transaction3)).isTrue();
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer3, transaction1)).isFalse();
+  }
+
+  @Test
+  public void shouldNotTreatAPeerThatArrivedAfterABlockAsHavingSeenItsTransactions() {
+    final Block block =
+        generator.block(BlockDataGenerator.BlockOptions.create().addTransaction(transaction1));
+    tracker.onBlockAdded(BlockAddedEvent.createForHeadAdvancement(block, List.of(), List.of()));
+
+    // peers connected when the block was imported are not sent its transactions again
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer1, transaction1)).isTrue();
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer2, transaction1)).isTrue();
+
+    // a peer that connects afterwards has not seen them, whether or not it reuses a slot index
+    when(ethPeers.streamAllConnectedPeers()).thenReturn(Stream.of(ethPeer2));
+    tracker.onDisconnect(ethPeer1);
+    final EthPeer reusingPeer = mockPeer();
+    final EthPeer freshPeer = mockPeer();
+    tracker.onPeerConnected(reusingPeer);
+    tracker.onPeerConnected(freshPeer);
+
+    assertThat(tracker.hasPeerSeenTransaction(reusingPeer, transaction1)).isFalse();
+    assertThat(tracker.hasPeerSeenTransaction(freshPeer, transaction1)).isFalse();
+    // but the transaction is still recorded as recently confirmed
+    assertThat(tracker.alreadySeenTransaction(transaction1.getHash())).isTrue();
+  }
+
+  @Test
+  public void shouldKeepSeenStateIndependentAcrossRepeatedSlotReuse() {
+    // churning one slot index must not let any tenant's seen state leak into another's
+    EthPeer previous = ethPeer1;
+    tracker.markTransactionsAsSeen(previous, List.of(transaction1.getHash()));
+
+    for (int i = 0; i < 10; i++) {
+      when(ethPeers.streamAllConnectedPeers()).thenReturn(Stream.of(ethPeer2));
+      tracker.onDisconnect(previous);
+      final EthPeer next = mockPeer();
+      tracker.onPeerConnected(next);
+
+      assertThat(tracker.hasPeerSeenTransaction(next, transaction1)).isFalse();
+      tracker.markTransactionsAsSeen(next, List.of(transaction1.getHash()));
+      assertThat(tracker.hasPeerSeenTransaction(next, transaction1)).isTrue();
+      previous = next;
+    }
+
+    // the peer that never left still has its own state
+    tracker.markTransactionsAsSeen(ethPeer2, List.of(transaction2.getHash()));
+    assertThat(tracker.hasPeerSeenTransaction(ethPeer2, transaction2)).isTrue();
+  }
+
   private RemovalReason createRemovalReason(
       final boolean stopTracking, final boolean stopBroadcasting) {
     return new RemovalReason() {

@@ -26,18 +26,23 @@ import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.testutils.FakeBlockValues;
+import org.hyperledger.besu.evm.testutils.TestEvmConfigurations;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 
 import java.math.BigInteger;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
 class AbstractCallOperationTest {
@@ -46,6 +51,14 @@ class AbstractCallOperationTest {
       Address.fromHexString("0x00000000000000000000000000ca110b15012381");
   private static final Address CODE_ADDRESS = Address.BLS12_G1ADD;
   private static final long INITIAL_GAS = 1_000_000L;
+  private static final Address DELEGATED =
+      Address.fromHexString("0x00000000000000000000000000000000000000e7");
+  private static final Address DELEGATION_TARGET =
+      Address.fromHexString("0x00000000000000000000000000000000000000c3");
+  private static final Bytes DELEGATION_CODE =
+      Bytes.concatenate(CodeDelegationHelper.CODE_DELEGATION_PREFIX, DELEGATION_TARGET.getBytes());
+  // ADDRESS PUSH1 0 MSTORE PUSH1 0x20 PUSH1 0 RETURN
+  private static final Bytes TARGET_CODE = Bytes.fromHexString("0x3060005260206000f3");
 
   private final GasCalculator gasCalculator = new AmsterdamGasCalculator();
   private final EVM evm =
@@ -110,6 +123,61 @@ class AbstractCallOperationTest {
     assertThat(childFrame.getState()).isEqualTo(MessageFrame.State.COMPLETED_FAILED);
     assertThat(parentFrame.getStateGasReservoir()).isEqualTo(initialStateGasReservoir);
     assertThat(parentFrame.getStateGasUsed()).isZero();
+  }
+
+  @Test
+  void callToDelegatedAccountBeforePragueRunsTheDesignatorAsCode() {
+    final GasCalculator cancunGasCalculator = new CancunGasCalculator();
+    final EVM cancun =
+        MainnetEVMs.cancun(cancunGasCalculator, BigInteger.ONE, TestEvmConfigurations.EVM_V1);
+
+    final MessageFrame childFrame =
+        callDelegatedAccount(cancun, new CallOperation(cancunGasCalculator));
+
+    assertThat(childFrame.getCode().getBytes()).isEqualTo(DELEGATION_CODE);
+    new MessageCallProcessor(cancun, new PrecompileContractRegistry())
+        .process(childFrame, OperationTracer.NO_TRACING);
+    assertThat(childFrame.getState()).isEqualTo(MessageFrame.State.COMPLETED_FAILED);
+    assertThat(childFrame.getExceptionalHaltReason().map(ExceptionalHaltReason::name))
+        .contains(ExceptionalHaltReason.INVALID_OPERATION.name());
+    assertThat(childFrame.getRemainingGas()).isZero();
+  }
+
+  @Test
+  void callToDelegatedAccountFromPragueRunsTheTargetCode() {
+    final GasCalculator pragueGasCalculator = new PragueGasCalculator();
+    final EVM prague =
+        MainnetEVMs.prague(pragueGasCalculator, BigInteger.ONE, TestEvmConfigurations.EVM_V1);
+
+    final MessageFrame childFrame =
+        callDelegatedAccount(prague, new CallOperation(pragueGasCalculator));
+
+    assertThat(childFrame.getCode().getBytes()).isEqualTo(TARGET_CODE);
+    new MessageCallProcessor(prague, new PrecompileContractRegistry())
+        .process(childFrame, OperationTracer.NO_TRACING);
+    assertThat(childFrame.getState()).isEqualTo(MessageFrame.State.COMPLETED_SUCCESS);
+    assertThat(childFrame.getOutputData()).isEqualTo(Bytes32.leftPad(DELEGATED.getBytes()));
+  }
+
+  private MessageFrame callDelegatedAccount(final EVM evm, final CallOperation operation) {
+    final SimpleWorld world = worldWithAliveStateContext();
+    world.createAccount(DELEGATED, 0L, Wei.ZERO).setCode(DELEGATION_CODE);
+    world.createAccount(DELEGATION_TARGET, 0L, Wei.ZERO).setCode(TARGET_CODE);
+    final MessageFrame parentFrame = createParentFrame(world);
+    parentFrame.pushStackItem(Bytes.EMPTY); // output size
+    parentFrame.pushStackItem(Bytes.EMPTY); // output offset
+    parentFrame.pushStackItem(Bytes.EMPTY); // input size
+    parentFrame.pushStackItem(Bytes.EMPTY); // input offset
+    parentFrame.pushStackItem(Bytes.EMPTY); // value
+    parentFrame.pushStackItem(DELEGATED.getBytes());
+    parentFrame.pushStackItem(Bytes.ofUnsignedLong(100_000L));
+
+    operation.execute(parentFrame, evm);
+
+    final MessageFrame childFrame = parentFrame.getMessageFrameStack().peek();
+    assertThat(childFrame).isNotSameAs(parentFrame);
+    assertThat(childFrame.getRemainingGas()).isEqualTo(100_000L);
+    return childFrame;
   }
 
   private SimpleWorld worldWithAliveStateContext() {

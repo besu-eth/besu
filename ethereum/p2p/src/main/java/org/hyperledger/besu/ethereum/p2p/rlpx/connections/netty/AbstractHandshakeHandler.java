@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.framing.Framer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramerProvider;
 import org.hyperledger.besu.ethereum.p2p.rlpx.handshake.Handshaker;
 import org.hyperledger.besu.ethereum.p2p.rlpx.handshake.HandshakerProvider;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.HelloMessage;
@@ -119,11 +120,13 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
       // Exchange keys done
       final Framer framer = this.framerProvider.buildFramer(handshaker.secrets());
 
+      // read once, so that the hello and the capabilities agreed on match
+      final PeerInfo localPeerInfo = localNode.getPeerInfo();
       final ByteToMessageDecoder deFramer =
           new DeFramer(
               framer,
               subProtocols,
-              localNode,
+              localPeerInfo.getCapabilities(),
               expectedPeer,
               connectionEventDispatcher,
               connectionFuture,
@@ -138,7 +141,7 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
           .replace(this, "DeFramer", deFramer)
           .addBefore("DeFramer", "validate", new ValidateFirstOutboundMessage(framer));
 
-      ctx.writeAndFlush(new OutboundMessage(null, HelloMessage.create(localNode.getPeerInfo())))
+      ctx.writeAndFlush(new OutboundMessage(null, HelloMessage.create(localPeerInfo)))
           .addListener(
               ff -> {
                 if (ff.isSuccess()) {

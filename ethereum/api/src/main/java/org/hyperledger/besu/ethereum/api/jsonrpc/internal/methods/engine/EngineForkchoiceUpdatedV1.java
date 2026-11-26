@@ -67,7 +67,8 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Extends {@link OrderedExecutionJsonRpcMethod} because the Engine API spec mandates that
  * forkchoiceUpdated calls are processed in the order they have been received; this applies to the
- * whole sealed V1-V4 hierarchy.
+ * whole sealed V1-V4 hierarchy. A call stops waiting for the newPayload calls received before it
+ * once the blocks it names are stored, see {@link #dependsOnEarlierCalls}.
  *
  * @param <PA> the payload-attributes type this version accepts
  * @param <FRP> the request-parameters type this version reads
@@ -90,7 +91,11 @@ public sealed class EngineForkchoiceUpdatedV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    super(
+        constructorArguments,
+        minSupportedFork,
+        firstUnsupportedFork,
+        EngineOrderPrecedence.FORKCHOICE_UPDATED);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
   }
@@ -98,6 +103,36 @@ public sealed class EngineForkchoiceUpdatedV1<
   @Override
   public String getName() {
     return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V1.getMethodName();
+  }
+
+  /**
+   * The payloads still being validated can only add blocks and their states. Once the blocks the
+   * call names are stored, with the state of its head, they cannot change its outcome, and waiting
+   * for them would hold up the update and the build of the next block for as long as a slow payload
+   * takes.
+   */
+  @Override
+  protected boolean dependsOnEarlierCalls(final JsonRpcRequestContext requestContext) {
+    try {
+      final ForkchoiceStateV1 forkchoiceState = readForkchoiceState(requestContext);
+      final Optional<BlockHeader> head =
+          protocolContext.getBlockchain().getBlockHeader(forkchoiceState.getHeadBlockHash());
+      return head.isEmpty()
+          || !protocolContext
+              .getWorldStateArchive()
+              .isWorldStateAvailable(head.get().getStateRoot(), head.get().getHash())
+          || !isStoredOrUnset(forkchoiceState.getFinalizedBlockHash())
+          || !isStoredOrUnset(forkchoiceState.getSafeBlockHash());
+    } catch (final RuntimeException e) {
+      // the call itself reports the invalid parameters
+      return true;
+    }
+  }
+
+  private boolean isStoredOrUnset(final Hash blockHash) {
+    // a zero hash names no block
+    return blockHash.getBytes().isZero()
+        || protocolContext.getBlockchain().getBlockHeader(blockHash).isPresent();
   }
 
   @SuppressWarnings("unchecked")
@@ -283,6 +318,17 @@ public sealed class EngineForkchoiceUpdatedV1<
             forkChoice.getHeadBlockHash() + " is an invalid block"));
   }
 
+  private static ForkchoiceStateV1 readForkchoiceState(final JsonRpcRequestContext requestContext) {
+    try {
+      return requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
+    } catch (final JsonRpcParameter.JsonRpcParameterException e) {
+      throw new InvalidRequestParametersException(
+          "Invalid forkchoice state parameter (index 0)",
+          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
+          e);
+    }
+  }
+
   /**
    * Reads and decodes this version's request parameters. Each version overrides this to call {@code
    * super.readRequestParameters(...)} and decorate the result with its own additional parameter(s),
@@ -290,15 +336,7 @@ public sealed class EngineForkchoiceUpdatedV1<
    */
   @SuppressWarnings("unchecked")
   protected FRP readRequestParameters(final JsonRpcRequestContext requestContext) {
-    final ForkchoiceStateV1 forkChoice;
-    try {
-      forkChoice = requestContext.getRequiredParameter(0, ForkchoiceStateV1.class);
-    } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      throw new InvalidRequestParametersException(
-          "Invalid forkchoice state parameter (index 0)",
-          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
-          e);
-    }
+    final ForkchoiceStateV1 forkChoice = readForkchoiceState(requestContext);
 
     logger().debug("Forkchoice parameters {}", forkChoice);
 
