@@ -191,8 +191,9 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
       // logs once, for the block right after coverage
       if (extendsCoverage) {
         LOG.info(
-            "Stopped capturing trie nodes: block {} ({}) is not final yet, so proof history ends at"
-                + " block {}",
+            "Paused inline trie-node capture at block {} ({}): not final yet. The trailing archiver"
+                + " archives blocks after {} once they are final, and inline capture continues"
+                + " once it reaches the head",
             block,
             blockHeader.getBlockHash(),
             block - 1);
@@ -223,9 +224,9 @@ public class ArchiveTrieNodeStrategy implements TrieNodeStrategy, Closeable {
   private void logSkippedBlock(final BlockHeader blockHeader, final ArchivedBlock last) {
     LogUtil.throttledLog(
         () ->
-            LOG.warn(
-                "Not capturing trie nodes for block {} ({}): "
-                    + "it does not extend archived block {} ({})",
+            LOG.info(
+                "Not capturing trie nodes inline for block {} ({}): proof history ends at block"
+                    + " {} ({}), and the trailing archiver extends it",
                 blockHeader.getNumber(),
                 blockHeader.getBlockHash(),
                 last.number(),
