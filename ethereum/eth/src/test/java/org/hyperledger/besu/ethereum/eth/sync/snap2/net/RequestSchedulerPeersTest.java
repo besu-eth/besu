@@ -65,6 +65,7 @@ class RequestSchedulerPeersTest {
   private final List<EthPeer> connected = new CopyOnWriteArrayList<>();
   private final Map<EthPeer, List<MessageData>> sent = new ConcurrentHashMap<>();
   private RequestScheduler scheduler;
+  private RequestSender sender;
 
   @BeforeEach
   void setUp() {
@@ -76,6 +77,7 @@ class RequestSchedulerPeersTest {
                     .filter(peer -> !peer.isDisconnected()));
     scheduler =
         new RequestScheduler(ethPeers, new NoOpMetricsSystem(), Duration.ofSeconds(10), 4, 4, 1);
+    sender = scheduler.scope();
   }
 
   @AfterEach
@@ -89,16 +91,16 @@ class RequestSchedulerPeersTest {
         connect(List.of(), EthProtocol.LATEST, SnapProtocolVersion.V1.getCapability());
     final EthPeer snap2 =
         connect(List.of(), EthProtocol.LATEST, SnapProtocolVersion.V2.getCapability());
-    assertThat(scheduler.peerCount(Protocol.SNAP)).isEqualTo(2);
-    assertThat(scheduler.peerCount(Protocol.SNAP2)).isEqualTo(1);
+    assertThat(sender.peerCount(Protocol.SNAP)).isEqualTo(2);
+    assertThat(sender.peerCount(Protocol.SNAP2)).isEqualTo(1);
 
     // the snap/2 peer takes two, the third waits for it
     for (int i = 0; i < 3; i++) {
-      scheduler.submit(blockAccessLists());
+      sender.submit(blockAccessLists());
     }
     await().until(() -> sent(snap2).size() == 2);
     // a range request, dispatched after the waiting one, goes to the snap/1 peer
-    scheduler.submit(accountRange());
+    sender.submit(accountRange());
     await().until(() -> !sent(snap1).isEmpty());
 
     assertThat(sent(snap1))
@@ -117,11 +119,11 @@ class RequestSchedulerPeersTest {
       others.add(send(peer, GetBlockHeadersMessage.create(1, 1, 0, false)));
     }
 
-    scheduler.submit(headers());
-    scheduler.submit(headers());
+    sender.submit(headers());
+    sender.submit(headers());
 
     // one more request would leave the peer no room for the other downloads
-    await().until(() -> scheduler.capacity(Protocol.ETH) == 1);
+    await().until(() -> sender.capacity(Protocol.ETH) == 1);
     assertThat(sent(peer)).hasSize(4);
     assertThat(peer.hasAvailableRequestCapacity()).isTrue();
 
@@ -142,10 +144,10 @@ class RequestSchedulerPeersTest {
     validated.chainState().updateHeightEstimate(10);
     pending.chainState().updateHeightEstimate(1_000);
 
-    assertThat(scheduler.peerCount(Protocol.ETH)).isEqualTo(1);
-    assertThat(scheduler.peerCount(Protocol.SNAP2)).isEqualTo(1);
-    assertThat(scheduler.bestPeerHeight()).isEqualTo(10);
-    assertThat(scheduler.capacity(Protocol.SNAP)).isEqualTo(2);
+    assertThat(sender.peerCount(Protocol.ETH)).isEqualTo(1);
+    assertThat(sender.peerCount(Protocol.SNAP2)).isEqualTo(1);
+    assertThat(sender.bestPeerHeight()).isEqualTo(10);
+    assertThat(sender.capacity(Protocol.SNAP)).isEqualTo(2);
   }
 
   @Test
@@ -153,7 +155,7 @@ class RequestSchedulerPeersTest {
     connectAt(1_000);
     connect(List.of(), EthProtocol.LATEST);
 
-    assertThat(scheduler.bestPeerHeight()).isEqualTo(1_000);
+    assertThat(sender.bestPeerHeight()).isEqualTo(1_000);
   }
 
   @Test
@@ -161,12 +163,12 @@ class RequestSchedulerPeersTest {
     connectAt(900);
     connectAt(1_000);
 
-    assertThat(scheduler.bestPeerHeight()).isEqualTo(900);
+    assertThat(sender.bestPeerHeight()).isEqualTo(900);
   }
 
   @Test
   void knowsNoHeightWithoutPeers() {
-    assertThat(scheduler.bestPeerHeight()).isZero();
+    assertThat(sender.bestPeerHeight()).isZero();
   }
 
   @Test
@@ -175,11 +177,11 @@ class RequestSchedulerPeersTest {
     final EthPeer behind = connectAt(900);
     final EthPeer first = connectAt(1_000);
     final EthPeer second = connectAt(1_000);
-    assertThat(scheduler.bestPeerHeight()).isEqualTo(1_000);
+    assertThat(sender.bestPeerHeight()).isEqualTo(1_000);
 
     // the two peers at the tip take the lookups as long as they have free slots
     for (int i = 0; i < 4; i++) {
-      scheduler.submit(pivotHeader(scheduler.bestPeerHeight()));
+      sender.submit(pivotHeader(sender.bestPeerHeight()));
     }
 
     assertThat(sent(first)).hasSize(2);
@@ -194,11 +196,11 @@ class RequestSchedulerPeersTest {
     final EthPeer second = connectAt(1_000);
     final EthPeer outlier = connectAt(1_000_000_000);
     // the highest height two peers reach
-    assertThat(scheduler.bestPeerHeight()).isEqualTo(1_000);
+    assertThat(sender.bestPeerHeight()).isEqualTo(1_000);
 
     // no peer looks behind: the lookups spread over the three
     for (int i = 0; i < 3; i++) {
-      scheduler.submit(pivotHeader(scheduler.bestPeerHeight()));
+      sender.submit(pivotHeader(sender.bestPeerHeight()));
     }
 
     assertThat(sent(first)).hasSize(1);
@@ -222,6 +224,7 @@ class RequestSchedulerPeersTest {
     scheduler =
         new RequestScheduler(
             ethPeers, new NoOpMetricsSystem(), Duration.ofSeconds(10), 4, 4, 1, loop, () -> 0);
+    sender = scheduler.scope();
   }
 
   // a validated eth peer that announced the given height
