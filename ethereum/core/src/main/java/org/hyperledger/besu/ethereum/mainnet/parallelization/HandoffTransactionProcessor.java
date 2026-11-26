@@ -50,7 +50,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Processes a block without a block access list like {@link
+ * Processes the blocks the BAL processor does not, like {@link
  * OptimisticConcurrentTransactionProcessor}, and runs a transaction again before block processing
  * reaches it once the values its run read have changed.
  *

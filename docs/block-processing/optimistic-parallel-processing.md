@@ -34,8 +34,8 @@ On Bonsai with `--bonsai-parallel-tx-processing-enabled`, which is the default, 
 
 | Block | Processor |
 |---|---|
-| No block access list | `HandoffTransactionProcessor`, on EVM v1 and v2. With `--Xparallel-tx-refresh-enabled=false`, `OptimisticConcurrentTransactionProcessor`. |
-| Has a block access list (Amsterdam) | `BalConcurrentTransactionProcessor`, not covered here. With `--Xbal-perfect-parallelization-enabled=false`, these blocks use the optimistic processor as well. |
+| No block access list | `HandoffTransactionProcessor`, which extends `OptimisticConcurrentTransactionProcessor`, on EVM v1 and v2 |
+| Has a block access list (Amsterdam) | `BalConcurrentTransactionProcessor`, not covered here. With `--Xbal-perfect-parallelization-enabled=false`, these blocks use the handoff processor as well. |
 
 A block access list (EIP-7928) states which accounts and slots each transaction touches and the values it leaves there, so the BAL processor knows every transaction's inputs in advance. The optimistic processor has no such list. It learns what a transaction touches only by running it.
 
@@ -161,7 +161,7 @@ A few limits keep the index cheap:
 
 ## Refreshes
 
-`HandoffTransactionProcessor` extends the optimistic processor and runs the blocks without a block access list, on EVM v1 and v2. Everything the optimistic processor does still applies. In addition, it runs a transaction whose run read values the block will not have again on the new values, before block processing gets there.
+`HandoffTransactionProcessor` extends the optimistic processor and runs every block the BAL processor does not, on EVM v1 and v2. Everything the optimistic processor does still applies. In addition, it runs a transaction whose run read values the block will not have again on the new values, before block processing gets there.
 
 **Storing read/write sets.** Each run that finishes with a valid result stores its read/write set (`onRunFinished`), runs alone and chained runs alike.
 

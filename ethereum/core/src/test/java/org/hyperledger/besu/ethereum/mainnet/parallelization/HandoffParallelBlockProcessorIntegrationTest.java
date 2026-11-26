@@ -52,11 +52,11 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * Integration tests for {@link HandoffTransactionProcessor}, which processes the blocks without a
- * block access list: the blocks run before Amsterdam, on EVM v1 and on EVM v2, and each is checked
- * against sequential processing. The refreshes run either on their worker, whenever it gets to
- * them, or before each transaction, so that every invalidated result is refreshed on the writes
- * before it.
+ * Integration tests for {@link HandoffTransactionProcessor}, which processes the blocks the BAL
+ * processor does not. The blocks run before Amsterdam, and from Amsterdam on while they build their
+ * block access list, on EVM v1 and on EVM v2, and each is checked against sequential processing.
+ * The refreshes run either on their worker, whenever it gets to them, or before each transaction,
+ * so that every invalidated result is refreshed on the writes before it.
  */
 class HandoffParallelBlockProcessorIntegrationTest {
 
@@ -76,6 +76,11 @@ class HandoffParallelBlockProcessorIntegrationTest {
 
   /** The integration test genesis before Amsterdam, with the extra senders funded. */
   static ExecutionContextTestFixture createOsakaContext(final boolean evmV2) {
+    return createContext(false, evmV2);
+  }
+
+  /** The integration test genesis, with the extra senders funded. */
+  static ExecutionContextTestFixture createContext(final boolean amsterdam, final boolean evmV2) {
     final ObjectNode genesis;
     try (InputStream in =
         HandoffParallelBlockProcessorIntegrationTest.class.getResourceAsStream(GENESIS_CONFIG)) {
@@ -84,7 +89,10 @@ class HandoffParallelBlockProcessorIntegrationTest {
       throw new IllegalStateException(e);
     }
 
-    ((ObjectNode) genesis.get("config")).remove("amsterdamTime");
+    if (!amsterdam) {
+      ((ObjectNode) genesis.get("config")).remove("amsterdamTime");
+    }
+
     final ObjectNode alloc = (ObjectNode) genesis.get("alloc");
     for (final KeyPair sender : SENDERS) {
       final ObjectNode account =
@@ -117,7 +125,16 @@ class HandoffParallelBlockProcessorIntegrationTest {
   }
 
   private static String variant(final boolean evmV2, final String refreshes) {
-    return "Handoff (EVM " + (evmV2 ? "v2" : "v1") + ", before Amsterdam, " + refreshes + ")";
+    return variant(false, evmV2, refreshes);
+  }
+
+  private static String variant(
+      final boolean amsterdam, final boolean evmV2, final String refreshes) {
+    return "Handoff (EVM "
+        + (evmV2 ? "v2" : "v1")
+        + (amsterdam ? ", Amsterdam, " : ", before Amsterdam, ")
+        + refreshes
+        + ")";
   }
 
   @AfterEach
@@ -291,6 +308,10 @@ class HandoffParallelBlockProcessorIntegrationTest {
       return false;
     }
 
+    boolean onAmsterdam() {
+      return false;
+    }
+
     @BeforeEach
     void refreshInOrder() {
       HandoffTransactionProcessor.refreshSynchronously(true);
@@ -298,7 +319,7 @@ class HandoffParallelBlockProcessorIntegrationTest {
 
     @Override
     protected String getVariantName() {
-      return variant(onEvmV2(), "refreshed before each transaction");
+      return variant(onAmsterdam(), onEvmV2(), "refreshed before each transaction");
     }
 
     @Override
@@ -308,12 +329,12 @@ class HandoffParallelBlockProcessorIntegrationTest {
 
     @Override
     protected boolean buildsBlockAccessLists() {
-      return false;
+      return onAmsterdam();
     }
 
     @Override
     protected ExecutionContextTestFixture createFreshContext() {
-      return createOsakaContext(onEvmV2());
+      return createContext(onAmsterdam(), onEvmV2());
     }
 
     private Transaction increment(final KeyPair sender) {
@@ -373,6 +394,24 @@ class HandoffParallelBlockProcessorIntegrationTest {
   @Nested
   @DisplayName("Refreshed results on EVM v2")
   class RefreshedResultsOnEvmV2 extends RefreshedResults {
+    @Override
+    boolean onEvmV2() {
+      return true;
+    }
+  }
+
+  @Nested
+  @DisplayName("Refreshed results on Amsterdam, building the block access list")
+  class RefreshedResultsOnAmsterdam extends RefreshedResults {
+    @Override
+    boolean onAmsterdam() {
+      return true;
+    }
+  }
+
+  @Nested
+  @DisplayName("Refreshed results on Amsterdam, building the block access list, on EVM v2")
+  class RefreshedResultsOnAmsterdamOnEvmV2 extends RefreshedResultsOnAmsterdam {
     @Override
     boolean onEvmV2() {
       return true;

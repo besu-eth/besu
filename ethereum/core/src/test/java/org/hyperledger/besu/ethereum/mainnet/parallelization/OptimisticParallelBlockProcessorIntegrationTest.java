@@ -42,17 +42,24 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.BlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -63,6 +70,7 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -73,20 +81,18 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 /**
- * Integration tests for optimistic (collision-detection based) parallel block processing. Uses
- * ParallelizedConcurrentTransactionProcessor under the hood.
+ * Integration tests for optimistic (collision-detection based) parallel block processing. The
+ * blocks run on {@link HandoffTransactionProcessor}, which extends {@link
+ * OptimisticConcurrentTransactionProcessor} with refreshes, except for the reuse of speculative
+ * results, which runs on the optimistic processor alone.
  *
  * <p>Tests are organized into nested classes by category, each extending the appropriate abstract
  * test class to inherit the test methods while providing the optimistic-specific configuration.
  */
 class OptimisticParallelBlockProcessorIntegrationTest {
 
-  // blocks before Amsterdam would otherwise run on the handoff processor, which extends this one
   private static final BalConfiguration OPTIMISTIC_CONFIG =
-      ImmutableBalConfiguration.builder()
-          .isPerfectParallelizationEnabled(false)
-          .isParallelTxRefreshEnabled(false)
-          .build();
+      ImmutableBalConfiguration.builder().isPerfectParallelizationEnabled(false).build();
 
   private static String getVariant() {
     return "Optimistic (Collision Detection)";
@@ -183,6 +189,47 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     @Override
     protected BalConfiguration getBalConfiguration() {
       return OPTIMISTIC_CONFIG;
+    }
+
+    // These tests pin down which results the optimistic processor takes. A refresh could turn a
+    // collision into a take, depending on when it finishes.
+    @Override
+    protected BlockProcessor createParallelProcessor(final ExecutionContextTestFixture ctx) {
+      final ProtocolSpec spec =
+          ctx.getProtocolSchedule()
+              .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
+      return new NoFallbackParallelBlockProcessor(
+          spec.getTransactionProcessor(),
+          spec.getTransactionReceiptFactory(),
+          BlockHeader::getCoinbase,
+          ctx.getProtocolSchedule(),
+          getBalConfiguration()) {
+        @Override
+        protected Optional<ParallelBlockTransactionProcessor> startParallelExecution(
+            final ProtocolContext protocolContext,
+            final BlockHeader blockHeader,
+            final List<Transaction> transactions,
+            final Address miningBeneficiary,
+            final BlockHashLookup blockHashLookup,
+            final Wei blobGasPrice,
+            final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+            final Optional<BlockAccessList> blockAccessList,
+            final Optional<BlockHeader> maybeParentHeader) {
+          final OptimisticConcurrentTransactionProcessor processor =
+              new OptimisticConcurrentTransactionProcessor(transactionProcessor);
+          processor.runAsyncBlock(
+              protocolContext,
+              blockHeader,
+              transactions,
+              miningBeneficiary,
+              blockHashLookup,
+              blobGasPrice,
+              Runnable::run,
+              blockAccessListBuilder,
+              maybeParentHeader);
+          return Optional.of(processor);
+        }
+      };
     }
 
     private Transaction transfer(final long nonce, final String to) {

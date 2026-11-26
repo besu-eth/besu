@@ -195,12 +195,10 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
               transactionProcessor, blockAccessList.get(), balConfiguration);
-    } else if (balConfiguration.isParallelTxRefreshEnabled() && blockAccessListBuilder.isEmpty()) {
+    } else {
       parallelProcessor =
           new HandoffTransactionProcessor(
               transactionProcessor, refreshCounter, refreshedTransactionCounter);
-    } else {
-      parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
 
     parallelProcessor.runAsyncBlock(

@@ -32,14 +32,6 @@ public class BalConfigurationOptions {
   boolean balPerfectParallelizationEnabled = true;
 
   @CommandLine.Option(
-      names = {"--Xparallel-tx-refresh-enabled"},
-      hidden = true,
-      arity = "1",
-      description =
-          "Run a speculative transaction of a block without a BAL again on the values earlier transactions left, once they differ from what it read (default: ${DEFAULT-VALUE}).")
-  boolean parallelTxRefreshEnabled = BalConfiguration.DEFAULT.isParallelTxRefreshEnabled();
-
-  @CommandLine.Option(
       names = {"--Xbal-state-root-enabled"},
       hidden = true,
       negatable = true,
@@ -85,7 +77,6 @@ public class BalConfigurationOptions {
   public BalConfiguration toDomainObject() {
     return ImmutableBalConfiguration.builder()
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
-        .isParallelTxRefreshEnabled(parallelTxRefreshEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
         .isBalStateRootEnabled(balStateRootEnabled)
         .isBalPreFetchReadingEnabled(balPreFetchReadingEnabled)
