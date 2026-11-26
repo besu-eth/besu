@@ -985,23 +985,13 @@ class OptimisticTransactionProcessorUnitTest {
 
       runBlock(List.of(tx1, tx2), sameThreadExecutor);
 
-      assertThat(
-              processor
-                  .futures[0]
-                  .resultNow()
-                  .transactionAccumulator()
-                  .recordsBalanceObservations())
+      assertThat(processor.futures[0].resultNow().transactionAccumulator().getBalanceObservations())
           .as("a run alone can carry balance changes over")
-          .isTrue();
+          .isPresent();
       assertThat(processor.futures[1].resultNow().chainPredecessorAccumulator()).isNotNull();
-      assertThat(
-              processor
-                  .futures[1]
-                  .resultNow()
-                  .transactionAccumulator()
-                  .recordsBalanceObservations())
+      assertThat(processor.futures[1].resultNow().transactionAccumulator().getBalanceObservations())
           .as("a chained result carries nothing over")
-          .isFalse();
+          .isEmpty();
     }
 
     @Test

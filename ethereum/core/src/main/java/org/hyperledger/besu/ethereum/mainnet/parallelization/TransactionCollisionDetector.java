@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BalanceObservations;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.Account;
@@ -266,8 +267,9 @@ public class TransactionCollisionDetector {
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
       final Address address,
       final BonsaiValue<? extends BonsaiAccount> inBlock) {
-    if (!transactionAccumulator.recordsBalanceObservations()
-        || transactionAccumulator.isBalanceObserved(address)) {
+    final Optional<BalanceObservations> observations =
+        transactionAccumulator.getBalanceObservations();
+    if (observations.isEmpty() || observations.get().isObserved(address)) {
       return false;
     }
     final BonsaiValue<? extends BonsaiAccount> inTransaction =
@@ -280,8 +282,7 @@ public class TransactionCollisionDetector {
             && !isNonceChangeCarried(transaction, inTransaction, address, inBlock))) {
       return false;
     }
-    return spendingStillSuffices(
-        transaction, transactionAccumulator, address, inBlock, inTransaction);
+    return spendingStillSuffices(transaction, observations.get(), address, inBlock, inTransaction);
   }
 
   private static boolean existsBeforeAndAfter(final BonsaiValue<? extends BonsaiAccount> value) {
@@ -305,7 +306,7 @@ public class TransactionCollisionDetector {
    */
   private static boolean spendingStillSuffices(
       final Transaction transaction,
-      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final BalanceObservations observations,
       final Address address,
       final BonsaiValue<? extends BonsaiAccount> inBlock,
       final BonsaiValue<? extends BonsaiAccount> inTransaction) {
@@ -314,7 +315,7 @@ public class TransactionCollisionDetector {
       return blockBalance.compareTo(inBlock.getPrior().getBalance()) >= 0;
     }
     final Wei start = inTransaction.getPrior().getBalance();
-    final Optional<Wei> margin = transactionAccumulator.getBalanceMargin(address);
+    final Optional<Wei> margin = observations.margin(address);
     if (margin.isEmpty()) {
       return inTransaction.getUpdated().getBalance().compareTo(start) >= 0;
     }

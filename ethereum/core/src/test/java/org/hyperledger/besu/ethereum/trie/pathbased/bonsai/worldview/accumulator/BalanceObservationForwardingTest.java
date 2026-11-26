@@ -61,8 +61,9 @@ class BalanceObservationForwardingTest {
     assertThat(frame.balanceObserver())
         .as("a frame reports without passing through the frames below it")
         .isSameAs(accumulator);
-    assertThat(accumulator.isBalanceObserved(READ)).isTrue();
-    assertThat(accumulator.isBalanceObserved(SPENT_FROM)).isFalse();
-    assertThat(accumulator.getBalanceMargin(SPENT_FROM)).contains(Wei.of(7));
+    final BalanceObservations observations = accumulator.getBalanceObservations().orElseThrow();
+    assertThat(observations.isObserved(READ)).isTrue();
+    assertThat(observations.isObserved(SPENT_FROM)).isFalse();
+    assertThat(observations.margin(SPENT_FROM)).contains(Wei.of(7));
   }
 }
