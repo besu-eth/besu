@@ -23,6 +23,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.AddressHelpers;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -42,8 +44,10 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
+import java.util.stream.IntStream;
 
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.junit.jupiter.api.Test;
@@ -97,6 +101,7 @@ public class TraceFilterTest {
             protocolSchedule,
             blockchainQueries,
             maxFilterRange,
+            0,
             new NoOpMetricsSystem(),
             new DeterministicEthScheduler());
 
@@ -202,16 +207,96 @@ public class TraceFilterTest {
   }
 
   private JsonRpcResponse traceFilter(final FilterParameter filterParameter) {
+    return traceFilter(filterParameter, 0);
+  }
+
+  private JsonRpcResponse traceFilter(
+      final FilterParameter filterParameter, final int maxFilterAddresses) {
     method =
         new TraceFilter(
             protocolSchedule,
             blockchainQueries,
             0L,
+            maxFilterAddresses,
             new NoOpMetricsSystem(),
             new DeterministicEthScheduler());
     return method.response(
         new JsonRpcRequestContext(
             new JsonRpcRequest("2.0", "trace_filter", new Object[] {filterParameter})));
+  }
+
+  @Test
+  void rejectsMoreFilterAddressesThanTheCap() {
+    final List<Address> addresses =
+        List.of(Address.ZERO, AddressHelpers.ofValue(1), AddressHelpers.ofValue(2));
+    final FilterParameter filter =
+        new FilterParameter(
+            new BlockParameter(1L),
+            new BlockParameter(2L),
+            addresses,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
+
+    final JsonRpcResponse response = traceFilter(filter, 2);
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+    // The cap is enforced before any block is read / tracing starts.
+    verifyNoInteractions(blockchainQueries);
+  }
+
+  @Test
+  void rejectsFromAndToAddressesThatExceedTheCapOnlyWhenSummed() {
+    // each list is within the cap on its own; only their sum is over it
+    final JsonRpcResponse response =
+        traceFilter(genesisFilterWithAddresses(addresses(0, 2), addresses(2, 1)), 2);
+
+    assertError(response, RpcErrorType.EXCEEDS_RPC_MAX_FILTER_ADDRESSES);
+    verifyNoInteractions(blockchainQueries);
+  }
+
+  @Test
+  void acceptsFromAndToAddressesExactlyAtTheCap() {
+    stubGenesisBlock();
+
+    final JsonRpcResponse response =
+        traceFilter(genesisFilterWithAddresses(addresses(0, 1), addresses(1, 1)), 2);
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+  }
+
+  @Test
+  void zeroCapDoesNotLimitFilterAddresses() {
+    stubGenesisBlock();
+
+    final JsonRpcResponse response =
+        traceFilter(genesisFilterWithAddresses(addresses(0, 1500), addresses(1500, 1500)), 0);
+
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+  }
+
+  private void stubGenesisBlock() {
+    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getBlockHeader(GENESIS_HEADER.getHash()))
+        .thenReturn(Optional.of(GENESIS_HEADER));
+    when(blockchain.blockIsOnCanonicalChain(GENESIS_HEADER.getHash())).thenReturn(true);
+    when(blockchain.getBlockBody(GENESIS_HEADER.getHash()))
+        .thenReturn(Optional.of(BlockBody.empty()));
+  }
+
+  private static FilterParameter genesisFilterWithAddresses(
+      final List<Address> fromAddress, final List<Address> toAddress) {
+    return new FilterParameter(
+        null, null, fromAddress, toAddress, null, null, GENESIS_HEADER.getHash(), null, 10);
+  }
+
+  private static List<Address> addresses(final int first, final int count) {
+    return IntStream.range(first, first + count).mapToObj(AddressHelpers::ofValue).toList();
   }
 
   private static void assertError(final JsonRpcResponse response, final RpcErrorType errorType) {

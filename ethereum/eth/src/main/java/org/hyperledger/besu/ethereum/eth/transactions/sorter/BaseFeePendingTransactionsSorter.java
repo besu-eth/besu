@@ -20,6 +20,7 @@ import static java.util.stream.Collectors.toUnmodifiableList;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionEventNotifier;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
@@ -54,8 +55,9 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
       final Clock clock,
       final MetricsSystem metricsSystem,
       final Supplier<BlockHeader> chainHeadHeaderSupplier,
-      final TransactionEventNotifier.Emitter eventEmitter) {
-    super(poolConfig, clock, metricsSystem, chainHeadHeaderSupplier, eventEmitter);
+      final TransactionEventNotifier.Emitter eventEmitter,
+      final EthScheduler ethScheduler) {
+    super(poolConfig, clock, metricsSystem, chainHeadHeaderSupplier, eventEmitter, ethScheduler);
     this.baseFee = chainHeadHeaderSupplier.get().getBaseFee();
   }
 
@@ -65,7 +67,9 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
    */
   private final NavigableSet<PendingTransaction> prioritizedTransactionsStaticRange =
       new TreeSet<>(
-          comparing(PendingTransaction::hasPriority)
+          // penalized txs (lower score) are selected after the others, even if they have priority
+          comparing(PendingTransaction::getScore)
+              .thenComparing(PendingTransaction::hasPriority)
               .thenComparing(
                   pendingTx ->
                       pendingTx
@@ -80,7 +84,9 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
 
   private final NavigableSet<PendingTransaction> prioritizedTransactionsDynamicRange =
       new TreeSet<>(
-          comparing(PendingTransaction::hasPriority)
+          // penalized txs (lower score) are selected after the others, even if they have priority
+          comparing(PendingTransaction::getScore)
+              .thenComparing(PendingTransaction::hasPriority)
               .thenComparing(
                   pendingTx ->
                       pendingTx
@@ -90,6 +96,17 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
                           .orElse(pendingTx.getGasPrice().toLong()))
               .thenComparing(PendingTransaction::getSequence, Comparator.reverseOrder())
               .reversed());
+
+  /**
+   * Orders txs that could be in different ranges, from the least to the most priority one. It uses
+   * the same criteria of the two ranges, score first and then priority, but since their fees are
+   * not directly comparable, the effective priority fee at the current base fee is used.
+   */
+  private final Comparator<PendingTransaction> acrossRangesComparator =
+      comparing(PendingTransaction::getScore)
+          .thenComparing(PendingTransaction::hasPriority)
+          .thenComparing(
+              pendingTx -> pendingTx.getTransaction().getEffectivePriorityFeePerGas(baseFee));
 
   @Override
   public void reset() {
@@ -160,20 +177,11 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
           currentStaticRangeTransaction = getNextOptional(staticRangeIterable);
           return best;
         } else {
-          // there are both static and dynamic txs remaining, so we need to compare them by their
-          // effective priority fees
-          final Wei dynamicRangeEffectivePriorityFee =
-              currentDynamicRangeTransaction
-                  .get()
-                  .getTransaction()
-                  .getEffectivePriorityFeePerGas(baseFee);
-          final Wei staticRangeEffectivePriorityFee =
-              currentStaticRangeTransaction
-                  .get()
-                  .getTransaction()
-                  .getEffectivePriorityFeePerGas(baseFee);
+          // there are both static and dynamic txs remaining, so we need to compare them
           final PendingTransaction best;
-          if (dynamicRangeEffectivePriorityFee.compareTo(staticRangeEffectivePriorityFee) > 0) {
+          if (acrossRangesComparator.compare(
+                  currentDynamicRangeTransaction.get(), currentStaticRangeTransaction.get())
+              > 0) {
             best = currentDynamicRangeTransaction.get();
             currentDynamicRangeTransaction = getNextOptional(dynamicRangeIterable);
           } else {
@@ -229,12 +237,7 @@ public class BaseFeePendingTransactionsSorter extends AbstractPendingTransaction
       return lastDynamic;
     }
 
-    final Comparator<PendingTransaction> compareByValue =
-        Comparator.comparing(
-            txInfo ->
-                txInfo.getTransaction().getEffectivePriorityFeePerGas(baseFee).getAsBigInteger());
-
-    return compareByValue.compare(lastStatic, lastDynamic) < 0 ? lastStatic : lastDynamic;
+    return acrossRangesComparator.compare(lastStatic, lastDynamic) < 0 ? lastStatic : lastDynamic;
   }
 
   private boolean isInStaticRange(final Transaction transaction, final Optional<Wei> baseFee) {

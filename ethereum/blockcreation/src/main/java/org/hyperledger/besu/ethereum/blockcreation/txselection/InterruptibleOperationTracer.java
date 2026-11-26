@@ -45,6 +45,12 @@ public class InterruptibleOperationTracer implements OperationTracer {
   }
 
   @Override
+  public boolean allowsJournal() {
+    // checking for an interrupt does not access the world state
+    return delegate.allowsJournal();
+  }
+
+  @Override
   public void tracePreExecution(final MessageFrame frame) {
     checkInterrupt();
     delegate.tracePreExecution(frame);

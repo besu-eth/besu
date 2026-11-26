@@ -22,8 +22,10 @@ import org.hyperledger.besu.ethereum.core.json.Bytes32Json;
 import org.hyperledger.besu.ethereum.core.json.BytesJson;
 import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
+import org.hyperledger.besu.plugin.data.Withdrawal;
 
 import java.math.BigInteger;
+import java.util.List;
 import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -48,6 +50,7 @@ public class BlockOverridesParameter extends BlockOverrides {
    * @param difficulty the optional difficulty
    * @param extraData the optional extra data
    * @param mixHash the optional mix hash
+   * @param withdrawals the optional withdrawals
    */
   @JsonCreator
   public BlockOverridesParameter(
@@ -63,6 +66,7 @@ public class BlockOverridesParameter extends BlockOverrides {
       @JsonProperty("difficulty") final Optional<BigInteger> difficulty,
       @JsonProperty("extraData") final Optional<Bytes> extraData,
       @JsonProperty("mixHash") final Optional<String> mixHash,
+      @JsonProperty("withdrawals") final Optional<List<WithdrawalParameter>> withdrawals,
       @JsonProperty("parentBeaconBlockRoot") final Optional<String> parentBeaconBlockRoot) {
     super(
         timestamp,
@@ -76,6 +80,8 @@ public class BlockOverridesParameter extends BlockOverrides {
         difficulty,
         extraData,
         mixHash.isPresent() ? mixHash : prevRandao,
+        withdrawals.map(
+            list -> list.stream().<Withdrawal>map(WithdrawalParameter::toWithdrawal).toList()),
         parentBeaconBlockRoot);
   }
 

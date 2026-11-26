@@ -19,7 +19,9 @@ import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.err
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.getRetryableErrorCounter;
 
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.TrieNodeHealingRequest;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -29,6 +31,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.services.pipeline.Pipe;
 import org.hyperledger.besu.services.tasks.Task;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -66,24 +69,34 @@ public class LoadLocalDataStep {
   public Stream<Task<SnapDataRequest>> loadLocalDataTrieNode(
       final Task<SnapDataRequest> task, final Pipe<Task<SnapDataRequest>> completedTasks) {
     final TrieNodeHealingRequest request = (TrieNodeHealingRequest) task.getData();
+    final UndoLog undoLog = new UndoLog();
     // check if node is already stored in the worldstate
     try {
       if (snapSyncState.hasPivotBlockHeader()) {
         Optional<Bytes> existingData = request.getExistingData(worldStateStorageCoordinator);
         if (existingData.isPresent()) {
-          existingNodeCounter.inc();
           request.setData(existingData.get());
+          final Optional<List<SnapDataRequest>> rootStorageRequests =
+              rootStorageRequestsOfCompleteNode(request);
+          if (rootStorageRequests.isEmpty()) {
+            // the stored node can't be used, so it is downloaded like an absent one and healing
+            // then walks down from it
+            request.clear();
+            return Stream.of(task);
+          }
+          existingNodeCounter.inc();
           request.setRequiresPersisting(false);
-          final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+          final WorldStateKeyValueStorage.Updater updater =
+              worldStateStorageCoordinator.batchUpdater();
           request.persist(
               worldStateStorageCoordinator,
               updater,
               downloadState,
               snapSyncState,
-              snapSyncConfiguration);
+              snapSyncConfiguration,
+              undoLog);
           updater.commit();
-          downloadState.enqueueRequests(
-              request.getRootStorageRequests(worldStateStorageCoordinator));
+          downloadState.enqueueRequests(rootStorageRequests.get().stream());
           completedTasks.put(task);
           return Stream.empty();
         }
@@ -98,11 +111,41 @@ public class LoadLocalDataStep {
               getRetryableErrorCounter(),
               storageException.getMessage());
         }
+        // nothing was stored, so the retried request counts in its parent again
+        undoLog.undo();
         task.getData().clear();
       } else {
         throw storageException;
       }
     }
     return Stream.of(task);
+  }
+
+  /**
+   * Returns the storage requests of a stored node, or empty when the stored value is not the node
+   * or a node below it is missing.
+   */
+  private Optional<List<SnapDataRequest>> rootStorageRequestsOfCompleteNode(
+      final TrieNodeHealingRequest request) {
+    if (!request.isResponseReceived()) {
+      // for example an empty value written under the node's hash
+      LOG.atDebug()
+          .setMessage("Stored value of trie node {} at {} is not the node, downloading it again")
+          .addArgument(request::getNodeHash)
+          .addArgument(request::getLocation)
+          .log();
+      return Optional.empty();
+    }
+    try {
+      return Optional.of(request.getRootStorageRequests(worldStateStorageCoordinator).toList());
+    } catch (final MerkleTrieException e) {
+      LOG.atDebug()
+          .setMessage("Stored trie node {} at {} is missing a descendant, downloading it again")
+          .addArgument(request::getNodeHash)
+          .addArgument(request::getLocation)
+          .setCause(e)
+          .log();
+      return Optional.empty();
+    }
   }
 }

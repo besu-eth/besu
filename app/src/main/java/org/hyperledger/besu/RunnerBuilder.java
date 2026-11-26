@@ -1067,7 +1067,8 @@ public class RunnerBuilder {
       graphQlContextMap.putIfAbsent(GraphQLContextType.MINING_COORDINATOR, miningCoordinator);
       graphQlContextMap.putIfAbsent(GraphQLContextType.SYNCHRONIZER, synchronizer);
       graphQlContextMap.putIfAbsent(
-          GraphQLContextType.CHAIN_ID, protocolSchedule.getChainId().map(UInt256::valueOf));
+          GraphQLContextType.CHAIN_ID,
+          protocolSchedule.getChainId().toOptionalBigInteger().map(UInt256::valueOf));
       graphQlContextMap.putIfAbsent(GraphQLContextType.TRANSACTION_SIMULATOR, transactionSimulator);
       final GraphQL graphQL;
       try {
@@ -1398,9 +1399,9 @@ public class RunnerBuilder {
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
     // vertx for the engine consensus API: engine methods execute concurrently on its worker
-    // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which the Engine API
-    // spec requires to be processed in the order received — those run on a dedicated
-    // single-threaded executor (see OrderedExecutionJsonRpcMethod)
+    // pool, except engine_forkchoiceUpdated and engine_newPayload calls, which are processed in
+    // the order received — each series runs on a single-threaded executor of its own (see
+    // OrderedExecutionJsonRpcMethod)
     final Vertx consensusEngineServer =
         Vertx.vertx(new io.vertx.core.VertxOptions().setWorkerPoolSize(1).setEventLoopPoolSize(1));
 

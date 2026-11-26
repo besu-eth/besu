@@ -46,7 +46,6 @@ import java.util.stream.Stream;
 import org.apache.commons.lang3.tuple.Pair;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.EnvOptions;
-import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -275,7 +274,7 @@ final class RocksDBSegmentRewrite {
 
     FileWriters(final BiFunction<byte[], byte[], byte[]> transform) {
       this.transform = transform;
-      this.sstOptions = new Options(storage.options, storage.columnFamilyOptions(segment));
+      this.sstOptions = storage.segmentOptions(segment);
     }
 
     /**
@@ -464,15 +463,7 @@ final class RocksDBSegmentRewrite {
       ingested = files;
       linked = false;
     }
-    try (final IngestExternalFileOptions options =
-        new IngestExternalFileOptions().setMoveFiles(linked)) {
-      storage
-          .getDB()
-          .ingestExternalFile(
-              storage.safeColumnHandle(segment),
-              ingested.stream().map(Path::toString).toList(),
-              options);
-    }
+    storage.ingest(segment, ingested.stream().map(Path::toString).toList(), linked);
   }
 
   /**
@@ -589,7 +580,7 @@ final class RocksDBSegmentRewrite {
     }
   }
 
-  private static void deleteTree(final Path directory) throws IOException {
+  static void deleteTree(final Path directory) throws IOException {
     if (!Files.isDirectory(directory)) {
       return;
     }

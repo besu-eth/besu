@@ -97,6 +97,27 @@ public interface MergeContext extends ConsensusContext {
       final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash);
 
   /**
+   * Add a listener for the payloads that arrive, called before they are checked.
+   *
+   * @param unverifiedPayloadListener the listener
+   * @return the subscriber id
+   */
+  long addNewUnverifiedPayloadListener(UnverifiedPayloadListener unverifiedPayloadListener);
+
+  /**
+   * Remove a listener for the payloads that arrive.
+   *
+   * @param subscriberId the subscriber id
+   */
+  void removeNewUnverifiedPayloadListener(long subscriberId);
+
+  /**
+   * Fire the event for a payload that arrived, at the start of its {@code engine_newPayload}
+   * request, before the payload is read or checked.
+   */
+  void fireNewUnverifiedPayloadEvent();
+
+  /**
    * Add new payload listener.
    *
    * @param newPayloadListener the new payload listener

@@ -71,7 +71,7 @@ public abstract class AbstractMessageProcessor {
 
   // List of addresses to force delete when they are touched but empty
   // when the state changes in the message are were not meant to be committed.
-  private final Set<? super Address> forceDeleteAccountsWhenEmpty;
+  final Set<Address> forceDeleteAccountsWhenEmpty;
   final EVM evm;
 
   /**
@@ -93,6 +93,17 @@ public abstract class AbstractMessageProcessor {
    */
   public boolean runsOnEvmV2() {
     return evm.getEvmConfiguration().enableEvmV2();
+  }
+
+  /**
+   * Returns whether a call to an account with an EIP-7702 delegation designator runs the code of
+   * the delegation target.
+   *
+   * @return true from Prague on
+   * @see EVM#followsCodeDelegation()
+   */
+  public boolean followsCodeDelegation() {
+    return evm.followsCodeDelegation();
   }
 
   /**

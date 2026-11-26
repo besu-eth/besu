@@ -29,6 +29,7 @@ import org.hyperledger.besu.plugin.data.AddedBlockContext;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
@@ -43,6 +44,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import org.apache.commons.collections4.map.LRUMap;
@@ -67,6 +69,22 @@ public class PeerTransactionTracker
   private final Set<Hash> inProgressAnnouncements = new HashSet<>();
   private final BiMap<EthPeer, Integer> peerToSlotIndexMap;
 
+  /** The stamp of a slot index that has never been handed to a peer. */
+  private static final long NEVER_ASSIGNED = Long.MIN_VALUE;
+
+  /**
+   * The stamp identifying the peer currently holding each slot index, indexed by slot. Bumped every
+   * time a slot is handed to a new peer, which is what invalidates the seen state its previous
+   * tenants recorded, without having to visit the hashes that state is spread across.
+   */
+  private long[] slotAssignedAt;
+
+  /**
+   * Source of the stamps in {@link #slotAssignedAt}; only ever increases, and starts below every
+   * stamp it will issue so that {@link #NEVER_ASSIGNED} stays the oldest value a slot can have.
+   */
+  private long slotAssignmentCounter = NEVER_ASSIGNED;
+
   public PeerTransactionTracker(
       final TransactionPoolConfiguration txPoolConfig,
       final EthPeers ethPeers,
@@ -78,6 +96,8 @@ public class PeerTransactionTracker
     this.peersSeenStateByHash =
         new FixedCapacityLRUMap<>(txPoolConfig.getUnstable().getMaxTrackedSeenTxs());
     this.peerToSlotIndexMap = HashBiMap.create(ethPeers.getMaxPeers());
+    this.slotAssignedAt = new long[Math.max(1, ethPeers.getMaxPeers())];
+    Arrays.fill(slotAssignedAt, NEVER_ASSIGNED);
     ethScheduler.scheduleFutureTaskWithFixedDelay(
         this::logStats, Duration.ofMinutes(1), Duration.ofMinutes(1));
   }
@@ -85,6 +105,7 @@ public class PeerTransactionTracker
   public synchronized void reset() {
     peerToSlotIndexMap.clear();
     peersSeenStateByHash.clear();
+    Arrays.fill(slotAssignedAt, NEVER_ASSIGNED);
     transactionsToSend.clear();
     announcementsToSend.clear();
     announcementsToRequestByHash.clear();
@@ -109,15 +130,14 @@ public class PeerTransactionTracker
   public synchronized void markTransactionsAsSeen(
       final EthPeer peer, final Collection<Hash> seenHashes) {
     if (!peer.isDisconnected()) {
+      final Integer slot = peerToSlotIndexMap.get(peer);
       seenHashes.forEach(
           hash ->
               peersSeenStateByHash.compute(
                   hash,
                   (unused, peersSeenState) -> {
-                    final PeersSeenState computed =
-                        requireNonNullElse(
-                            peersSeenState, new PeersSeenState(ethPeers.getMaxPeers()));
-                    computed.transactionSeen(peerToSlotIndexMap.get(peer));
+                    final PeersSeenState computed = newReconciledState(peersSeenState);
+                    computed.transactionSeen(slot);
                     return computed;
                   }));
     }
@@ -128,6 +148,7 @@ public class PeerTransactionTracker
   public synchronized void markAnnouncementsAsSeenByTransaction(
       final EthPeer peer, final Collection<Transaction> announcements) {
     if (!peer.isDisconnected()) {
+      final Integer slot = peerToSlotIndexMap.get(peer);
       announcements.stream()
           .map(Transaction::getHash)
           .forEach(
@@ -135,10 +156,8 @@ public class PeerTransactionTracker
                   peersSeenStateByHash.compute(
                       hash,
                       (unused, peersSeenState) -> {
-                        final PeersSeenState computed =
-                            requireNonNullElse(
-                                peersSeenState, new PeersSeenState(ethPeers.getMaxPeers()));
-                        computed.announcementSeen(peerToSlotIndexMap.get(peer));
+                        final PeersSeenState computed = newReconciledState(peersSeenState);
+                        computed.announcementSeen(slot);
                         return computed;
                       }));
     }
@@ -148,6 +167,7 @@ public class PeerTransactionTracker
   public synchronized void markAnnouncementsAsSeen(
       final EthPeer peer, final Collection<TransactionAnnouncement> announcements) {
     if (!peer.isDisconnected()) {
+      final Integer slot = peerToSlotIndexMap.get(peer);
       announcements.stream()
           .map(TransactionAnnouncement::hash)
           .forEach(
@@ -155,10 +175,8 @@ public class PeerTransactionTracker
                   peersSeenStateByHash.compute(
                       hash,
                       (unused, peersSeenState) -> {
-                        final PeersSeenState computed =
-                            requireNonNullElse(
-                                peersSeenState, new PeersSeenState(ethPeers.getMaxPeers()));
-                        computed.announcementSeen(peerToSlotIndexMap.get(peer));
+                        final PeersSeenState computed = newReconciledState(peersSeenState);
+                        computed.announcementSeen(slot);
                         return computed;
                       }));
     }
@@ -289,7 +307,7 @@ public class PeerTransactionTracker
   }
 
   public synchronized boolean alreadySeenTransaction(final Hash txHash) {
-    final PeersSeenState peersSeenState = peersSeenStateByHash.get(txHash);
+    final PeersSeenState peersSeenState = reconciledStateOf(txHash);
 
     return (peersSeenState != null && peersSeenState.anyHasSeenTransaction());
   }
@@ -299,20 +317,20 @@ public class PeerTransactionTracker
   }
 
   public synchronized boolean hasPeerSeenTransaction(final EthPeer peer, final Hash txHash) {
-    final PeersSeenState peersSeenState = peersSeenStateByHash.get(txHash);
+    final PeersSeenState peersSeenState = reconciledStateOf(txHash);
     return peersSeenState != null
         && peersSeenState.hasSeenTransaction(peerToSlotIndexMap.get(peer));
   }
 
   public synchronized boolean hasPeerSeenAnnouncement(final EthPeer peer, final Hash txHash) {
-    final PeersSeenState peersSeenState = peersSeenStateByHash.get(txHash);
+    final PeersSeenState peersSeenState = reconciledStateOf(txHash);
     return peersSeenState != null
         && peersSeenState.hasSeenAnnouncement(peerToSlotIndexMap.get(peer));
   }
 
   public synchronized boolean hasPeerSeenTransactionOrAnnouncement(
       final EthPeer peer, final Hash txHash) {
-    final PeersSeenState peersSeenState = peersSeenStateByHash.get(txHash);
+    final PeersSeenState peersSeenState = reconciledStateOf(txHash);
     final Integer peerIdx = peerToSlotIndexMap.get(peer);
 
     return peersSeenState != null
@@ -389,19 +407,58 @@ public class PeerTransactionTracker
             .orElse(peerToSlotIndexMap.size());
     peerToSlotIndexMap.put(newPeer, firstFreeIndex);
 
-    // clear seen status for new peer index, just in case it was reused
-    long start = System.nanoTime();
-    peersSeenStateByHash.values().stream()
-        .forEach(peersSeenState -> peersSeenState.clear(firstFreeIndex));
+    // Invalidate the seen status recorded for this slot index, in case it was reused. Bumping the
+    // slot's assignment stamp does that for every tracked hash at once: records written for an
+    // earlier tenant no longer match and are ignored on read. Visiting each hash here instead
+    // would make every handshake cost a scan of the whole seen map while holding the monitor that
+    // transaction ingestion needs, and peers set the size of that map by announcing hashes.
+    final long stamp = assignSlotStamp(firstFreeIndex);
 
     LOG.atTrace()
         .setMessage(
-            "onPeerConnected: new peer {} got index {}, its peersSeenState cleared in {} peersToSlotIndexMap {}")
+            "onPeerConnected: new peer {} got index {} with stamp {} peersToSlotIndexMap {}")
         .addArgument(newPeer::getLoggableId)
         .addArgument(firstFreeIndex)
-        .addArgument(() -> Duration.ofNanos(System.nanoTime() - start))
+        .addArgument(stamp)
         .addArgument(this::logPeerToSlotIndexMap)
         .log();
+  }
+
+  /**
+   * Marks a slot index as belonging to a newly connected peer, so that the seen state its previous
+   * tenants recorded stops counting.
+   *
+   * @param slot the slot index being assigned
+   * @return the slot's new assignment stamp
+   */
+  private long assignSlotStamp(final int slot) {
+    if (slot >= slotAssignedAt.length) {
+      final int was = slotAssignedAt.length;
+      slotAssignedAt = Arrays.copyOf(slotAssignedAt, Math.max(slot + 1, was * 2));
+      Arrays.fill(slotAssignedAt, was, slotAssignedAt.length, NEVER_ASSIGNED);
+    }
+    return slotAssignedAt[slot] = ++slotAssignmentCounter;
+  }
+
+  /**
+   * Brings an entry up to date with the slots reassigned since it was last touched, so that no peer
+   * is credited with what a previous tenant of its slot had seen.
+   */
+  private PeersSeenState reconciled(final PeersSeenState peersSeenState) {
+    peersSeenState.reconcile(slotAssignedAt, slotAssignmentCounter);
+    return peersSeenState;
+  }
+
+  /** Returns an entry brought up to date, or null if the hash is not tracked. */
+  private PeersSeenState reconciledStateOf(final Hash txHash) {
+    final PeersSeenState peersSeenState = peersSeenStateByHash.get(txHash);
+    return peersSeenState == null ? null : reconciled(peersSeenState);
+  }
+
+  private PeersSeenState newReconciledState(final PeersSeenState existing) {
+    return reconciled(
+        requireNonNullElse(
+            existing, new PeersSeenState(ethPeers.getMaxPeers(), slotAssignmentCounter)));
   }
 
   private String logPeerSet(final Set<EthPeer> peers) {
@@ -445,9 +502,7 @@ public class PeerTransactionTracker
                       peersSeenStateByHash.compute(
                           hash,
                           (unused, peersSeenState) -> {
-                            final PeersSeenState computed =
-                                requireNonNullElse(
-                                    peersSeenState, new PeersSeenState(ethPeers.getMaxPeers()));
+                            final PeersSeenState computed = newReconciledState(peersSeenState);
                             computed.transactionSeenAll();
                             return computed;
                           }));
@@ -483,9 +538,55 @@ public class PeerTransactionTracker
     }
   }
 
-  private record PeersSeenState(BitSet transactions, BitSet announcements) {
-    PeersSeenState(final int maxSlots) {
-      this(new BitSet(maxSlots), new BitSet(maxSlots));
+  /**
+   * What the peers connected to this node have seen of one transaction hash.
+   *
+   * <p>A peer is identified by its slot index, and a slot index is reused once its peer
+   * disconnects. The seen state therefore has to distinguish the slot's current tenant from every
+   * previous one, or a new peer inherits the departed peer's seen state and never gets sent the
+   * transactions that peer had already seen.
+   *
+   * <p>Erasing a reused slot by visiting every tracked hash would make each handshake cost a scan
+   * of the whole seen map, while holding the monitor transaction ingestion needs, and peers set the
+   * size of that map by announcing hashes. So assigning a slot only bumps that slot's stamp in
+   * {@link #slotAssignedAt}, and each entry records the {@link #reconciledAt assignment counter} it
+   * was last brought up to date at. An entry drops the bits of every slot reassigned since then
+   * when it is next touched, which costs one comparison when nothing has changed and at most one
+   * pass over the slots when it has. The work is therefore bounded by the peer slots, not by the
+   * number of hashes tracked.
+   */
+  private static final class PeersSeenState {
+    private final BitSet transactions;
+    private final BitSet announcements;
+
+    /**
+     * The value of {@link #slotAssignmentCounter} this entry was last reconciled with slot reuse
+     * at. Bits belonging to a slot assigned after this point have yet to be dropped. A new entry
+     * has no bits to drop, so it starts out reconciled at the counter it was created at.
+     */
+    private long reconciledAt;
+
+    PeersSeenState(final int maxSlots, final long assignmentCounter) {
+      this.transactions = new BitSet(maxSlots);
+      this.announcements = new BitSet(maxSlots);
+      this.reconciledAt = assignmentCounter;
+    }
+
+    /**
+     * Drops what the previous tenant of every slot reassigned since this entry was last reconciled
+     * had seen, which is the work that assigning a slot defers.
+     */
+    void reconcile(final long[] slotAssignedAt, final long assignmentCounter) {
+      if (reconciledAt == assignmentCounter) {
+        return;
+      }
+      for (int slot = 0; slot < slotAssignedAt.length; slot++) {
+        if (slotAssignedAt[slot] > reconciledAt) {
+          transactions.clear(slot);
+          announcements.clear(slot);
+        }
+      }
+      reconciledAt = assignmentCounter;
     }
 
     public void transactionSeenAll() {
@@ -515,11 +616,6 @@ public class PeerTransactionTracker
     public boolean hasSeenAnnouncement(final Integer peerIdx) {
       return peerIdx != null && announcements.get(peerIdx);
     }
-
-    public void clear(final Integer peerIdx) {
-      transactions.clear(peerIdx);
-      announcements.clear(peerIdx);
-    }
   }
 
   /**
@@ -528,16 +624,18 @@ public class PeerTransactionTracker
    * calculated from {@code maxEntries * loadFactor}). This subclass prevents that by:
    *
    * <ul>
-   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to exactly {@code
-   *       proposedCapacity / loadFactor} buckets so no rehash is ever triggered.
+   *   <li>Overriding {@link #calculateNewCapacity} to pre-size the backing array to the smallest
+   *       power of two of at least {@code proposedCapacity / loadFactor} buckets, so no rehash is
+   *       ever triggered.
    *   <li>Making {@link #checkCapacity} a no-op, because the map will never grow past {@code
    *       maxEntries} entries and a capacity check would be misleading.
    * </ul>
    *
-   * <p>The {@link #DEFAULT_LOAD_FACTOR load factor} of {@code 0.8} keeps hash-collision probability
-   * low while limiting memory overhead to ~25 % over the theoretical minimum.
+   * <p>The {@link #DEFAULT_LOAD_FACTOR load factor} of {@code 0.8} is an upper bound: the table is
+   * filled to between 40 % and 80 % of its buckets once the map is full.
    */
-  private static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
+  @VisibleForTesting
+  static class FixedCapacityLRUMap<K, V> extends LRUMap<K, V> {
     private static final float DEFAULT_LOAD_FACTOR = 0.8f;
 
     public FixedCapacityLRUMap(final int maxEntries) {
@@ -546,7 +644,7 @@ public class PeerTransactionTracker
 
     @Override
     protected int calculateNewCapacity(final int proposedCapacity) {
-      return (int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR);
+      return super.calculateNewCapacity((int) Math.ceil(proposedCapacity / DEFAULT_LOAD_FACTOR));
     }
 
     @Override

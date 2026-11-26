@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.transaction;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.mainnet.feemarket.BlobFeeMarket.MIN_BLOB_GASPRICE;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 import static org.hyperledger.besu.evm.tracing.OperationTracer.NO_TRACING;
 import static org.mockito.ArgumentMatchers.any;
@@ -44,6 +43,7 @@ import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -1036,7 +1036,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
             legacyTransactionCallParameterBuilder().build(),
             unpriced,
             Optional.empty(),
-            MIN_BLOB_GASPRICE),
+            BLOCK_BLOB_GAS_PRICE),
         Arguments.of(
             "priced, no blobs",
             legacyTransactionCallParameterBuilder().gasPrice(Wei.ONE).build(),
@@ -1252,7 +1252,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     final BlockHeader blockHeader = header.buildHeader();
     mockBlockchainAndWorldState(callParameter, blockHeader);
     mockProtocolSpecForProcessWithWorldUpdater();
-    when(protocolSchedule.getChainId()).thenReturn(scheduleChainId);
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.fromOptional(scheduleChainId));
     when(transactionProcessor.processTransaction(
             any(), any(), any(), any(), any(), any(), any(), any(Wei.class), any()))
         .thenReturn(mock(TransactionProcessingResult.class));
@@ -1416,7 +1416,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
   private void mockProtocolSpecForProcessWithWorldUpdater(final long txGasLimitCap) {
     final BlockHeaderFunctions blockHeaderFunctions = mock(BlockHeaderFunctions.class);
     final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
-    when(protocolSchedule.getChainId()).thenReturn(Optional.of(BigInteger.ONE));
+    when(protocolSchedule.getChainId()).thenReturn(ChainId.of(1));
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
     when(protocolSpec.getTransactionProcessor()).thenReturn(transactionProcessor);

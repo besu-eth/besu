@@ -22,11 +22,13 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.ChainId;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 public class BlobTransactionDecoder {
   private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
@@ -70,7 +72,7 @@ public class BlobTransactionDecoder {
     input.enterList();
     builder
         .type(TransactionType.BLOB)
-        .chainId(input.readBigIntegerScalar())
+        .chainId(ChainId.readFrom(input, Bytes32.SIZE))
         .nonce(input.readLongScalar())
         .maxPriorityFeePerGas(Wei.of(input.readUInt256Scalar()))
         .maxFeePerGas(Wei.of(input.readUInt256Scalar()))

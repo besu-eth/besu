@@ -44,7 +44,7 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
 
   public static final Bytes MAGIC = Bytes.fromHexString("05");
 
-  private final BigInteger chainId;
+  private final ChainId chainId;
   private final Address address;
   private final long nonce;
   private final SECPSignature signature;
@@ -60,7 +60,7 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
    * @param signature the signature of the EOA account which will be used to set the code
    */
   public CodeDelegation(
-      final BigInteger chainId,
+      final ChainId chainId,
       final Address address,
       final long nonce,
       final SECPSignature signature) {
@@ -68,6 +68,22 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
     this.address = address;
     this.nonce = nonce;
     this.signature = signature;
+  }
+
+  /**
+   * An access list entry as defined in EIP-7702
+   *
+   * @param chainId can be either the current chain id or zero
+   * @param address the address from which the code will be set into the EOA account
+   * @param nonce the nonce after which this auth expires
+   * @param signature the signature of the EOA account which will be used to set the code
+   */
+  public CodeDelegation(
+      final BigInteger chainId,
+      final Address address,
+      final long nonce,
+      final SECPSignature signature) {
+    this(ChainId.of(chainId), address, nonce, signature);
   }
 
   /**
@@ -103,6 +119,15 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
   @JsonProperty("chainId")
   @Override
   public BigInteger chainId() {
+    return chainId.toBigInteger();
+  }
+
+  /**
+   * Return the chain id, that is zero if the authorization is valid on any chain.
+   *
+   * @return chain id
+   */
+  public ChainId chainIdentifier() {
     return chainId;
   }
 
@@ -174,7 +199,7 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
 
   /** Builder for CodeDelegation authorizations. */
   public static class Builder {
-    private BigInteger chainId = BigInteger.ZERO;
+    private ChainId chainId = ChainId.of(0);
     private Address address;
     private Long nonce;
     private SECPSignature signature;
@@ -189,6 +214,17 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
      * @return this builder
      */
     public Builder chainId(final BigInteger chainId) {
+      this.chainId = ChainId.of(chainId);
+      return this;
+    }
+
+    /**
+     * Set the optional chain id.
+     *
+     * @param chainId the chain id
+     * @return this builder
+     */
+    public Builder chainId(final ChainId chainId) {
       this.chainId = chainId;
       return this;
     }
@@ -235,7 +271,7 @@ public class CodeDelegation implements org.hyperledger.besu.datatypes.CodeDelega
     public org.hyperledger.besu.datatypes.CodeDelegation signAndBuild(final KeyPair keyPair) {
       final BytesValueRLPOutput output = new BytesValueRLPOutput();
       output.startList();
-      output.writeBigIntegerScalar(chainId);
+      chainId.writeTo(output);
       output.writeBytes(address.getBytes());
       output.writeLongScalar(nonce);
       output.endList();

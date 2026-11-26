@@ -45,8 +45,14 @@ public class ForkId {
       try {
         @SuppressWarnings("unchecked")
         final List<List<Bytes>> typedRawForkId = (List<List<Bytes>>) rawForkId;
-        return Optional.of(
-            new ForkId(typedRawForkId.getFirst().getFirst(), typedRawForkId.getFirst().get(1)));
+        final Bytes next = typedRawForkId.getFirst().get(1);
+        // EIP-2124 FORK_NEXT is a uint64. Reject a value longer than 8 bytes or with a leading
+        // zero byte, as readLongScalar does on the STATUS path, so getNext() can't throw later on
+        // a peer-supplied ENR and every accepted value is stored in its canonical form.
+        if (next.size() > Long.BYTES || (!next.isEmpty() && next.get(0) == 0)) {
+          return Optional.empty();
+        }
+        return Optional.of(new ForkId(typedRawForkId.getFirst().getFirst(), next));
       } catch (final Exception e) {
         return Optional.empty();
       }

@@ -48,7 +48,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -68,10 +67,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Extends {@link OrderedExecutionJsonRpcMethod} so that {@code engine_newPayload} calls (and those
- * of the whole sealed V1-V5 hierarchy) are processed in the order they have been received,
- * consistent with {@code engine_forkchoiceUpdated}: both affect canonical chain state and a
- * newPayload racing ahead of (or behind) an FCU for the same or a related block could otherwise be
- * observed out of order.
+ * of the whole sealed V1-V5 hierarchy) are processed in the order they have been received, and
+ * after the {@code engine_forkchoiceUpdated} calls received before them: a newPayload racing ahead
+ * of an FCU for the same or a related block could otherwise be observed out of order.
  */
 public sealed class EngineNewPayloadV1<
         EP extends ExecutionPayloadV1, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
@@ -94,7 +92,11 @@ public sealed class EngineNewPayloadV1<
       final ConstructorArguments constructorArguments,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(constructorArguments, minSupportedFork, firstUnsupportedFork);
+    super(
+        constructorArguments,
+        minSupportedFork,
+        firstUnsupportedFork,
+        EngineOrderPrecedence.NEW_PAYLOAD);
     this.mergeCoordinator =
         checkNotNull(constructorArguments.mergeCoordinator(), "mergeCoordinator must not be null");
     this.ethPeers = constructorArguments.ethPeers();
@@ -116,6 +118,8 @@ public sealed class EngineNewPayloadV1<
   @Override
   public JsonRpcResponse syncResponse(final JsonRpcRequestContext requestContext) {
     engineCallListener.executionEngineCalled();
+    // work competing with the block's execution can stop before the checks below
+    mergeContext.get().fireNewUnverifiedPayloadEvent();
 
     final Object reqId = requestContext.getRequest().getId();
 
@@ -155,8 +159,11 @@ public sealed class EngineNewPayloadV1<
     // EIP-3675, extended with the corresponding section of EIP-4399. Client software MUST run this
     // validation in all cases even if this branch or any other branches of the block tree are in an
     // active sync process.
+    // the body memoizes its transactions root, which the body validation needs again
+    final BlockBody blockBody = createBlockBody(blockParam);
     final BlockHeaderBuilder blockHeaderBuilder = BlockHeaderBuilder.create();
     setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    blockHeaderBuilder.transactionsRoot(blockBody.getTransactionsRoot());
     final BlockHeader newBlockHeader = blockHeaderBuilder.buildBlockHeader();
 
     // ensure the block hash matches the blockParam hash
@@ -198,7 +205,7 @@ public sealed class EngineNewPayloadV1<
           maybeBadBlockError.get());
     }
 
-    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
+    final var unvalidatedBlock = new Block(newBlockHeader, blockBody);
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
@@ -504,7 +511,6 @@ public sealed class EngineNewPayloadV1<
         .ommersHash(OMMERS_HASH_CONSTANT)
         .coinbase(blockParam.getFeeRecipient())
         .stateRoot(blockParam.getStateRoot())
-        .transactionsRoot(BodyValidation.transactionsRoot(blockParam.getTransactions()))
         .receiptsRoot(blockParam.getReceiptsRoot())
         .logsBloom(blockParam.getLogsBloom())
         .difficulty(Difficulty.ZERO)
@@ -536,7 +542,7 @@ public sealed class EngineNewPayloadV1<
    */
   protected Executor writeAfterReply(final Block block) {
     return writes ->
-        queueOnOrderedThread(
+        queueAfterReply(
             () -> {
               try {
                 writes.run();

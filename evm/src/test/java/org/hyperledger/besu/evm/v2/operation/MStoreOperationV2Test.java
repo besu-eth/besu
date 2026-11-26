@@ -76,6 +76,52 @@ class MStoreOperationV2Test {
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
   }
 
+  @Test
+  void storesAcrossTheEndOfMemoryAndExpands() {
+    for (final int offset : new int[] {31, 63, 95}) {
+      final byte[] initial = new byte[offset + 1];
+      java.util.Arrays.fill(initial, (byte) 0x5a);
+      final MessageFrame frame =
+          new TestMessageFrameBuilderV2()
+              .initialGas(1_000_000)
+              .memory(Bytes.wrap(initial))
+              .pushStackItem(VALUE)
+              .pushStackItem(Bytes32.fromHexString(String.format("0x%02x", offset)))
+              .build();
+
+      final Operation.OperationResult result = operation.execute(frame, null);
+
+      assertThat(result.getHaltReason()).isNull();
+      assertThat(frame.stackTopV2()).isZero();
+      assertThat(frame.readMemory(0, offset)).isEqualTo(Bytes.repeat((byte) 0x5a, offset));
+      assertThat(frame.readMemory(offset, 32)).isEqualTo(VALUE);
+      assertThat(frame.memoryByteSize()).isEqualTo(((offset + 32 + 31) / 32) * 32);
+    }
+  }
+
+  @Test
+  void tracedStorePreservesMemoryWriteRecord() {
+    final MessageFrame frame = frame(VALUE, Bytes32.fromHexString("0x03"));
+    frame.setRecordsUpdatesForTracerV2(true);
+
+    operation.execute(frame, null);
+
+    assertThat(frame.getMaybeUpdatedMemory()).isPresent();
+    assertThat(frame.getMaybeUpdatedMemory().orElseThrow().getOffset()).isEqualTo(3);
+    assertThat(frame.getMaybeUpdatedMemory().orElseThrow().getValue()).isEqualTo(VALUE);
+  }
+
+  @Test
+  void untracedStoreDoesNotAllocateMemoryRecord() {
+    final MessageFrame frame = frame(VALUE, Bytes32.fromHexString("0x03"));
+    frame.setRecordsUpdatesForTracerV2(false);
+
+    operation.execute(frame, null);
+
+    assertThat(frame.getMaybeUpdatedMemory()).isEmpty();
+    assertThat(frame.readMemory(3, 32)).isEqualTo(VALUE);
+  }
+
   private static MessageFrame frame(final Bytes32 value, final Bytes32 offset) {
     return new TestMessageFrameBuilderV2()
         .initialGas(1_000_000)

@@ -517,6 +517,72 @@ class AbstractBlockProcessorIntegrationTest {
     assertThat(result.isSuccessful()).isTrue();
   }
 
+  @ParameterizedTest(name = "{index}: {0}")
+  @MethodSource("blockProcessorProviderWithoutRewards")
+  void transactionOverTheBlockGasBudgetResetsTheWorldState(
+      final String ignoredName, final BlockProcessor blockProcessor) {
+    // the second transfer's gas limit does not fit what the first leaves of the block's gas
+    final Block overBudget =
+        createBlockWithTransactions(
+            Hash.ZERO.toHexString(),
+            Wei.ZERO,
+            100_000L,
+            createTransferTransaction(
+                0, 1L, 50_000L, 0L, 0L, ACCOUNT_GENESIS_2, ACCOUNT_GENESIS_1_KEYPAIR),
+            createTransferTransaction(
+                1, 1L, 90_000L, 0L, 0L, ACCOUNT_GENESIS_2, ACCOUNT_GENESIS_1_KEYPAIR));
+    final MutableWorldState worldState = worldStateArchive.getWorldState();
+
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(overBudget)
+                .blockAccessList(Optional.empty())
+                .build());
+    assertThat(result).isSameAs(BlockProcessingResult.INSUFFICIENT_BLOCK_GAS);
+
+    // A valid block on the same parent, processed on the same world state, only succeeds if the
+    // first transfer was reset; otherwise its own first transfer fails on its nonce.
+    final BlockProcessingResult sibling =
+        blockProcessor.processBlock(
+            BlockExecutionContext.builder()
+                .protocolContext(protocolContext)
+                .worldState(worldState)
+                .block(createBlockWithTwoTransfers())
+                .blockAccessList(Optional.empty())
+                .build());
+    assertThat(sibling.isSuccessful()).isTrue();
+  }
+
+  @Test
+  void gasMeteredOverTheBlockGasLimitResetsTheWorldState() {
+    final BlockExecutionContext context =
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldStateArchive.getWorldState())
+            .block(createBlockWithTwoTransfers())
+            .blockAccessList(Optional.empty())
+            .build();
+
+    final FailingAtSecondTransaction blockProcessor =
+        new FailingAtSecondTransaction(protocolSchedule()) {
+          @Override
+          protected boolean shouldRerunSequentially(final BlockExecutionContext context) {
+            return false;
+          }
+        };
+    final BlockProcessingResult failed = blockProcessor.processBlock(context);
+    assertThat(failed.errorMessage).contains("gas metered exceeds block gas limit");
+
+    // Both transfers were applied before the check. Processing the block again on the same world
+    // state only succeeds if it was reset; otherwise the first transfer fails on its nonce.
+    final BlockProcessingResult result =
+        blockProcessor.processBlock(context.toBuilder().sequentialExecutionRequested(true).build());
+    assertThat(result.isSuccessful()).isTrue();
+  }
+
   /** The block's access list, built by processing it sequentially on a separate world state. */
   private static BlockAccessList blockAccessListOf(final Block block) {
     final ExecutionContextTestFixture fixture =
@@ -613,8 +679,7 @@ class AbstractBlockProcessorIntegrationTest {
   /**
    * Fails the block only when processed in parallel: the first transaction is processed
    * sequentially and changes the world state, then the second gets a result that uses more gas than
-   * the block allows. That failure path does not reset the world state, so only the fallback's
-   * reset makes the sequential rerun succeed.
+   * the block allows. The sequential rerun only succeeds on a world state reset after the failure.
    */
   private static class FailingAtSecondTransaction extends MainnetParallelBlockProcessor {
 
@@ -1779,13 +1844,21 @@ class AbstractBlockProcessorIntegrationTest {
 
   private Block createBlockWithTransactions(
       final String stateRoot, final Wei baseFeePerGas, final Transaction... transactions) {
+    return createBlockWithTransactions(stateRoot, baseFeePerGas, 30_000_000L, transactions);
+  }
+
+  private Block createBlockWithTransactions(
+      final String stateRoot,
+      final Wei baseFeePerGas,
+      final long gasLimit,
+      final Transaction... transactions) {
     final BlockHeader parentHeader = blockchain.getChainHeadHeader();
     BlockHeader blockHeader =
         new BlockHeaderTestFixture()
             .number(parentHeader.getNumber() + 1L)
             .parentHash(parentHeader.getHash())
             .stateRoot(Hash.fromHexString(stateRoot))
-            .gasLimit(30_000_000L)
+            .gasLimit(gasLimit)
             .baseFeePerGas(baseFeePerGas)
             // Prague is active at genesis here, so the mandatory requestsHash field must be
             // present. The system-contract predeploys deterministically yield this requests hash

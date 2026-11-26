@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.consensus.common.bft;
 
+import static java.util.Objects.requireNonNull;
+
 import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -26,6 +28,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,8 +58,8 @@ public class BftExecutors {
   private final MetricsSystem metricsSystem;
   private final ConsensusType consensusType;
 
-  private volatile ScheduledExecutorService timerExecutor;
-  private volatile ExecutorService bftProcessorExecutor;
+  private volatile @Nullable ScheduledExecutorService timerExecutor;
+  private volatile @Nullable ExecutorService bftProcessorExecutor;
   private volatile State state = State.IDLE;
 
   private BftExecutors(final MetricsSystem metricsSystem, final ConsensusType consensusType) {
@@ -101,8 +104,8 @@ public class BftExecutors {
       }
       state = State.STOPPED;
     }
-    timerExecutor.shutdownNow();
-    bftProcessorExecutor.shutdownNow();
+    requireNonNull(timerExecutor).shutdownNow();
+    requireNonNull(bftProcessorExecutor).shutdownNow();
   }
 
   /**
@@ -139,7 +142,7 @@ public class BftExecutors {
    */
   public synchronized void executeBftProcessor(final BftProcessor bftProcessor) {
     assertRunning();
-    bftProcessorExecutor.execute(bftProcessor);
+    requireNonNull(bftProcessorExecutor).execute(bftProcessor);
   }
 
   /**
@@ -153,7 +156,7 @@ public class BftExecutors {
   public synchronized ScheduledFuture<?> scheduleTask(
       final Runnable command, final long delay, final TimeUnit unit) {
     assertRunning();
-    return timerExecutor.schedule(command, delay, unit);
+    return requireNonNull(timerExecutor).schedule(command, delay, unit);
   }
 
   private void assertRunning() {

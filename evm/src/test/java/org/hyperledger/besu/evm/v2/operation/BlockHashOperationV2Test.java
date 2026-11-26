@@ -57,7 +57,7 @@ class BlockHashOperationV2Test {
   @Test
   void shouldPushZeroWhenBlockIsCurrentOrFuture() {
     final MessageFrame current = createFrame(200, 200, (__, ___) -> Hash.EMPTY, ENOUGH_GAS);
-    final MessageFrame future = createFrame(201, 200, (__, ___) -> Hash.EMPTY, ENOUGH_GAS);
+    final MessageFrame future = createNestedFrame(current, 201, ENOUGH_GAS);
 
     operation.execute(current, null);
     operation.execute(future, null);
@@ -165,6 +165,15 @@ class BlockHashOperationV2Test {
         .blockValues(new FakeBlockValues(currentBlock))
         .pushStackItem(requestedBlock)
         .initialGas(initialGas)
+        .build();
+  }
+
+  private MessageFrame createNestedFrame(
+      final MessageFrame parent, final long requestedBlock, final long initialGas) {
+    return new TestMessageFrameBuilderV2()
+        .pushStackItem(Bytes32.leftPad(Bytes.ofUnsignedLong(requestedBlock)))
+        .initialGas(initialGas)
+        .parentMessageFrame(parent)
         .build();
   }
 }

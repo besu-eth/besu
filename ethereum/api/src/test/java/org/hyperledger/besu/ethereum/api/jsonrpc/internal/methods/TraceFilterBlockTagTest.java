@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -69,32 +71,35 @@ public class TraceFilterBlockTagTest {
             new DeterministicEthScheduler());
   }
 
-  // an inverted range is rejected with both resolved bounds in the message, which shows the block
-  // each tag resolved to without tracing it
+  // with nothing to trace, a successful range still looks up every number from the resolved from
+  // bound through the resolved to bound and stops there
   @ParameterizedTest
   @CsvSource({"safe, 1500", "finalized, 1400"})
   public void resolvesTagToItsBlockAsFromBlock(final String tag, final long expected) {
     stubTags();
+    lenient().when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
 
-    assertThatThrownBy(
-            () ->
-                method.response(request(new BlockParameter(tag), new BlockParameter(expected - 1))))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasMessage(
-            "fromBlock (" + expected + ") is greater than toBlock (" + (expected - 1) + ")");
+    assertThat(method.response(request(new BlockParameter(tag), new BlockParameter(tag))))
+        .isInstanceOf(JsonRpcSuccessResponse.class);
+
+    verify(blockchain).getBlockByNumber(expected);
+    verify(blockchain, never()).getBlockByNumber(expected - 1);
+    verify(blockchain, never()).getBlockByNumber(expected + 1);
   }
 
   @ParameterizedTest
   @CsvSource({"safe, 1500", "finalized, 1400"})
   public void resolvesTagToItsBlockAsToBlock(final String tag, final long expected) {
     stubTags();
+    lenient().when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
 
-    assertThatThrownBy(
-            () ->
-                method.response(request(new BlockParameter(expected + 1), new BlockParameter(tag))))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasMessage(
-            "fromBlock (" + (expected + 1) + ") is greater than toBlock (" + expected + ")");
+    assertThat(method.response(request(new BlockParameter(expected - 1), new BlockParameter(tag))))
+        .isInstanceOf(JsonRpcSuccessResponse.class);
+
+    verify(blockchain).getBlockByNumber(expected - 1);
+    verify(blockchain).getBlockByNumber(expected);
+    verify(blockchain, never()).getBlockByNumber(expected + 1);
+    verify(blockchain, never()).getBlockByNumber(HEAD);
   }
 
   @ParameterizedTest
