@@ -42,6 +42,7 @@
 - Update besu-native to 2.2.0 and recover secp256k1 public keys, such as transaction senders, in a single native call. A recovery id outside 0 to 3 recovers nothing, where it used to abort a node running native secp256k1. [#11921](https://github.com/besu-eth/besu/pull/11921)
 - An `engine_forkchoiceUpdated` call no longer waits for `engine_newPayload` calls that are still being validated once the blocks it names are stored, so a slow payload does not delay a fork choice update or the build of the next block. [#11954](https://github.com/besu-eth/besu/pull/11954)
 - Upgrade the stable reference tests to `tests@v21.0.3`. [#12046](https://github.com/besu-eth/besu/pull/12046)
+- Parallel block import recovers each transaction's sender and EIP-7702 authorities once. [#11922](https://github.com/besu-eth/besu/pull/11922)
 
 ## 26.11.2
 
