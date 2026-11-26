@@ -1289,7 +1289,7 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
     final CallParameter authorizationCall =
         legacyTransactionCallParameterBuilder()
             .gasPrice(price)
-            .codeDelegationAuthorizations(List.of(delegation))
+            .authorizationList(List.of(delegation))
             .build();
     final CallParameter dynamicFeeCall =
         eip1559TransactionCallParameterBuilder()
@@ -1487,7 +1487,8 @@ public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
 
   private ImmutableCallParameter.Builder codeDelegationTransactionCallParamterBuilder(
       final List<CodeDelegation> delegations) {
-    return legacyTransactionCallParameterBuilder().codeDelegationAuthorizations(delegations);
+    return legacyTransactionCallParameterBuilder()
+        .authorizationList(List.<org.hyperledger.besu.datatypes.CodeDelegation>copyOf(delegations));
   }
 
   private CallParameter blobTransactionCallParameter() {

@@ -29,6 +29,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
@@ -76,10 +77,23 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
   @Override
   public abstract Optional<List<VersionedHash>> getBlobVersionedHashes();
 
-  @Override
+  /**
+   * The authorization list as it appeared in the JSON, if the field was present. An empty list is
+   * distinct from an omitted field: EIP-7702 rejects an empty list, while an omitted field is not a
+   * set-code call.
+   *
+   * @return the provided list, or empty when the field was omitted
+   */
   @JsonProperty("authorizationList")
-  @JsonDeserialize(contentUsing = CodeDelegationParameterDeserializer.class)
-  public abstract List<CodeDelegation> getCodeDelegationAuthorizations();
+  @JsonDeserialize(using = OptionalAuthorizationListDeserializer.class)
+  public abstract Optional<List<CodeDelegation>> getAuthorizationList();
+
+  @Override
+  @Value.Derived
+  @JsonIgnore
+  public List<CodeDelegation> getCodeDelegationAuthorizations() {
+    return getAuthorizationList().orElse(List.of());
+  }
 
   @Override
   @JsonDeserialize(using = QuantityJson.OptionalLongDeserializer.class)
@@ -142,8 +156,7 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
 
     tx.getMaxFeePerBlobGas().ifPresent(builder::maxFeePerBlobGas);
     tx.getVersionedHashes().ifPresent(builder::blobVersionedHashes);
-    tx.getCodeDelegationList()
-        .ifPresent(list -> list.forEach(builder::addCodeDelegationAuthorizations));
+    tx.getCodeDelegationList().ifPresent(builder::authorizationList);
     return builder.build();
   }
 
@@ -168,8 +181,7 @@ public abstract class CallParameter implements org.hyperledger.besu.datatypes.Ca
     tx.getAccessList().ifPresent(builder::accessList);
     tx.getMaxFeePerBlobGas().map(Wei::fromQuantity).ifPresent(builder::maxFeePerBlobGas);
     tx.getVersionedHashes().ifPresent(builder::blobVersionedHashes);
-    tx.getCodeDelegationList()
-        .ifPresent(list -> list.forEach(builder::addCodeDelegationAuthorizations));
+    tx.getCodeDelegationList().ifPresent(builder::authorizationList);
     return builder.build();
   }
 }

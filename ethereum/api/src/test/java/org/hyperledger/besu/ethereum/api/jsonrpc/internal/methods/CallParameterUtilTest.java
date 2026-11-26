@@ -20,6 +20,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -28,8 +30,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.RejectedParametersException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.transaction.ImmutableCallParameter;
 
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -166,6 +170,103 @@ class CallParameterUtilTest {
   }
 
   @Test
+  void rejectsEmptyAuthorizationList() {
+    assertThatThrownBy(
+            () ->
+                CallParameterUtil.rejectEmptyAuthorizationList(
+                    ImmutableCallParameter.builder().authorizationList(List.of()).build()))
+        .hasMessage("set-code transaction needs at least one authorization")
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+  }
+
+  @Test
+  void emptyAuthorizationListCheckAcceptsOmittedList() {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectEmptyAuthorizationList(
+                    ImmutableCallParameter.builder().build()));
+  }
+
+  @Test
+  void emptyAuthorizationListCheckAcceptsNonEmptyList() {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectEmptyAuthorizationList(
+                    ImmutableCallParameter.builder()
+                        .authorizationList(List.of(sampleAuthorization()))
+                        .build()));
+  }
+
+  @Test
+  void rejectsAuthorizationListTogetherWithBlobHashes() {
+    assertThatThrownBy(
+            () ->
+                CallParameterUtil.rejectConflictingTransactionTypeFields(
+                    ImmutableCallParameter.builder()
+                        .authorizationList(List.of(sampleAuthorization()))
+                        .blobVersionedHashes(List.of(VersionedHash.DEFAULT_VERSIONED_HASH))
+                        .build()))
+        .hasMessage("both authorizationList and blobVersionedHashes specified")
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+  }
+
+  @Test
+  void rejectsEmptyAuthorizationListTogetherWithBlobHashes() {
+    assertThatThrownBy(
+            () ->
+                CallParameterUtil.rejectConflictingTransactionTypeFields(
+                    ImmutableCallParameter.builder()
+                        .authorizationList(List.of())
+                        .blobVersionedHashes(List.of())
+                        .build()))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+  }
+
+  @Test
+  void conflictingTypeCheckAcceptsAuthorizationListAlone() {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectConflictingTransactionTypeFields(
+                    ImmutableCallParameter.builder()
+                        .authorizationList(List.of(sampleAuthorization()))
+                        .build()));
+  }
+
+  @Test
+  void conflictingTypeCheckAcceptsBlobHashesAlone() {
+    assertThatNoException()
+        .isThrownBy(
+            () ->
+                CallParameterUtil.rejectConflictingTransactionTypeFields(
+                    ImmutableCallParameter.builder()
+                        .blobVersionedHashes(List.of(VersionedHash.DEFAULT_VERSIONED_HASH))
+                        .build()));
+  }
+
+  @Test
+  void simulateChecksRejectMixedFeeFields() {
+    assertThatThrownBy(
+            () ->
+                CallParameterUtil.rejectInvalidSimulateCallParameters(
+                    ImmutableCallParameter.builder()
+                        .gasPrice(Wei.ONE)
+                        .maxFeePerGas(Wei.ONE)
+                        .build()))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS));
+  }
+
+  @Test
   void allowsExceedingBalanceWhenAll1559FeesAreZero() {
     assertThat(isAllowExceedingBalance(params -> params)).isTrue();
   }
@@ -213,6 +314,15 @@ class CallParameterUtilTest {
   @Test
   void strictFlagWinsOverZeroFees() {
     assertThat(isAllowExceedingBalance(params -> params.strict(true))).isFalse();
+  }
+
+  private static CodeDelegation sampleAuthorization() {
+    return new CodeDelegation(
+        BigInteger.ONE,
+        Address.fromHexString("0x1"),
+        0L,
+        SignatureAlgorithmFactory.getInstance()
+            .createSignature(BigInteger.ONE, BigInteger.ONE, (byte) 0));
   }
 
   private boolean isAllowExceedingBalance(

@@ -287,6 +287,97 @@ public class EthSimulateV1Test {
   }
 
   @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void shouldRejectEmptyAuthorizationListInAnyCall(final boolean validation) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final Map<String, Object> emptyAuthorizationListCall =
+        Map.of(
+            "from",
+            "0xc000000000000000000000000000000000000000",
+            "to",
+            "0xd000000000000000000000000000000000000000",
+            "authorizationList",
+            List.of());
+    final Map<String, Object> simulateParam =
+        Map.of(
+            "blockStateCalls",
+            List.of(Map.of("calls", List.of(emptyAuthorizationListCall))),
+            "validation",
+            validation);
+
+    assertThatThrownBy(() -> method.response(simulateRequest(simulateParam)))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS))
+        .hasMessage("set-code transaction needs at least one authorization");
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void shouldRejectGasPriceTogetherWithMaxFeePerGas(final boolean validation) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final Map<String, Object> mixedFeesCall =
+        Map.of(
+            "from",
+            "0xc000000000000000000000000000000000000000",
+            "to",
+            "0xd000000000000000000000000000000000000000",
+            "gasPrice",
+            "0x1",
+            "maxFeePerGas",
+            "0x1");
+    final Map<String, Object> simulateParam =
+        Map.of(
+            "blockStateCalls",
+            List.of(Map.of("calls", List.of(mixedFeesCall))),
+            "validation",
+            validation);
+
+    assertThatThrownBy(() -> method.response(simulateRequest(simulateParam)))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS))
+        .hasMessage("both gasPrice and (maxFeePerGas or maxPriorityFeePerGas) specified");
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void shouldRejectAuthorizationListTogetherWithBlobHashes(final boolean validation) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final Map<String, Object> bothListsCall =
+        Map.of(
+            "from",
+            "0xc000000000000000000000000000000000000000",
+            "to",
+            "0xd000000000000000000000000000000000000000",
+            "authorizationList",
+            List.of(sampleAuthorizationJson()),
+            "blobVersionedHashes",
+            List.of("0x0100000000000000000000000000000000000000000000000000000000000000"));
+    final Map<String, Object> simulateParam =
+        Map.of(
+            "blockStateCalls",
+            List.of(Map.of("calls", List.of(bothListsCall))),
+            "validation",
+            validation);
+
+    assertThatThrownBy(() -> method.response(simulateRequest(simulateParam)))
+        .isInstanceOfSatisfying(
+            InvalidJsonRpcParameters.class,
+            e -> assertThat(e.getRpcErrorType()).isEqualTo(RpcErrorType.INVALID_PARAMS))
+        .hasMessage("both authorizationList and blobVersionedHashes specified");
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @ParameterizedTest
   @ValueSource(strings = {"0x1", "0x4"})
   public void shouldRejectPrecompileMovedToItself(final String address) {
     setupMethodWithMockSimulator();
@@ -334,6 +425,16 @@ public class EthSimulateV1Test {
                         Map.of("movePrecompileToAddress", target.toHexString())),
                     "calls",
                     List.of()))));
+  }
+
+  private static Map<String, String> sampleAuthorizationJson() {
+    return Map.of(
+        "chainId", "0x1",
+        "address", "0x6b7879a5d747e30a3adb37a9e41c046928fce933",
+        "nonce", "0x82",
+        "yParity", "0x1",
+        "r", "0x462a70678128d9dd8f5b8010aaecddda1ba9ad767f0807c341f38d4dcb7eb893",
+        "s", "0x645f7afd51a86bafe8939c8498fc89769918a38213859843ad7b19ffd4273a48");
   }
 
   private static JsonRpcRequestContext simulateRequest(final Map<String, Object> simulateParam) {
