@@ -213,6 +213,21 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
   }
 
   /**
+   * Whether the plugin with the given id has returned from {@code start()} in the current cycle:
+   * false before it starts, after it failed in {@code start()}, and once a shutdown or an Ephemery
+   * restart has taken the started list. Besu's RPC method tables refuse a plugin's methods while
+   * this is false, so a call that reaches the node before the plugin is ready never runs its code.
+   *
+   * @param pluginId the plugin's id, its fully qualified class name
+   * @return true if the plugin's start() has returned and it has not been stopped since
+   */
+  public boolean hasStarted(final String pluginId) {
+    synchronized (startedPlugins) {
+      return startedPlugins.stream().anyMatch(plugin -> pluginId(plugin).equals(pluginId));
+    }
+  }
+
+  /**
    * The services plugins published during registration, for Besu's own code to consume. The view is
    * complete once registration has closed.
    *

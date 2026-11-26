@@ -81,11 +81,12 @@ public interface BesuPlugin {
    * external services open their ports only after that, and the peer-to-peer network starts with
    * the main loop. Not covered: storage factories and security modules, which Besu uses while it
    * builds the node; in-process work another plugin does from its own {@code start()}, since
-   * plugins start in discovery order; the transaction pool, which on a node with no initial sync to
+   * plugins start in discovery order, except that a call to this plugin's RPC methods is refused
+   * until this plugin has started; the transaction pool, which on a node with no initial sync to
    * wait for is enabled only after every plugin's {@code start()} has returned, so a transaction
-   * submitted in-process from {@code start()} is refused as pool disabled; and a plugin dropped
-   * under {@code --plugin-continue-on-error} after failing in {@code start()}, whose callbacks stay
-   * wired.
+   * submitted in-process from {@code start()} is refused as pool disabled before any validation
+   * runs; and a plugin dropped under {@code --plugin-continue-on-error} after failing in {@code
+   * start()}, whose callbacks other than its RPC methods stay wired.
    *
    * <p>The context offers every {@link StartService}, and those services keep working for the rest
    * of the node's life, so the context and the services obtained from it may be kept and used from

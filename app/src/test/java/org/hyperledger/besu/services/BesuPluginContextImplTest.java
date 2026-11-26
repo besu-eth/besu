@@ -953,6 +953,28 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
+  void hasStartedReportsOnlyThePluginsWhoseStartReturned() {
+    final OptionPlugin started = new OptionPlugin();
+    final RecordingPlugin failing = new RecordingPlugin("failing");
+    failing.onStart =
+        context -> {
+          throw new IllegalStateException("start failed");
+        };
+    final BesuPluginContextImpl context = contextReadyToRegister(true, started, failing);
+    register(context);
+    final String startedId = OptionPlugin.class.getName();
+    final String failingId = RecordingPlugin.class.getName();
+    assertThat(context.hasStarted(startedId)).isFalse();
+
+    context.startPlugins();
+
+    assertThat(context.hasStarted(startedId)).isTrue();
+    assertThat(context.hasStarted(failingId)).isFalse();
+    context.stopPlugins();
+    assertThat(context.hasStarted(startedId)).isFalse();
+  }
+
+  @Test
   void anUnrecoverableStartFailureStopsThePluginsStartedBeforeItNewestFirst() {
     final List<String> events = new ArrayList<>();
     final RecordingPlugin first = new RecordingPlugin("first");
