@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.v2.worldstate.JournalAccountV2;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -61,7 +62,11 @@ public class SLoadOperationV2 extends AbstractOperationV2 {
     final int top = frame.stackTopV2();
     final Address address = account.getAddress();
     final UInt256 key = UInt256.fromBytes(readBytes32At(stack, top, 0));
-    final boolean slotIsWarm = frame.warmUpStorage(address, key);
+    // the journal of a transaction keeps its warm slots together with their values
+    final boolean slotIsWarm =
+        account instanceof JournalAccountV2 journalAccount
+            ? journalAccount.warmUpStorage(key)
+            : frame.warmUpStorage(address, key);
     final long cost = slotIsWarm ? warmCost : coldCost;
     if (frame.getRemainingGas() < cost) {
       return haltPopping(

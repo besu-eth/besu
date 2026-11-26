@@ -18,9 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.CallTracerResult;
+import org.hyperledger.besu.ethereum.debug.TraceOptions;
+import org.hyperledger.besu.ethereum.debug.TracerType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.DisplayName;
@@ -31,6 +34,13 @@ class FlatCallTracerTest {
 
   private static final Address PRECOMPILE_1 =
       Address.fromHexString("0x0000000000000000000000000000000000000001");
+
+  @Test
+  @DisplayName("lets EVM v2 run the transaction on the journal, as block import does")
+  void allowsTheJournal() {
+    final TraceOptions options = new TraceOptions(TracerType.FLAT_CALL_TRACER, null, Map.of());
+    assertThat(new FlatCallTracer(options, null).allowsJournal()).isTrue();
+  }
 
   @Test
   @DisplayName("DELEGATECALL child to precompile is kept when includePrecompiles is false")

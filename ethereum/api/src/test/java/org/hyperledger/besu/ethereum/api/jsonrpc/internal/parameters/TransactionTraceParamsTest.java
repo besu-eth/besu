@@ -143,6 +143,21 @@ public class TransactionTraceParamsTest {
   }
 
   @Test
+  public void blockOverridesShouldBeDeserializedWhenPresent() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"blockOverrides\": {\"time\": \"0x1\"}}", TransactionTraceParams.class);
+
+    assertThat(params.blockOverrides()).isNotNull();
+  }
+
+  @Test
+  public void blockOverridesShouldBeNullWhenAbsent() throws Exception {
+    final TransactionTraceParams params = MAPPER.readValue("{}", TransactionTraceParams.class);
+
+    assertThat(params.blockOverrides()).isNull();
+  }
+
+  @Test
   public void prestateTracerShouldRejectDiffModeWithIncludeEmpty() throws Exception {
     final TransactionTraceParams params =
         MAPPER.readValue(

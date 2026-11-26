@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.vm.operations;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPool;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithCollidingHashes;
 import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithDistinctHashes;
+import static org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper.fillPoolWithTopBitsSlots;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -47,7 +48,7 @@ public class TStoreOperationBenchmark extends BinaryOperationNoPushBenchmark
     implements GasCostBenchmark {
   TStoreOperation operation;
 
-  @Param({"DISTINCT_KEYS", "COLLIDING_KEYS", "RANDOM_KEYS"})
+  @Param({"DISTINCT_KEYS", "COLLIDING_KEYS", "RANDOM_KEYS", "TOP_BITS_KEYS"})
   protected String scenario;
 
   @Param({"1000", "10000", "150000"})
@@ -65,6 +66,7 @@ public class TStoreOperationBenchmark extends BinaryOperationNoPushBenchmark
       case "RANDOM_KEYS" -> fillPool(aPool);
       case "DISTINCT_KEYS" -> fillPoolWithDistinctHashes(aPool, frame.getRecipientAddress(), 0);
       case "COLLIDING_KEYS" -> fillPoolWithCollidingHashes(aPool, frame.getRecipientAddress(), 0);
+      case "TOP_BITS_KEYS" -> fillPoolWithTopBitsSlots(aPool, 0);
     }
     index = 0;
   }
@@ -99,6 +101,7 @@ public class TStoreOperationBenchmark extends BinaryOperationNoPushBenchmark
             fillPoolWithDistinctHashes(keysPool, frame.getRecipientAddress(), getSampleSize());
         case "COLLIDING_KEYS" ->
             fillPoolWithCollidingHashes(keysPool, frame.getRecipientAddress(), getSampleSize());
+        case "TOP_BITS_KEYS" -> fillPoolWithTopBitsSlots(keysPool, getSampleSize());
       }
     }
 

@@ -58,7 +58,10 @@ import java.util.stream.Collectors;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
+import org.ethereum.beacon.discovery.schema.EnrField;
+import org.ethereum.beacon.discovery.schema.IdentitySchema;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
+import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -134,6 +137,24 @@ public class PeerDiscoveryAgentV4Test {
     assertThat(nodeRecord.getTcp6Address()).isPresent();
     assertThat(nodeRecord.getTcp6Address().get().getPort()).isGreaterThan(0);
     assertThat(nodeRecord.getUdp6Address()).isPresent();
+  }
+
+  @Test
+  public void checkForkIdRejectsPeerWhoseEthEntryCannotBeDecoded() {
+    final MockPeerDiscoveryAgent agent = helper.startDiscoveryAgent();
+    final DiscoveryPeerV4 peer = helper.createDiscoveryPeer();
+    peer.setNodeRecord(
+        NodeRecordFactory.DEFAULT.createFromValues(
+            UInt64.ONE,
+            new EnrField(EnrField.ID, IdentitySchema.V4),
+            new EnrField(
+                "eth",
+                List.of(
+                    List.of(
+                        Bytes.fromHexString("0xfc64ec04"),
+                        Bytes.fromHexString("0x010203040506070809"))))));
+
+    assertThat(agent.checkForkId(peer)).isFalse();
   }
 
   @Test

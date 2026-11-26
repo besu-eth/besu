@@ -42,36 +42,57 @@ public class CodeDelegationTransactionDecoder {
   }
 
   public static Transaction decode(final Bytes input) {
+    return decode(input, CodeDelegationListLimit.UNLIMITED);
+  }
+
+  /**
+   * Decodes a code delegation transaction, refusing an authorization list longer than the limit
+   * allows for the transaction's gas limit. The length is checked before any entry is decoded.
+   *
+   * @param input the transaction bytes, starting with the transaction type
+   * @param codeDelegationListLimit the longest authorization list to decode
+   * @return the decoded transaction
+   * @throws org.hyperledger.besu.ethereum.rlp.RLPException if the input is malformed, or if the
+   *     authorization list is longer than the limit
+   */
+  public static Transaction decode(
+      final Bytes input, final CodeDelegationListLimit codeDelegationListLimit) {
     final RLPInput txRlp = RLP.input(input.slice(1)); // Skip the transaction type byte
     txRlp.enterList();
-    final ChainId chainId = ChainId.readFrom(txRlp);
+    final ChainId chainId = ChainId.readFrom(txRlp, Bytes32.SIZE);
     final Transaction.Builder builder =
         Transaction.builder()
             .type(TransactionType.DELEGATE_CODE)
             .chainId(chainId)
             .nonce(txRlp.readLongScalar())
             .maxPriorityFeePerGas(Wei.of(txRlp.readUInt256Scalar()))
-            .maxFeePerGas(Wei.of(txRlp.readUInt256Scalar()))
-            .gasLimit(txRlp.readLongScalar())
-            .to(txRlp.readBytes(v -> v.isEmpty() ? null : Address.wrap(v)))
-            .value(Wei.of(txRlp.readUInt256Scalar()))
-            .payload(txRlp.readBytes())
-            .rawRlp(txRlp.raw())
-            .accessList(
-                txRlp.readList(
-                    accessListEntryRLPInput -> {
-                      accessListEntryRLPInput.enterList();
-                      final AccessListEntry accessListEntry =
-                          new AccessListEntry(
-                              Address.wrap(accessListEntryRLPInput.readBytes()),
-                              accessListEntryRLPInput.readList(RLPInput::readBytes32));
-                      accessListEntryRLPInput.leaveList();
-                      return accessListEntry;
-                    }))
-            .codeDelegations(txRlp.readList(CodeDelegationTransactionDecoder::decodeInnerPayload))
-            .sizeForBlockInclusion(input.size())
-            .sizeForAnnouncement(input.size())
-            .hash(Hash.hash(input));
+            .maxFeePerGas(Wei.of(txRlp.readUInt256Scalar()));
+    // The gas limit comes before the authorization list, so the list can be bounded by it.
+    final long gasLimit = txRlp.readLongScalar();
+    builder
+        .gasLimit(gasLimit)
+        .to(txRlp.readBytes(v -> v.isEmpty() ? null : Address.wrap(v)))
+        .value(Wei.of(txRlp.readUInt256Scalar()))
+        .payload(txRlp.readBytes())
+        .rawRlp(txRlp.raw())
+        .accessList(
+            txRlp.readList(
+                accessListEntryRLPInput -> {
+                  accessListEntryRLPInput.enterList();
+                  final AccessListEntry accessListEntry =
+                      new AccessListEntry(
+                          Address.wrap(accessListEntryRLPInput.readBytes()),
+                          accessListEntryRLPInput.readList(RLPInput::readBytes32));
+                  accessListEntryRLPInput.leaveList();
+                  return accessListEntry;
+                }))
+        .codeDelegations(
+            txRlp.readList(
+                CodeDelegationTransactionDecoder::decodeInnerPayload,
+                codeDelegationListLimit.maxCodeDelegations(gasLimit)))
+        .sizeForBlockInclusion(input.size())
+        .sizeForAnnouncement(input.size())
+        .hash(Hash.hash(input));
 
     final byte recId = (byte) txRlp.readUnsignedByteScalar();
     final BigInteger r = txRlp.readUInt256Scalar().toUnsignedBigInteger();

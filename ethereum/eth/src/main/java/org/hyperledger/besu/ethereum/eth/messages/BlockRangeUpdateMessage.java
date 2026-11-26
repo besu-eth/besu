@@ -70,6 +70,10 @@ public class BlockRangeUpdateMessage extends AbstractMessageData {
     return messageFields().blockHash;
   }
 
+  public StatusMessage.BlockRange getBlockRange() {
+    return new StatusMessage.BlockRange(getEarliestBlockNumber(), getLatestBlockNumber());
+  }
+
   public static BlockRangeUpdateMessage readFrom(final MessageData message) {
     if (message instanceof BlockRangeUpdateMessage blockRangeUpdateMessage) {
       return blockRangeUpdateMessage;

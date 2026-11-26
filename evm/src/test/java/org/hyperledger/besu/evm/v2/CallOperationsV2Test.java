@@ -26,6 +26,7 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.v2.ProgramRun.Execution;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 
 import java.util.List;
 
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.Test;
 class CallOperationsV2Test {
 
   private static final EVM EVM_V2 = MainnetEVMs.cancun(ProgramRun.V2);
+  private static final EVM PRAGUE_EVM_V2 = MainnetEVMs.prague(ProgramRun.V2);
 
   /**
    * Returns the call value, the caller and its own address as 96 bytes, and stores 1 in slot 0 when
@@ -57,6 +59,10 @@ class CallOperationsV2Test {
   /** Returns the call value, the caller and its own address as 96 bytes. */
   private static final Bytes OBSERVING_CODE =
       Bytes.fromHexString("0x34600052336020523060405260606000f3");
+
+  /** An EIP-7702 delegation designator that points to SECOND_CALLEE. */
+  private static final Bytes DELEGATION_TO_SECOND_CALLEE =
+      Bytes.concatenate(CodeDelegationHelper.CODE_DELEGATION_PREFIX, SECOND_CALLEE.getBytes());
 
   private static final int CALL = 0xf1;
   private static final int CALLCODE = 0xf2;
@@ -157,6 +163,53 @@ class CallOperationsV2Test {
 
     assertThat(execution.outcome().haltReason())
         .isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS.name());
+  }
+
+  @Test
+  void callToDelegatedAccountBeforePragueHaltsAndUsesAllItsGas() {
+    final Execution delegated =
+        ProgramRun.execute(
+            EVM_V2,
+            call(CALL, CALLEE, 0),
+            DELEGATION_TO_SECOND_CALLEE,
+            OBSERVING_CODE,
+            1_000_000L,
+            false,
+            List.of());
+    final Execution invalidCode =
+        ProgramRun.execute(
+            EVM_V2,
+            call(CALL, CALLEE, 0),
+            Bytes.of(0xfe),
+            OBSERVING_CODE,
+            1_000_000L,
+            false,
+            List.of());
+
+    assertThat(delegated.outcome().haltReason()).isEmpty();
+    assertThat(delegated.outcome().stack()).containsExactly(stackItem(UInt256.ZERO));
+    assertThat(delegated.frame().getReturnData()).isEqualTo(Bytes.EMPTY);
+    assertThat(delegated.outcome().remainingGas()).isEqualTo(invalidCode.outcome().remainingGas());
+    assertThat(delegated.outcome().accesses()).doesNotContain(SECOND_CALLEE.toHexString());
+  }
+
+  @Test
+  void callToDelegatedAccountFromPragueRunsTheTargetCode() {
+    final Execution execution =
+        ProgramRun.execute(
+            PRAGUE_EVM_V2,
+            call(CALL, CALLEE, 0),
+            DELEGATION_TO_SECOND_CALLEE,
+            OBSERVING_CODE,
+            1_000_000L,
+            false,
+            List.of());
+
+    assertThat(execution.outcome().stack()).containsExactly(stackItem(UInt256.ONE));
+    // the target's code runs in the context of the delegated account
+    assertThat(execution.frame().getReturnData())
+        .isEqualTo(Bytes.concatenate(Bytes32.ZERO, word(CONTRACT), word(CALLEE)));
+    assertThat(execution.outcome().accesses()).contains(SECOND_CALLEE.toHexString());
   }
 
   private static Execution execute(final Bytes code, final boolean isStatic) {

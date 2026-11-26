@@ -304,11 +304,13 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * Checks whether a discovered peer is compatible with the local fork ID.
    *
    * @param peer the discovered peer
-   * @return {@code true} if the peer is fork-compatible or does not advertise a fork ID
+   * @return {@code true} if the peer is fork-compatible or does not advertise a fork ID, {@code
+   *     false} if it is incompatible or its advertised fork ID can't be decoded
    */
   @Override
   public boolean checkForkId(final DiscoveryPeer peer) {
-    return peer.getForkId().map(forkIdManager::peerCheck).orElse(true);
+    return !peer.hasMalformedForkId()
+        && peer.getForkId().map(forkIdManager::peerCheck).orElse(true);
   }
 
   /**
@@ -577,7 +579,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             // DiscoveryPeerV4.isReadyForConnections() requires DiscV4 bonding status,
             // which is never set for DiscV5-discovered peers.
             .filter(DiscoveryPeer::isListening)
-            .filter(peer -> peer.getForkId().map(forkIdManager::peerCheck).orElse(true))
+            .filter(this::checkForkId)
             .filter(peer -> isPeerPermitted(localNode, peer))
             .filter(peer -> !rlpxAgent.isConnectingOrConnected(peer.getId()))
             .toList();

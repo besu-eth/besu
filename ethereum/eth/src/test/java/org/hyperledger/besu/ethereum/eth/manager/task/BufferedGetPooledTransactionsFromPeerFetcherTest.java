@@ -18,6 +18,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.eth.manager.task.BufferedGetPooledTransactionsFromPeerFetcher.MAX_HASHES;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,6 +31,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationListLimit;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.core.transactions.TransactionAnnouncements;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -78,6 +81,9 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
 
   @BeforeEach
   public void setup() {
+    lenient()
+        .when(transactionPool.codeDelegationListLimit())
+        .thenReturn(CodeDelegationListLimit.UNLIMITED);
     when(ethContext.getEthPeers()).thenReturn(ethPeers);
     when(ethContext.getScheduler()).thenReturn(ethScheduler);
     when(ethPeers.getMaxPeers()).thenReturn(25);
@@ -189,7 +195,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     verifyNoMoreInteractions(peerTaskExecutor);
     verify(transactionPool).addRemoteTransactions(firstBatch);
     verify(transactionPool).addRemoteTransactions(secondBatch);
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -216,7 +222,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     verify(peerTaskExecutor)
         .executeAgainstPeer(any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer));
     verifyNoMoreInteractions(peerTaskExecutor);
-    verifyNoInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -285,7 +291,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
         .containsExactlyElementsOf(secondBatch.stream().map(Transaction::getHash).toList());
     verify(transactionPool).addRemoteTransactions(firstBatch);
     verify(transactionPool).addRemoteTransactions(secondBatch);
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -354,7 +360,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
         .executeAgainstPeer(any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer));
     verifyNoMoreInteractions(peerTaskExecutor);
     verify(transactionPool).addRemoteTransactions(firstBatch);
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -382,7 +388,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
         .executeAgainstPeer(any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer));
     verifyNoMoreInteractions(peerTaskExecutor);
     verify(transactionPool).addRemoteTransactions(firstBatch);
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -418,7 +424,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
     // t1 (the gap before last returned t2) is dropped and never added to the pool
     verify(transactionPool).addRemoteTransactions(firstResponse);
     verify(transactionPool).addRemoteTransactions(secondResponse);
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -446,7 +452,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
         .executeAgainstPeer(any(GetPooledTransactionsFromPeerTask.class), eq(ethPeer));
     verifyNoMoreInteractions(peerTaskExecutor);
     verify(transactionPool).addRemoteTransactions(List.of(unrequestedTransaction));
-    verifyNoMoreInteractions(transactionPool);
+    verifyNoMoreTransactionPoolInteractions();
   }
 
   @Test
@@ -480,5 +486,12 @@ public class BufferedGetPooledTransactionsFromPeerFetcherTest {
 
     verifyNoInteractions(peerTaskExecutor);
     verify(transactionPool, never()).addRemoteTransactions(List.of(transaction));
+  }
+
+  private void verifyNoMoreTransactionPoolInteractions() {
+    // Every message is decoded against the pool's authorization list limit, so reading it is
+    // expected; anything else, such as adding a transaction, still has to be verified.
+    verify(transactionPool, atLeast(0)).codeDelegationListLimit();
+    verifyNoMoreInteractions(transactionPool);
   }
 }
