@@ -100,12 +100,12 @@ The basics:
 3. Follow the coding conventions in the [Developing and Conventions](https://github.com/besu-eth/besu/wiki/Developing-and-Conventions) wiki page.
 
 ### What makes a good pull request?
-There's a lot more to a PR than just the code: starting with a clear description of the change, and including testing, verification, evidence that there was an issue and the PR is addressing it. Writing the code is often the quickest part of the PR to produce.
+There's a lot more to a PR than just the code: starting with a clear description of the change, and including testing, verification, evidence that there was a problem and the PR is addressing it. Writing the code is often the quickest part of the PR to produce.
 Look at your PR through the eyes of a reviewer. Human review is without doubt the bottleneck in this process right now. If you make life easier for reviewers, this will expedite review of your PR.
 
 ### Pitch your PR
 - The PR title should be short and descriptive.
-- The PR description should link to the related issue and succinctly describe the changes. Use a GitHub keyword such as `fixes #1234` so the issue closes when the PR is merged, or `refs #1234` if it doesn't fully resolve it.
+- The PR description should succinctly describe the changes. If there is a related issue, link to it with a GitHub keyword such as `fixes #1234` so the issue closes when the PR is merged, or `refs #1234` if it doesn't fully resolve it. If there is no issue, for example for a test-only change or a small refactor, the pitch below should explain the motivation instead.
 - A short one sentence "pitch" at the top of the PR description, explaining why reviewers should prioritize your PR is helpful. What's the impact, what's the problem you're solving?
 - Then also include evidence to justify your PR
   - evidence that the problem exists - logs, errors, metrics - this adds weight to your PR.
