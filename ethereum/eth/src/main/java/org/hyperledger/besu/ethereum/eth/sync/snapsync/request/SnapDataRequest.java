@@ -117,7 +117,8 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
       final WorldStateKeyValueStorage.Updater updater,
       final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
-      final SnapSyncConfiguration snapSyncConfiguration) {
+      final SnapSyncConfiguration snapSyncConfiguration,
+      final UndoLog undoLog) {
     return doPersist(
         worldStateStorageCoordinator, updater, downloadState, snapSyncState, snapSyncConfiguration);
   }
@@ -153,19 +154,27 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
     return pendingChildren.incrementAndGet();
   }
 
+  /** Undoes {@link #registerParent} for a child request that is dropped instead of enqueued. */
+  public void unregisterParent() {
+    possibleParent.ifPresent(parent -> parent.pendingChildren.decrementAndGet());
+  }
+
   protected int saveParent(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
       final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
-      final SnapSyncConfiguration snapSyncConfiguration) {
+      final SnapSyncConfiguration snapSyncConfiguration,
+      final UndoLog undoLog) {
+    undoLog.add(pendingChildren::incrementAndGet);
     if (pendingChildren.decrementAndGet() == 0) {
       return persist(
           worldStateStorageCoordinator,
           updater,
           downloadState,
           snapSyncState,
-          snapSyncConfiguration);
+          snapSyncConfiguration,
+          undoLog);
     }
     return 0;
   }
