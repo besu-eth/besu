@@ -234,14 +234,15 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
   }
 
   /**
-   * Writes the trie nodes of a partition as sorted files, which skip the compactions of the trie
-   * segment. The storage nodes of each account are sorted and added to the file of the partition. A
-   * storage too large to sort in memory gets files of its own, one sorted chunk at a time, and the
-   * file of the partition ends before it so that the two do not overlap. The account nodes of the
-   * partition go into a file of their own at the end, or before once they reach the writer's share
-   * of the heap budget, which the partition writers open at the same time split between them.
-   * Nothing takes the usual writes: a memtable flushed during the build holds keys of every
-   * partition, and every file ingested after it would then stay in level 0.
+   * Writes the trie nodes of a partition as sorted files, which RocksDB adds without the
+   * write-ahead log and the memtable flushes of the usual writes. They land in level 0 next to the
+   * storage tries the download wrote, as the trie segment is held back from the start, and are
+   * merged down with them after the sync. The storage nodes of each account are sorted and added to
+   * the file of the partition. A storage too large to sort in memory gets files of its own, one
+   * sorted chunk at a time, and the file of the partition ends before it so that the two do not
+   * overlap. The account nodes of the partition go into a file of their own at the end, or before
+   * once they reach the writer's share of the heap budget, which the partition writers open at the
+   * same time split between them.
    */
   private final class SortedTrieWriter implements TrieWriter {
     // the account nodes of a partition are held for as many bytes as this many storage chunks
@@ -269,6 +270,8 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
       if (hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
         return;
       }
+
+      acquire();
       accountNodes.add(new SortedNode(location.toArrayUnsafe(), rlp.toArrayUnsafe()));
       accountBytes += location.size() + rlp.size();
       if (accountBytes > accountNodeLimit()) {
@@ -291,6 +294,8 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
       if (hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
         return;
       }
+
+      acquire();
       if (!accountHash.equals(this.accountHash)) {
         finishAccount();
         this.accountHash = accountHash.copy();
@@ -333,6 +338,14 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
       release();
     }
 
+    // a writer committed in the middle of its partition takes its share again
+    private void acquire() {
+      if (!open) {
+        open = true;
+        openTrieWriters.incrementAndGet();
+      }
+    }
+
     private void release() {
       if (open) {
         open = false;
@@ -362,7 +375,7 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
       }
     }
 
-    // nodes in a file of their own, which RocksDB places as low as its key range allows
+    // nodes in a file of their own
     private void writeSorted(final List<SortedNode> sorted) {
       if (sorted.isEmpty()) {
         return;

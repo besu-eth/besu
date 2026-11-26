@@ -180,6 +180,27 @@ class BonsaiSyncStateStorageTest {
     second.commit();
   }
 
+  // the build commits its fixes in the middle of a partition, whose writer goes on collecting
+  @Test
+  void keepsTheShareOfAPartitionWriterThatCommittedInTheMiddleOfItsPartition() {
+    final SyncStateStorage sorted = new BonsaiSyncStateStorage(bonsai, 1L << 30, 100);
+    final SyncStateStorage.TrieWriter first = sorted.partitionTrieWriter();
+    final SyncStateStorage.TrieWriter second = sorted.partitionTrieWriter();
+    final Bytes rlp = Bytes.fromHexString("0x" + "c2".repeat(30));
+    final Bytes32 hash = Bytes32.wrap(Hash.hash(rlp).getBytes());
+    second.accountNode(Bytes.of(3), hash, rlp);
+    second.commit();
+    second.accountNode(Bytes.of(4), hash, rlp);
+
+    first.accountNode(Bytes.of(1), hash, rlp);
+    first.accountNode(Bytes.of(2), hash, rlp);
+
+    assertThat(bonsai.getTrieNodeUnsafe(Bytes.of(1))).contains(rlp);
+    assertThat(bonsai.getTrieNodeUnsafe(Bytes.of(4))).isEmpty();
+    first.commit();
+    second.commit();
+  }
+
   @Test
   void savesTheWorldStateOfTheBlock() {
     final Bytes rootNode = Bytes.fromHexString("0xc28080");
