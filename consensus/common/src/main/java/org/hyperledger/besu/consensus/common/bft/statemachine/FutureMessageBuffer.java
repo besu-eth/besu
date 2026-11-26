@@ -24,6 +24,7 @@ import java.util.TreeMap;
 import java.util.function.ToLongFunction;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Buffer which holds future BFT messages.
@@ -257,7 +258,7 @@ public class FutureMessageBuffer<T> {
     }
   }
 
-  private void discardMessages(final List<T> messages) {
+  private void discardMessages(final @Nullable List<T> messages) {
     if (messages != null) {
       messages.forEach(message -> totalMessageBytes -= messageSizeFn.applyAsLong(message));
     }

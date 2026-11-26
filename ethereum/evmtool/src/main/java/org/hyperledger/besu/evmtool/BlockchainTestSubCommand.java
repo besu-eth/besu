@@ -133,6 +133,9 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       description = "Output file for traces (default: stderr). Requires --json or --trace flag.")
   private @Nullable String traceOutput = null;
 
+  // Opened once per run and shared by every test, so a run over many fixtures holds one handle
+  private @Nullable PrintStream traceOutputWriter;
+
   @Option(
       names = {"--workers"},
       description =
@@ -215,6 +218,16 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       }
     }
 
+    if (parentCommand.showJsonResults && traceOutput != null) {
+      try {
+        traceOutputWriter = new PrintStream(new FileOutputStream(traceOutput, true), true, UTF_8);
+      } catch (final IOException e) {
+        System.err.println("Failed to open trace output: " + e.getMessage());
+        exitCode = 1;
+        return;
+      }
+    }
+
     boolean setupFailed = false;
     try {
       if (blockchainTestFiles.isEmpty()) {
@@ -253,6 +266,10 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
+      if (traceOutputWriter != null) {
+        traceOutputWriter.close();
+        traceOutputWriter = null;
+      }
       // Fail an empty run, so a typo in --test-name or a fixture tree that did not materialise
       // cannot be mistaken for a clean sweep. Not printed under --json-array, where that output is
       // parsed and only the array belongs.
@@ -388,26 +405,20 @@ public class BlockchainTestSubCommand implements Runnable, IExitCodeGenerator {
 
     BlockTestTracerManager tracerManager = null;
     if (parentCommand.showJsonResults && isLastIteration) {
-      try {
-        final PrintStream traceWriter =
-            traceOutput != null
-                ? new PrintStream(new FileOutputStream(traceOutput, true), true, UTF_8)
-                : new PrintStream(System.err, true, UTF_8);
-        tracerManager =
-            new BlockTestTracerManager(
-                traceWriter,
-                parentCommand.showMemory,
-                !parentCommand.hideStack,
-                parentCommand.showReturnData,
-                parentCommand.showStorage);
+      final PrintStream traceWriter =
+          traceOutputWriter != null ? traceOutputWriter : new PrintStream(System.err, true, UTF_8);
+      tracerManager =
+          new BlockTestTracerManager(
+              traceWriter,
+              parentCommand.showMemory,
+              !parentCommand.hideStack,
+              parentCommand.showReturnData,
+              parentCommand.showStorage);
 
-        final ServiceManager serviceManager = context.getPluginServiceManager();
-        final BlockchainTestTracerProvider tracerProvider =
-            new BlockchainTestTracerProvider(tracerManager);
-        serviceManager.addService(BlockImportTracerProvider.class, tracerProvider);
-      } catch (final IOException e) {
-        throw new IllegalStateException("Failed to open trace output: " + e.getMessage(), e);
-      }
+      final ServiceManager serviceManager = context.getPluginServiceManager();
+      final BlockchainTestTracerProvider tracerProvider =
+          new BlockchainTestTracerProvider(tracerManager);
+      serviceManager.addService(BlockImportTracerProvider.class, tracerProvider);
     }
 
     boolean testPassed = true;

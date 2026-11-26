@@ -117,7 +117,8 @@ public class BufferedGetPooledTransactionsFromPeerFetcher {
       final Set<Hash> remaining = new HashSet<>(batchToRequest);
       final GetPooledTransactionsFromPeerTask task =
           GetPooledTransactionsFromPeerTask.fromAnnouncements(
-              announcements.stream().filter(a -> remaining.contains(a.hash())).toList());
+              announcements.stream().filter(a -> remaining.contains(a.hash())).toList(),
+              transactionPool.codeDelegationListLimit());
 
       final PeerTaskExecutorResult<List<Transaction>> taskResult =
           ethContext.getPeerTaskExecutor().executeAgainstPeer(task, peer);

@@ -110,6 +110,7 @@ def _strListCmdArg(name) {
 
 // set the shell command to use according to os
 def shell = org.gradle.internal.os.OperatingSystem.current().isWindows() ? "${projectDir}\\wslsh.bat" : '/bin/bash'
+ext.gradleWrapperCommand = org.gradle.internal.os.OperatingSystem.current().isWindows() ? '.\\gradlew.bat' : './gradlew'
 
 licenseReport {
   // This is for the allowed-licenses-file in checkLicense Task
@@ -654,7 +655,7 @@ task resolveSourceArtifacts {
 // cannot set for its own build, so this only checks they were passed and fails fast otherwise,
 // instead of silently producing an incomplete file. See "Dependency Verification" in README.md.
 ext.updateVerificationMetadataCommand =
-  './gradlew --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks --no-parallel updateVerificationMetadata'
+  "${gradleWrapperCommand} --write-verification-metadata sha256 --refresh-dependencies --rerun-tasks --no-parallel updateVerificationMetadata"
 
 task updateVerificationMetadata {
   group = 'verification'
@@ -1046,6 +1047,11 @@ application {
   applicationDefaultJvmArgs = [
     '-Dvertx.disableFileCPResolving=true',
     '-XX:+ExitOnOutOfMemoryError',
+    // CVE-2026-114938: HotSpot's AVX-512 Base64 decode intrinsic can write past its output
+    // array. Remove once the JDK carries the fix.
+    '-XX:-UseBASE64Intrinsics',
+    '-XX:+UnlockDiagnosticVMOptions',
+    '-XX:-ReduceAllocationMerges',
     // BESU_HOME is replaced by a doFirst block in the run task.
     '-Dbesu.home=BESU_HOME',
     // We shutdown log4j ourselves, as otherwise this shutdown hook runs before our own and whatever
