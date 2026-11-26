@@ -402,6 +402,50 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.TX_SENDER_NOT_AUTHORIZED));
   }
 
+  @Test
+  public void shouldRejectSenderWithDelegationDesignatorBeforeDelegationIsAccepted() {
+    // Pre-Prague: DELEGATE_CODE transactions are not accepted, so EIP-7702's exemption for a
+    // delegation designator does not apply and EIP-3607 must reject the sender.
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.legacy(),
+            false,
+            Optional.empty(),
+            Set.of(TransactionType.FRONTIER),
+            Integer.MAX_VALUE);
+
+    final Account senderWithDesignator = accountWithDelegationDesignator();
+
+    assertThat(
+            validator.validateForSender(
+                basicTransaction, senderWithDesignator, processingBlockParams))
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.TX_SENDER_NOT_AUTHORIZED));
+  }
+
+  @Test
+  public void shouldAllowSenderWithDelegationDesignatorWhenDelegationIsAccepted() {
+    // From Prague onwards DELEGATE_CODE transactions are accepted, so a sender whose code is a
+    // valid delegation designator is exempt from EIP-3607.
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.legacy(),
+            false,
+            Optional.empty(),
+            Set.of(TransactionType.FRONTIER, TransactionType.DELEGATE_CODE),
+            Integer.MAX_VALUE);
+
+    final Account senderWithDesignator = accountWithDelegationDesignator();
+
+    assertThat(
+            validator.validateForSender(
+                basicTransaction, senderWithDesignator, processingBlockParams))
+        .isEqualTo(ValidationResult.valid());
+  }
+
   static List<Arguments> transactionWithMaxFeeTimesGasLimitGreaterThanBalanceArguments =
       List.of(
           Arguments.of(
@@ -1091,6 +1135,17 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     final Account account = mock(Account.class);
     when(account.getBalance()).thenReturn(balance);
     when(account.getNonce()).thenReturn(nonce);
+    return account;
+  }
+
+  private Account accountWithDelegationDesignator() {
+    // EIP-7702 delegation designator: 0xef0100 || 20-byte target address.
+    final Bytes designator =
+        Bytes.fromHexString("0xef0100" + "0000000000000000000000000000000000000001");
+    final Account account =
+        account(basicTransaction.getUpfrontCost(0L), basicTransaction.getNonce());
+    when(account.getCodeHash()).thenReturn(Hash.hash(designator));
+    when(account.getCode()).thenReturn(designator);
     return account;
   }
 }

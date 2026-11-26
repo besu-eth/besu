@@ -367,8 +367,15 @@ public class MainnetTransactionValidator implements TransactionValidator {
     return ValidationResult.valid();
   }
 
-  private static boolean canSendTransaction(final Account sender, final Hash codeHash) {
-    return codeHash.equals(Hash.EMPTY) || hasCodeDelegation(sender.getCode());
+  private boolean canSendTransaction(final Account sender, final Hash codeHash) {
+    if (codeHash.equals(Hash.EMPTY)) {
+      return true;
+    }
+    // EIP-3607 rejects every sender that has code. EIP-7702 only exempts an account whose code is
+    // a delegation designator, and that exemption starts at Prague, i.e. once DELEGATE_CODE
+    // transactions are accepted. Before then a designator-bearing sender must still be rejected.
+    return acceptedTransactionTypes.contains(TransactionType.DELEGATE_CODE)
+        && hasCodeDelegation(sender.getCode());
   }
 
   private ValidationResult<TransactionInvalidReason> validateTransactionSignature(
