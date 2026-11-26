@@ -71,6 +71,7 @@ The timeline in [Same-sender chains](#same-sender-chains) is schematic. It keeps
 - **Orange:** block processing executes the transaction itself.
 - **Grey:** the start and end of the block, sender recovery, and runs that fail their nonce check.
 - **Hatched:** a run that is thrown away.
+- **+:** block processing takes the result and carries a balance change over to the block, as [Balance changes](#balance-changes) explains.
 
 ## Speculative runs
 
