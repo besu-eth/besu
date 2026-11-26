@@ -221,7 +221,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
         }
         // If the flat database healing process is in progress or the flat database mode is not FULL
         else {
-          final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
+          final WorldStateKeyValueStorage.Updater updater =
+              worldStateStorageCoordinator.batchUpdater();
           applyForStrategy(
               updater,
               onBonsai -> {

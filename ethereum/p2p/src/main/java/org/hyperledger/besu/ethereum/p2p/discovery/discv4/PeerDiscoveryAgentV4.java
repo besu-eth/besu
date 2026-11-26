@@ -370,7 +370,8 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
 
   @Override
   public boolean checkForkId(final DiscoveryPeer peer) {
-    return peer.getForkId().map(forkIdManager::peerCheck).orElse(true);
+    return !peer.hasMalformedForkId()
+        && peer.getForkId().map(forkIdManager::peerCheck).orElse(true);
   }
 
   private void startController(final DiscoveryPeerV4 localNode) {

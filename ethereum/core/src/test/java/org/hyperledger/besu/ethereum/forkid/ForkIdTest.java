@@ -36,7 +36,9 @@ import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -603,5 +605,30 @@ public class ForkIdTest {
     // There is no ForkId, so peerCheck always has to return true
     assertThat(forkIdManager.peerCheck(new ForkId(Bytes.fromHexString("0xdeadbeef"), 100L)))
         .isEqualTo(true);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "0x010203040506070809",
+        "0x0102030405060708090a0b0c0d0e0f10",
+        "0x00",
+        "0x00118c30",
+        "0x000000000000000000118c30"
+      })
+  public void fromRawForkIdRejectsForkNextThatIsNotACanonicalUint64(final String next) {
+    final List<List<Bytes>> rawForkId =
+        List.of(List.of(Bytes.fromHexString("0xfc64ec04"), Bytes.fromHexString(next)));
+    assertThat(ForkId.fromRawForkId(rawForkId)).isEmpty();
+  }
+
+  @ParameterizedTest
+  @CsvSource({"0x, 0", "0x118c30, 1150000", "0xffffffffffffffff, -1"})
+  public void fromRawForkIdAcceptsForkNextThatFitsUint64(final String next, final long expected) {
+    final List<List<Bytes>> rawForkId =
+        List.of(List.of(Bytes.fromHexString("0xfc64ec04"), Bytes.fromHexString(next)));
+    final Optional<ForkId> forkId = ForkId.fromRawForkId(rawForkId);
+    assertThat(forkId).isPresent();
+    assertThat(forkId.get().getNext()).isEqualTo(expected);
   }
 }

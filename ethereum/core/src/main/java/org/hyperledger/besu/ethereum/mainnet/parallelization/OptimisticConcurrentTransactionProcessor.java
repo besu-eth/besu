@@ -379,14 +379,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         from, Math.max(from, Math.min(transactionsOfSender.size(), MAX_CHAIN_LENGTH)));
   }
 
-  private static void recoverSender(final Transaction transaction) {
-    try {
-      transaction.getSender();
-    } catch (final IllegalStateException | IllegalArgumentException e) {
-      // an unrecoverable signature leaves the transaction unchained, its own run reports it
-    }
-  }
-
   /** Runs the rest of a chain on the result of its first member. */
   private void runChainAfter(
       final ParallelizedTransactionContext first,
@@ -457,7 +449,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         transactionProcessor.processTransaction(
             ws.updater().updater(),
             blockHeader,
-            transaction.detachedCopy(),
+            detachedCopyWithSigners(transaction),
             miningBeneficiary,
             OperationTracer.NO_TRACING,
             blockHashLookup.forkForParallelWorker(),
@@ -595,9 +587,6 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     if (maybeParentHeader.isEmpty()) {
       return null;
     }
-    // on the block's transaction, whose lock the background recovery takes too, so that the copy
-    // executed below carries the sender instead of recovering it a second time
-    recoverSender(transaction);
     final BonsaiWorldState ws =
         getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
     if (ws == null) {
@@ -625,12 +614,17 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           transactionProcessor.processTransaction(
               transactionUpdater,
               blockHeader,
-              transaction.detachedCopy(),
+              detachedCopyWithSigners(transaction),
               miningBeneficiary,
               new OperationTracer() {
                 @Override
                 public boolean tracesOperations() {
                   return false;
+                }
+
+                @Override
+                public boolean allowsJournal() {
+                  return true;
                 }
 
                 @Override

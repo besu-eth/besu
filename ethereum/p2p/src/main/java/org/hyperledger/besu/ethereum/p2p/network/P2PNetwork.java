@@ -80,6 +80,14 @@ public interface P2PNetwork extends Closeable {
   void subscribe(final Capability capability, final MessageCallback callback);
 
   /**
+   * Advertises one more capability, to the peers that connect from now on. The connections made
+   * before keep the capabilities they agreed on.
+   *
+   * @param capability Capability of a supported sub-protocol, subscribed to before it is added.
+   */
+  void addCapability(Capability capability);
+
+  /**
    * Subscribe a {@link Consumer} to all incoming new Peer connection events.
    *
    * @param callback The callback to invoke when a new connection is established

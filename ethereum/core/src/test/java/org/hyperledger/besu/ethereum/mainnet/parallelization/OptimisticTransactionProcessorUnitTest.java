@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -212,6 +213,30 @@ class OptimisticTransactionProcessorUnitTest {
               eq(TransactionValidationParams.processingBlock()),
               eq(BLOB_GAS_PRICE),
               eq(Optional.empty()));
+    }
+
+    @Test
+    @DisplayName("Transactions run with a tracer that lets EVM v2 share a journal between frames")
+    void tracerAllowsTheJournal() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final ArgumentCaptor<OperationTracer> tracer = ArgumentCaptor.forClass(OperationTracer.class);
+      verify(transactionProcessor)
+          .processTransaction(
+              any(), any(), any(), any(), tracer.capture(), any(), any(), any(), any());
+      assertThat(tracer.getValue().allowsJournal()).isTrue();
     }
 
     @Test
@@ -1274,6 +1299,28 @@ class OptimisticTransactionProcessorUnitTest {
               eq(OptimisticConcurrentTransactionProcessor.WARM_UP_VALIDATION),
               any(),
               any());
+    }
+
+    @Test
+    @DisplayName("A warm-up recovers the authorities on the block's transaction before copying it")
+    void warmUpRecoversTheAuthoritiesBeforeCopyingTheTransaction() {
+      final List<Runnable> warmUps = new ArrayList<>();
+      processor =
+          new OptimisticConcurrentTransactionProcessor(
+              transactionProcessor, collisionDetector, warmUps::add);
+      final Transaction tx1 = mockTransactionFrom(sender);
+      final Transaction tx2 = mockTransactionFrom(sender);
+      final CodeDelegation codeDelegation = mock(CodeDelegation.class);
+      when(tx2.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+      stubSuccessfulTransaction(Optional.empty());
+
+      runBlock(List.of(tx1, tx2), task -> {});
+      assertThat(warmUps).hasSize(1);
+      warmUps.forEach(Runnable::run);
+
+      final InOrder inOrder = Mockito.inOrder(codeDelegation, tx2);
+      inOrder.verify(codeDelegation).authorizer();
+      inOrder.verify(tx2).detachedCopy();
     }
 
     @Test

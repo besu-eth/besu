@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -37,6 +38,7 @@ class OpCodeLoggerTracerResultTest {
 
   private final Transaction transaction = mock(Transaction.class);
   private final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+  private static final Address IDENTITY = Address.fromHexString("0x04");
 
   @Test
   void legacyTransferHasEmptyStructLogsAndZeroXReturnValue() {
@@ -61,6 +63,50 @@ class OpCodeLoggerTracerResultTest {
     final Code nonEmptyCode = new Code(Bytes.fromHexString("0x6000"));
     final TransactionTrace trace =
         new TransactionTrace(transaction, result, List.of(virtualStop(Optional.of(nonEmptyCode))));
+
+    final OpCodeLoggerTracerResult opCodeResult = new OpCodeLoggerTracerResult(trace);
+
+    assertThat(opCodeResult.getStructLogs()).hasSize(1);
+    assertThat(opCodeResult.getStructLogs().get(0).op()).isEqualTo("STOP");
+  }
+
+  @Test
+  void rootPrecompileCallHasEmptyStructLogs() {
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(result.isSuccessful()).thenReturn(true);
+
+    final TraceFrame rootPrecompileCall =
+        TraceFrame.builder()
+            .setPc(0)
+            .setOpcodeNumber(Integer.MAX_VALUE)
+            .setGasRemaining(0L)
+            .setGasRefund(0L)
+            .setDepth(0)
+            .setValue(Wei.ZERO)
+            .setInputData(Bytes.EMPTY)
+            .setOutputData(Bytes.EMPTY)
+            .setStackItemsProduced(0)
+            .setMaybeCode(Optional.of(Code.EMPTY_CODE))
+            .setVirtualOperation(true)
+            .setPrecompileIOData(IDENTITY, Bytes.EMPTY, Bytes.EMPTY)
+            .build();
+    final TransactionTrace trace =
+        new TransactionTrace(transaction, result, List.of(rootPrecompileCall));
+
+    assertThat(new OpCodeLoggerTracerResult(trace).getStructLogs()).isEmpty();
+  }
+
+  @Test
+  void endOfCodeStopKeepsPrecompileDataFromALaterCallPastTheStepLimit() {
+    when(result.getOutput()).thenReturn(Bytes.EMPTY);
+    when(result.isSuccessful()).thenReturn(true);
+
+    // With a step limit, a precompile call after the last traced step updates that step's frame.
+    final TraceFrame stop =
+        TraceFrame.from(virtualStop(Optional.of(new Code(Bytes.fromHexString("0x6000")))))
+            .setPrecompileIOData(IDENTITY, Bytes.EMPTY, Bytes.EMPTY)
+            .build();
+    final TransactionTrace trace = new TransactionTrace(transaction, result, List.of(stop));
 
     final OpCodeLoggerTracerResult opCodeResult = new OpCodeLoggerTracerResult(trace);
 

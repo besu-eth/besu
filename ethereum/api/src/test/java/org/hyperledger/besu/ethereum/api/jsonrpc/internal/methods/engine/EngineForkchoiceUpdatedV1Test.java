@@ -158,6 +158,84 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
         .hasMessageContaining("mergeCoordinator must not be null");
   }
 
+  @Test
+  public void shouldNotWaitForEarlierNewPayloadsWhenTheNamedBlocksAreStored() {
+    final ForkchoiceStateV1 forkchoiceState = storedForkchoiceState();
+
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isFalse();
+  }
+
+  @Test
+  public void shouldNotWaitForEarlierNewPayloadsWhenFinalizedAndSafeBlocksAreUnset() {
+    final BlockHeader head = storedHeader(3);
+
+    assertThat(
+            method.dependsOnEarlierCalls(
+                requestContext(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO))))
+        .isFalse();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenHeadIsNotStored() {
+    final ForkchoiceStateV1 forkchoiceState = storedForkchoiceState();
+    when(blockchain.getBlockHeader(forkchoiceState.getHeadBlockHash()))
+        .thenReturn(Optional.empty());
+
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenHeadStateIsNotAvailable() {
+    final ForkchoiceStateV1 forkchoiceState = storedForkchoiceState();
+    when(worldStateArchive.isWorldStateAvailable(any(), eq(forkchoiceState.getHeadBlockHash())))
+        .thenReturn(false);
+
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenFinalizedBlockIsNotStored() {
+    final ForkchoiceStateV1 forkchoiceState = storedForkchoiceState();
+    when(blockchain.getBlockHeader(forkchoiceState.getFinalizedBlockHash()))
+        .thenReturn(Optional.empty());
+
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenSafeBlockIsNotStored() {
+    final ForkchoiceStateV1 forkchoiceState = storedForkchoiceState();
+    when(blockchain.getBlockHeader(forkchoiceState.getSafeBlockHash()))
+        .thenReturn(Optional.empty());
+
+    assertThat(method.dependsOnEarlierCalls(requestContext(forkchoiceState))).isTrue();
+  }
+
+  @Test
+  public void shouldWaitForEarlierNewPayloadsWhenForkchoiceStateIsInvalid() {
+    assertThat(method.dependsOnEarlierCalls(requestContext("not a forkchoice state"))).isTrue();
+  }
+
+  private ForkchoiceStateV1 storedForkchoiceState() {
+    final BlockHeader finalized = storedHeader(1);
+    final BlockHeader safe = storedHeader(2);
+    final BlockHeader head = storedHeader(3);
+    // the head is not the chain head, as in a reorg
+    when(blockchain.getChainHeadHash()).thenReturn(mockHash);
+    return new ForkchoiceStateV1(head.getHash(), safe.getHash(), finalized.getHash());
+  }
+
+  private BlockHeader storedHeader(final long number) {
+    final BlockHeader header = blockHeaderBuilder.number(number).buildHeader();
+    when(blockchain.getBlockHeader(header.getHash())).thenReturn(Optional.of(header));
+    return header;
+  }
+
+  private JsonRpcRequestContext requestContext(final Object forkchoiceParam) {
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest("2.0", getMethodName(), new Object[] {forkchoiceParam}));
+  }
+
   protected long getMinSupportedTimestamp() {
     return parisHardfork.milestone();
   }
