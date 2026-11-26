@@ -18,7 +18,11 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 /** A head to sync to, with its block and block access list when they came in a new payload. */
 record Head(Hash hash, Optional<Block> block, Optional<BlockAccessList> blockAccessList) {
@@ -31,5 +35,27 @@ record Head(Hash hash, Optional<Block> block, Optional<BlockAccessList> blockAcc
   /** A head the consensus client sent in a new payload. */
   static Head ofPayload(final Block block, final Optional<BlockAccessList> blockAccessList) {
     return new Head(block.getHash(), Optional.of(block), blockAccessList);
+  }
+
+  /**
+   * The parents of this head that came in new payloads, highest first, down to one the chain holds
+   * or one that did not come in a payload.
+   *
+   * @param payloads the new payloads by block hash
+   * @param chainHolds whether the chain holds the block of a hash
+   */
+  List<Head> payloadParents(
+      final Function<Hash, Optional<Head>> payloads, final Predicate<Hash> chainHolds) {
+    final List<Head> parents = new ArrayList<>();
+    Optional<Head> parent = parentPayload(payloads);
+    while (parent.isPresent() && !chainHolds.test(parent.get().hash())) {
+      parents.add(parent.get());
+      parent = parent.get().parentPayload(payloads);
+    }
+    return parents;
+  }
+
+  private Optional<Head> parentPayload(final Function<Hash, Optional<Head>> payloads) {
+    return block.flatMap(payload -> payloads.apply(payload.getHeader().getParentHash()));
   }
 }

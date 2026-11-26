@@ -44,13 +44,16 @@ import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
 
+import com.google.common.collect.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,12 +82,14 @@ class HeadSync {
   private final HeaderStore headerStore;
   private final BalImporter balImporter;
   private final Supplier<Hash> finalizedBlockHash;
+  private final Function<Hash, Optional<Head>> newPayload;
   private final Subscribers<BadChainListener> badChainListeners;
   private final LabelledMetric<Counter> headersPipelineCounter;
   private final LabelledMetric<Counter> importPipelineCounter;
 
   /**
    * @param finalizedBlockHash the last finalized block the consensus client sent
+   * @param newPayload the recent new payload of a block hash, if one came
    * @param badChainListeners told of the chain above an invalid block
    */
   HeadSync(
@@ -95,6 +100,7 @@ class HeadSync {
       final EthContext ethContext,
       final HeaderStore headerStore,
       final Supplier<Hash> finalizedBlockHash,
+      final Function<Hash, Optional<Head>> newPayload,
       final Subscribers<BadChainListener> badChainListeners) {
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
@@ -103,6 +109,7 @@ class HeadSync {
     this.headerStore = headerStore;
     this.balImporter = new BalImporter(protocolContext, protocolSchedule);
     this.finalizedBlockHash = finalizedBlockHash;
+    this.newPayload = newPayload;
     this.badChainListeners = badChainListeners;
     this.headersPipelineCounter =
         metricsSystem.createLabelledCounter(
@@ -124,13 +131,16 @@ class HeadSync {
   void syncTo(final Head head) {
     final BlockHeader target =
         head.block().map(Block::getHeader).orElseGet(() -> downloadHeader(head.hash()));
+    // the parents that came in new payloads are not downloaded, peers may not serve them yet
+    final List<Head> payloadParents =
+        head.payloadParents(newPayload, protocolContext.getBlockchain()::contains);
     LOG.info("Backward sync to {}", target.toLogString());
     headerStore.clear();
     try {
       final StoreHeadersStep storeHeaders =
           new StoreHeadersStep(headerStore, target, finalizedBlockHash);
-      final BlockHeader anchor = downloadHeaders(target, storeHeaders);
-      importBlocks(head, target, anchor, storeHeaders.finalizedNumber());
+      final BlockHeader anchor = downloadHeaders(target, payloadParents, storeHeaders);
+      importBlocks(head, payloadParents, target, anchor, storeHeaders.finalizedNumber());
     } finally {
       headerStore.clear();
     }
@@ -176,8 +186,13 @@ class HeadSync {
    * @return the block of the chain the stored headers descend from
    */
   private BlockHeader downloadHeaders(
-      final BlockHeader target, final StoreHeadersStep storeHeaders) {
+      final BlockHeader target,
+      final List<Head> payloadParents,
+      final StoreHeadersStep storeHeaders) {
     headerStore.putAll(List.of(target));
+    if (!payloadParents.isEmpty()) {
+      storeHeaders.accept(payloadParents.stream().map(HeadSync::header).toList());
+    }
     final BlockHeader finalized = finalizedBlock();
     for (final BlockHeader anchor :
         List.of(protocolContext.getBlockchain().getChainHeadHeader(), finalized)) {
@@ -201,6 +216,7 @@ class HeadSync {
   /** Imports the stored blocks the chain does not hold, up to {@code head}. */
   private void importBlocks(
       final Head head,
+      final List<Head> payloadParents,
       final BlockHeader target,
       final BlockHeader anchor,
       final long finalizedNumber) {
@@ -212,9 +228,13 @@ class HeadSync {
             finalizedNumber,
             target.getNumber(),
             badBlock -> notifyBadChain(badBlock, target.getNumber()));
+    // the head and its parents that came in new payloads are imported from them, lowest first
+    final List<Head> payloads = new ArrayList<>(Lists.reverse(payloadParents));
+    if (head.block().isPresent()) {
+      payloads.add(head);
+    }
     final long first = firstBlockToImport(anchor.getNumber() + 1, target.getNumber());
-    // the head that came in a new payload is imported from it, peers may not serve it yet
-    final long last = head.block().isPresent() ? target.getNumber() - 1 : target.getNumber();
+    final long last = target.getNumber() - payloads.size();
     if (first <= last) {
       final RequestSender sender = ethContext.getRequestScheduler().scope();
       try {
@@ -223,9 +243,14 @@ class HeadSync {
         sender.stop();
       }
     }
-    head.block()
-        .ifPresent(
-            block -> importBlocks.importBlock(block, head.blockAccessList(), Optional.empty()));
+    for (final Head payload : payloads) {
+      importBlocks.importBlock(
+          payload.block().orElseThrow(), payload.blockAccessList(), Optional.empty());
+    }
+  }
+
+  private static BlockHeader header(final Head payload) {
+    return payload.block().orElseThrow().getHeader();
   }
 
   // the blocks above the anchor the chain already holds are not imported again
