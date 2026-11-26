@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -311,6 +312,39 @@ class StateRootCommitterFactoryTest {
         committer.cancel();
 
         assertThatThrownBy(() -> committer.compute(worldState, blockHeader, worldState.updater()))
+            .isInstanceOf(CancellationException.class)
+            .hasMessageContaining("Background BAL state root computation was cancelled");
+      }
+    }
+
+    @Test
+    void cancelAfterBackgroundFailure_stillThrowsCancellation() {
+      final BlockAccessList bal = balanceOnlyBal(testAddress("29"), Wei.of(1));
+      // Unknown parent hash: the background computation fails while looking up the parent.
+      final BlockHeader orphanHeader =
+          new BlockHeaderTestFixture()
+              .parentHash(Hash.hash(Bytes.of(1)))
+              .number(chainHeadHeader.getNumber() + 1L)
+              .stateRoot(chainHeadHeader.getStateRoot())
+              .buildHeader();
+
+      try (BonsaiWorldState worldState = getWorldState(false)) {
+        final BalStateRootCommitter committer =
+            new BalStateRootCommitter(
+                    protocolContext,
+                    orphanHeader,
+                    BlockAccessListAccountLookup.of(bal),
+                    worldState.isStorageFrozen())
+                .start();
+
+        // Wait for the background computation to complete exceptionally, before cancelling.
+        assertThatThrownBy(() -> committer.compute(worldState, orphanHeader, worldState.updater()))
+            .isInstanceOf(IllegalStateException.class)
+            .hasMessageContaining("Background BAL state root computation failed");
+
+        committer.cancel();
+
+        assertThatThrownBy(() -> committer.compute(worldState, orphanHeader, worldState.updater()))
             .isInstanceOf(CancellationException.class)
             .hasMessageContaining("Background BAL state root computation was cancelled");
       }

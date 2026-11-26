@@ -149,26 +149,40 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   private BackgroundResult awaitBackgroundComputation(
       final CompletableFuture<BackgroundResult> future) {
     // a cancelled computation says nothing about the block, the type keeps it from being recorded
-    // as bad
+    // as bad — once cancel() has been called, cancellation wins over any other outcome, including
+    // a computation that failed before the future could be cancelled
     final BackgroundResult result;
     try {
       result = future.get();
     } catch (final CancellationException e) {
-      throw (CancellationException)
-          new CancellationException("Background BAL state root computation was cancelled")
-              .initCause(e);
+      throw cancellationException(e);
     } catch (final ExecutionException e) {
       final Throwable cause = e.getCause() != null ? e.getCause() : e;
+      if (cancelled.get()) {
+        throw cancellationException(cause);
+      }
       throw new IllegalStateException("Background BAL state root computation failed", cause);
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
+      if (cancelled.get()) {
+        throw cancellationException(e);
+      }
       throw new IllegalStateException(
           "Interrupted while waiting for background BAL state root computation", e);
     }
     if (cancelled.get()) {
-      throw new CancellationException("Background BAL state root computation was cancelled");
+      throw cancellationException(null);
     }
     return result;
+  }
+
+  private static CancellationException cancellationException(final Throwable cause) {
+    final CancellationException cancellationException =
+        new CancellationException("Background BAL state root computation was cancelled");
+    if (cause != null) {
+      cancellationException.initCause(cause);
+    }
+    return cancellationException;
   }
 
   private BonsaiWorldState openParentWorldState(
