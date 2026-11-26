@@ -61,6 +61,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
   private final Executor executor;
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
+  private final Optional<Counter> refreshCounter;
+  private final Optional<Counter> refreshedTransactionCounter;
 
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -109,6 +111,22 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                 BesuMetricCategory.BLOCK_PROCESSING,
                 "conflicted_transactions_counter",
                 "Counter for the number of conflicted transactions during block processing"));
+
+    this.refreshCounter =
+        Optional.of(
+            metricsSystem.createCounter(
+                BesuMetricCategory.BLOCK_PROCESSING,
+                "transaction_refreshes_counter",
+                "Counter for the number of speculative transaction runs repeated on the values"
+                    + " earlier transactions of the block left"));
+
+    this.refreshedTransactionCounter =
+        Optional.of(
+            metricsSystem.createCounter(
+                BesuMetricCategory.BLOCK_PROCESSING,
+                "refreshed_transactions_counter",
+                "Counter for the number of transactions whose repeated speculative run was used"
+                    + " during block processing"));
   }
 
   @Override
@@ -177,6 +195,10 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(
               transactionProcessor, blockAccessList.get(), balConfiguration);
+    } else if (balConfiguration.isParallelTxRefreshEnabled() && blockAccessListBuilder.isEmpty()) {
+      parallelProcessor =
+          new HandoffTransactionProcessor(
+              transactionProcessor, refreshCounter, refreshedTransactionCounter);
     } else {
       parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
@@ -206,8 +228,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
       final int location,
       final BlockHashLookup blockHashLookup,
       final Optional<AccessLocationTracker> accessLocationTracker) {
-    return parallelProcessor
-        .flatMap(
+    final Optional<TransactionProcessingResult> parallelResult =
+        parallelProcessor.flatMap(
             processor ->
                 processor.getProcessingResult(
                     blockProcessingContext.getWorldState(),
@@ -215,19 +237,25 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
                     transaction,
                     location,
                     confirmedParallelizedTransactionCounter,
-                    conflictingButCachedTransactionCounter))
-        // No usable parallel result (a conflict, or nothing ran in parallel): process it
-        // sequentially.
-        .orElseGet(
-            () ->
-                processTransactionSequentially(
-                    blockProcessingContext,
-                    transactionUpdater,
-                    blobGasPrice,
-                    miningBeneficiary,
-                    transaction,
-                    blockHashLookup,
-                    accessLocationTracker));
+                    conflictingButCachedTransactionCounter));
+    if (parallelResult.isPresent()) {
+      return parallelResult.get();
+    }
+
+    // No usable parallel result (a conflict, or nothing ran in parallel): process it
+    // sequentially.
+    final TransactionProcessingResult result =
+        processTransactionSequentially(
+            blockProcessingContext,
+            transactionUpdater,
+            blobGasPrice,
+            miningBeneficiary,
+            transaction,
+            blockHashLookup,
+            accessLocationTracker);
+    parallelProcessor.ifPresent(
+        processor -> processor.onExecutedSequentially(location, transactionUpdater));
+    return result;
   }
 
   public static class ParallelBlockProcessorBuilder

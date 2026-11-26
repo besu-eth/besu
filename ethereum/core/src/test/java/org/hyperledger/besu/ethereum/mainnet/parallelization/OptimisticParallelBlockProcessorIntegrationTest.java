@@ -81,8 +81,12 @@ import org.junit.jupiter.api.Test;
  */
 class OptimisticParallelBlockProcessorIntegrationTest {
 
+  // blocks before Amsterdam would otherwise run on the handoff processor, which extends this one
   private static final BalConfiguration OPTIMISTIC_CONFIG =
-      ImmutableBalConfiguration.builder().isPerfectParallelizationEnabled(false).build();
+      ImmutableBalConfiguration.builder()
+          .isPerfectParallelizationEnabled(false)
+          .isParallelTxRefreshEnabled(false)
+          .build();
 
   private static String getVariant() {
     return "Optimistic (Collision Detection)";

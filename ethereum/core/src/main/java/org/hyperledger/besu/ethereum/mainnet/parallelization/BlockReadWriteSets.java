@@ -181,6 +181,7 @@ final class BlockReadWriteSets {
   private final ConcurrentLinkedQueue<Report> reported = new ConcurrentLinkedQueue<>();
   private final Semaphore changed = new Semaphore(0);
   private volatile boolean finished;
+  private volatile int blockProcessingAt = -1;
 
   BlockReadWriteSets(final int size) {
     this.size = size;
@@ -198,6 +199,16 @@ final class BlockReadWriteSets {
   /** The read/write set stored last for the position, refreshed or not. */
   @Nullable ReadWriteSet latest(final int position) {
     return position < size ? latest.get(position) : null;
+  }
+
+  /** The position block processing has reached, or -1 before it reached the first. */
+  int blockProcessingAt() {
+    return blockProcessingAt;
+  }
+
+  /** Records that block processing reached the position. */
+  void blockProcessingReached(final int position) {
+    blockProcessingAt = position;
   }
 
   boolean isFinished() {

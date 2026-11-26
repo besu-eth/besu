@@ -41,6 +41,16 @@ public interface BalConfiguration {
     return true;
   }
 
+  /**
+   * Returns whether blocks without a BAL run a speculative transaction again on the values earlier
+   * transactions left, once those values differ from what its run read, instead of leaving the
+   * transaction to block processing.
+   */
+  @Value.Default
+  default boolean isParallelTxRefreshEnabled() {
+    return true;
+  }
+
   /** Returns whether prefetching of state data based on BAL read operations is enabled. */
   @Value.Default
   default boolean isBalPreFetchReadingEnabled() {
