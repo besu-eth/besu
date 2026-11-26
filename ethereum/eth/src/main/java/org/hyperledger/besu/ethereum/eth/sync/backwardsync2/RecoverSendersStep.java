@@ -23,9 +23,8 @@ import java.util.function.Function;
 
 /**
  * Recovers the senders of the transactions of a batch on the computation threads, one block per
- * task, while the batch before is imported. The execution then finds them already known. A block
- * downloaded with its receipts is skipped: it is imported from its block access list, which needs
- * no sender.
+ * task, while the batch before is imported. The execution and the sender and nonce index of a block
+ * imported from its block access list then find them already known.
  */
 class RecoverSendersStep implements Function<BlockBatch, CompletableFuture<BlockBatch>> {
 
@@ -39,7 +38,6 @@ class RecoverSendersStep implements Function<BlockBatch, CompletableFuture<Block
   public CompletableFuture<BlockBatch> apply(final BlockBatch batch) {
     final CompletableFuture<?>[] recoveries =
         batch.blocks().stream()
-            .filter(block -> !batch.receipts().containsKey(block.getHash()))
             .map(block -> scheduler.scheduleComputationTask(() -> recoverSenders(block)))
             .toArray(CompletableFuture[]::new);
     return CompletableFuture.allOf(recoveries).thenApply(recovered -> batch);

@@ -51,14 +51,16 @@ class RecoverSendersStepTest {
   }
 
   @Test
-  void skipsABlockImportedFromItsBal() {
+  void recoversTheSendersOfABlockImportedFromItsBal() {
     final Block decoded = decode(generator.nextBlock(generator.genesisBlock()));
     final BlockBatch batch =
         new BlockBatch(List.of(decoded), Map.of(), Map.of(decoded.getHash(), List.of()));
 
     new RecoverSendersStep(new DeterministicEthScheduler()).apply(batch).join();
 
-    assertThat(decoded.getBody().getTransactions()).allMatch(tx -> tx.getSenderIfKnown().isEmpty());
+    assertThat(decoded.getBody().getTransactions())
+        .isNotEmpty()
+        .allMatch(tx -> tx.getSenderIfKnown().isPresent());
   }
 
   // a decoded body has transactions whose senders are not recovered yet
