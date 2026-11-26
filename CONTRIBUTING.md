@@ -118,7 +118,9 @@ Please keep in mind that we reserve the right to reject trivial PRs, such as fix
 - One pull request, one change - this limits the surface area of the change and makes it easier to identify root causes when issues arise.
 - Don't mix formatting fixes or code moves with actual code changes; they make the diff hard to review. Put them in a separate PR.
 - Make sure your PR doesn't include unrelated commits. This can happen if [your fork is not up to date](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/syncing-a-fork).
-- Minimize lines of code (LOC) per PR. Ideally, keep your changes under 300 LOC. Break up larger changes into smaller PRs for reviewers to review sequentially.
+- Keep PRs small, counting production code rather than tests or test fixtures.
+  - Until you've had a few PRs merged, keep changes under 300 lines of production code.
+  - After that, aim for under 1,000 lines in total. If a change needs more, open an issue or a draft PR first to agree how to split it, then submit the parts as PRs for reviewers to review one after another.
 - Your commit messages should be meaningful.
 
 #### Engage in the process
@@ -129,7 +131,7 @@ Please keep in mind that we reserve the right to reject trivial PRs, such as fix
 - If your PR is not ready for review, open it as a draft.
 - Don't let a PR sit idle with unaddressed comments until it needs a complex rebase. If you are pausing work on an issue, indicate it in the PR comments or change the PR to draft status.
 - Once review has started, prefer merging `main` into your branch over rebasing and force-pushing: after a force-push it's harder for reviewers to tell which changes they have already reviewed.
-- If you allow maintainers to push to your branch, this makes merging easier once your PR has been approved.
+- If you [allow maintainers to push to your branch](https://docs.github.com/en/pull-requests/how-tos/work-with-forks/allowing-changes-to-a-pull-request-branch-created-from-a-fork), this makes merging easier once your PR has been approved. Maintainers will not accept individual invites to your fork.
 
 ### Further considerations
 - Security - please consider security implications of your PR e.g. if you're adding a new RPC, make sure limits are bounded. Reviewers will be looking for this.
