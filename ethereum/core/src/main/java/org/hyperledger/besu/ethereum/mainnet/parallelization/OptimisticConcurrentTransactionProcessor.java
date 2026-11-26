@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -50,6 +51,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -201,6 +204,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                             blobGasPrice,
                             blockAccessListBuilder,
                             maybeParentHeader,
+                            null,
                             null),
                 executor);
       } else if (chain.get(0) == i) {
@@ -509,7 +513,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
                 blobGasPrice,
                 blockAccessListBuilder,
                 maybeParentHeader,
-                state);
+                state,
+                null);
       } catch (final Throwable t) {
         // completed with the error so that the serial loop reports it, as for a run alone
         future.completeExceptionally(t);
@@ -570,8 +575,55 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         blobGasPrice,
         blockAccessListBuilder,
         maybeParentHeader,
+        null,
         null);
   }
+
+  /**
+   * Runs a transaction on the parent state with the given slots set first, as the transactions
+   * before it are expected to leave them. Only the seeds of accounts the parent state has, and of
+   * slots whose key is known, are set; the result holds the ones that were.
+   *
+   * @param seeds the slot values to start from, by account
+   * @return the run's result, or null if it could not run
+   */
+  protected ParallelizedTransactionContext runSeeded(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final int transactionLocation,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader,
+      final Map<Address, Map<StorageSlotKey, UInt256>> seeds) {
+    return runTransaction(
+        protocolContext,
+        blockHeader,
+        transactionLocation,
+        transaction,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        blockAccessListBuilder,
+        maybeParentHeader,
+        null,
+        seeds);
+  }
+
+  /**
+   * Called on the worker once a run of the transaction finished, with its result, before the run's
+   * world state is closed. Does nothing by default.
+   *
+   * @param transactionLocation the transaction's index in the block
+   * @param context the run's result
+   * @param seeds the seeds a seeded run was given, or null for any other run
+   */
+  protected void onRunFinished(
+      final int transactionLocation,
+      final ParallelizedTransactionContext context,
+      final @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds) {}
 
   private ParallelizedTransactionContext runTransaction(
       final ProtocolContext protocolContext,
@@ -583,7 +635,8 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final Wei blobGasPrice,
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader,
-      final PathBasedWorldStateUpdateAccumulator<?> previousInChain) {
+      final PathBasedWorldStateUpdateAccumulator<?> previousInChain,
+      final @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds) {
 
     if (maybeParentHeader.isEmpty()) {
       return null;
@@ -608,6 +661,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         // a chained result carries nothing over, so only a run alone needs them
         roundWorldStateUpdater.recordBalanceObservations();
       }
+
+      if (seeds != null) {
+        contextBuilder.seeds(applySeeds(roundWorldStateUpdater, seeds));
+      }
+
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
           blockAccessListBuilder.map(
@@ -677,12 +735,77 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         roundWorldStateUpdater.getStorageToUpdate().remove(miningBeneficiary);
         roundWorldStateUpdater.getStorageToClear().remove(miningBeneficiary);
       }
-      return precomputeLogsBloom(parallelizedTransactionContext);
+
+      final ParallelizedTransactionContext finished =
+          precomputeLogsBloom(parallelizedTransactionContext);
+      onRunFinished(transactionLocation, finished, seeds);
+      return finished;
     } catch (Exception ex) {
       // no op as failing to get worldstate
       return null;
     } finally {
       if (ws != null) ws.close();
+    }
+  }
+
+  /**
+   * Sets the seeded slots on the run's state and commits them, so that the transaction reads them
+   * and, as the next transaction of a block would, starts from them as their original values.
+   *
+   * @return the seeds that were set
+   */
+  private static Map<Address, Map<StorageSlotKey, UInt256>> applySeeds(
+      final PathBasedWorldStateUpdateAccumulator<?> accumulator,
+      final Map<Address, Map<StorageSlotKey, UInt256>> seeds) {
+    final Map<Address, Map<StorageSlotKey, UInt256>> applied = new HashMap<>();
+
+    for (final Map.Entry<Address, Map<StorageSlotKey, UInt256>> account : seeds.entrySet()) {
+      final MutableAccount mutable = accumulator.getAccount(account.getKey());
+      // a seed of an account the parent state lacks has nothing to belong to
+      if (mutable == null) {
+        continue;
+      }
+
+      final Map<StorageSlotKey, UInt256> set = new HashMap<>();
+      for (final Map.Entry<StorageSlotKey, UInt256> slot : account.getValue().entrySet()) {
+        final Optional<UInt256> key = slot.getKey().getSlotKey();
+        if (key.isPresent()) {
+          mutable.setStorageValue(key.get(), slot.getValue());
+          set.put(slot.getKey(), slot.getValue());
+        }
+      }
+
+      if (!set.isEmpty()) {
+        applied.put(account.getKey(), set);
+      }
+    }
+
+    accumulator.commit();
+    accumulator.markTransactionBoundary();
+    return applied;
+  }
+
+  /**
+   * Records that block processing reached the transaction without taking a result of the runs this
+   * class started for it, and stops those runs.
+   *
+   * @param transactionLocation the transaction's index in the block
+   */
+  protected void reachedWithoutRuns(final int transactionLocation) {
+    serialLoopPosition.set(transactionLocation);
+
+    final CompletableFuture<ParallelizedTransactionContext> aloneOrChained =
+        removeFuture(transactionLocation);
+    if (aloneOrChained != null) {
+      aloneOrChained.cancel(true);
+    }
+
+    final CompletableFuture<ParallelizedTransactionContext> lateChained =
+        transactionLocation < lateChainFutures.length()
+            ? lateChainFutures.getAndSet(transactionLocation, null)
+            : null;
+    if (lateChained != null) {
+      lateChained.cancel(true);
     }
   }
 
@@ -745,66 +868,88 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         return Optional.empty();
       }
 
-      final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
-      final PathBasedWorldStateUpdateAccumulator blockAccumulator =
-          (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
-      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
-          parallelizedTransactionContext.transactionAccumulator();
-      final TransactionProcessingResult transactionProcessingResult =
-          parallelizedTransactionContext.transactionProcessingResult();
-      // a reverted or halted execution is as repeatable as a successful one when nothing it read
-      // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
-      final Optional<Map<Address, CarriedAccount>> carriedAccounts =
-          transactionProcessingResult.isInvalid()
-              ? Optional.empty()
-              : transactionCollisionDetector.carryOverIfNoCollision(
-                  transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
-      if (carriedAccounts.isPresent()) {
-        final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        // a result that touched the beneficiary before its reward already holds it
-        final boolean resultHoldsReward =
-            parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction();
-        // a zero reward only creates an empty account that state clearing deletes again
-        final boolean rewardChangesState =
-            !reward.isZero() || !transactionProcessor.getClearEmptyAccounts();
-        if (!resultHoldsReward && rewardChangesState) {
-          final MutableAccount miningBeneficiaryAccount =
-              blockAccumulator.getOrCreate(miningBeneficiary);
-          miningBeneficiaryAccount.incrementBalance(reward);
-
-          if (!reward.isZero()) {
-            setPostBalance(
-                transactionProcessingResult,
-                miningBeneficiary,
-                miningBeneficiaryAccount.getBalance());
-          }
-        }
-
-        blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-        carriedAccounts
-            .get()
-            .forEach(
-                (address, carried) -> {
-                  blockAccumulator.carryOver(address, carried.balance(), carried.nonce());
-                  setPostBalance(transactionProcessingResult, address, carried.balance());
-                });
-
-        confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
-        transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-        return Optional.of(transactionProcessingResult);
-      } else {
-        blockAccumulator.importPriorStateFromSource(transactionAccumulator);
-        if (conflictingButCachedTransactionCounter.isPresent())
-          conflictingButCachedTransactionCounter.get().inc();
-        // If there is a conflict, we return an empty result to signal the block processor to
-        // re-execute the transaction.
-        return Optional.empty();
-      }
+      return takeOrReject(
+          worldState,
+          miningBeneficiary,
+          transaction,
+          parallelizedTransactionContext,
+          confirmedParallelizedTransactionCounter,
+          conflictingButCachedTransactionCounter);
     }
     if (future != null) {
       future.cancel(true);
     }
     return Optional.empty();
+  }
+
+  /**
+   * Takes a finished speculative result over if it holds on the block's state, or else imports what
+   * it read so that executing the transaction finds it in memory.
+   *
+   * @return the result if it was taken over, empty if the transaction must be executed
+   */
+  protected Optional<TransactionProcessingResult> takeOrReject(
+      final MutableWorldState worldState,
+      final Address miningBeneficiary,
+      final Transaction transaction,
+      final ParallelizedTransactionContext parallelizedTransactionContext,
+      final Optional<Counter> confirmedParallelizedTransactionCounter,
+      final Optional<Counter> conflictingButCachedTransactionCounter) {
+    final PathBasedWorldState pathBasedWorldState = (PathBasedWorldState) worldState;
+    final PathBasedWorldStateUpdateAccumulator blockAccumulator =
+        (PathBasedWorldStateUpdateAccumulator) pathBasedWorldState.updater();
+    final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator =
+        parallelizedTransactionContext.transactionAccumulator();
+    final TransactionProcessingResult transactionProcessingResult =
+        parallelizedTransactionContext.transactionProcessingResult();
+    // a reverted or halted execution is as repeatable as a successful one when nothing it read
+    // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
+    final Optional<Map<Address, CarriedAccount>> carriedAccounts =
+        transactionProcessingResult.isInvalid()
+            ? Optional.empty()
+            : transactionCollisionDetector.carryOverIfNoCollision(
+                transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
+    if (carriedAccounts.isPresent()) {
+      final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
+      // a result that touched the beneficiary before its reward already holds it
+      final boolean resultHoldsReward =
+          parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction();
+      // a zero reward only creates an empty account that state clearing deletes again
+      final boolean rewardChangesState =
+          !reward.isZero() || !transactionProcessor.getClearEmptyAccounts();
+      if (!resultHoldsReward && rewardChangesState) {
+        final MutableAccount miningBeneficiaryAccount =
+            blockAccumulator.getOrCreate(miningBeneficiary);
+        miningBeneficiaryAccount.incrementBalance(reward);
+
+        if (!reward.isZero()) {
+          setPostBalance(
+              transactionProcessingResult,
+              miningBeneficiary,
+              miningBeneficiaryAccount.getBalance());
+        }
+      }
+
+      blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+      carriedAccounts
+          .get()
+          .forEach(
+              (address, carried) -> {
+                blockAccumulator.carryOver(address, carried.balance(), carried.nonce());
+                setPostBalance(transactionProcessingResult, address, carried.balance());
+              });
+
+      confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
+      transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
+      return Optional.of(transactionProcessingResult);
+    } else {
+      blockAccumulator.importPriorStateFromSource(transactionAccumulator);
+      if (conflictingButCachedTransactionCounter.isPresent())
+        conflictingButCachedTransactionCounter.get().inc();
+      // If there is a conflict, we return an empty result to signal the block processor to
+      // re-execute the transaction.
+      return Optional.empty();
+    }
   }
 
   /** Sets the post balance of an account whose balance the transaction's access list records. */

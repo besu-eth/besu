@@ -1393,4 +1393,111 @@ class TransactionCollisionDetectorTest {
 
     assertThat(carryOver(transaction)).isEmpty();
   }
+
+  private static final Address SEEDED_CONTRACT = Address.fromHexString("0x5eed");
+
+  /**
+   * A refreshed run of a call to the contract: on a parent that holds 10 in slot 1, the run started
+   * from the given seed and wrote 21. The block left the contract's account as it was.
+   */
+  private Transaction seededScenario(final boolean blockHoldsTheAccount) {
+    final Address sender = Address.fromHexString("0x1");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    final BonsaiAccount contract = createAccount(SEEDED_CONTRACT, 1, 0);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    trxUpdater.getAccountsToUpdate().put(SEEDED_CONTRACT, new BonsaiValue<>(contract, contract));
+    putSlot(trxUpdater, SEEDED_CONTRACT, 1, UInt256.valueOf(10), UInt256.valueOf(21));
+    if (blockHoldsTheAccount) {
+      bonsaiUpdater
+          .getAccountsToUpdate()
+          .put(SEEDED_CONTRACT, new BonsaiValue<>(contract, contract));
+    }
+
+    return createTransaction(sender, SEEDED_CONTRACT);
+  }
+
+  private boolean hasSeededCollision(final Transaction transaction, final long seed) {
+    return hasSeededCollision(
+        transaction, Map.of(new StorageSlotKey(UInt256.ONE), UInt256.valueOf(seed)));
+  }
+
+  private boolean hasSeededCollision(
+      final Transaction transaction, final Map<StorageSlotKey, UInt256> seeds) {
+    return collisionDetector
+        .carryOverIfNoCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(
+                trxUpdater, null, false, Wei.ZERO, null, Map.of(SEEDED_CONTRACT, seeds)),
+            bonsaiUpdater)
+        .isEmpty();
+  }
+
+  @Test
+  void aSeedTheBlockHoldsIsNoCollision() {
+    final Transaction transaction = seededScenario(true);
+    putSlot(bonsaiUpdater, SEEDED_CONTRACT, 1, UInt256.valueOf(10), UInt256.valueOf(20));
+
+    assertFalse(hasSeededCollision(transaction, 20));
+  }
+
+  @Test
+  void aSeedTheBlockDoesNotHoldIsACollision() {
+    final Transaction transaction = seededScenario(true);
+    putSlot(bonsaiUpdater, SEEDED_CONTRACT, 1, UInt256.valueOf(10), UInt256.valueOf(25));
+
+    assertTrue(hasSeededCollision(transaction, 20));
+  }
+
+  @Test
+  void aSeedOfASlotTheBlockLeftAtTheParentsValueMustBeThatValue() {
+    final Transaction transaction = seededScenario(true);
+
+    assertTrue(hasSeededCollision(transaction, 20));
+    assertFalse(hasSeededCollision(transaction, 10));
+  }
+
+  @Test
+  void aSeededAccountTheBlockDidNotTouchMustHoldTheParentsValues() {
+    final Transaction transaction = seededScenario(false);
+
+    assertTrue(hasSeededCollision(transaction, 20));
+    assertFalse(hasSeededCollision(transaction, 10));
+  }
+
+  @Test
+  void anUnseededSlotTheBlockChangedIsACollision() {
+    final Transaction transaction = seededScenario(true);
+    putSlot(bonsaiUpdater, SEEDED_CONTRACT, 1, UInt256.valueOf(10), UInt256.valueOf(20));
+    // the run read slot 2 at the parent's value, which the block changed
+    putSlot(trxUpdater, SEEDED_CONTRACT, 2, UInt256.valueOf(5), UInt256.valueOf(5));
+    putSlot(bonsaiUpdater, SEEDED_CONTRACT, 2, UInt256.valueOf(5), UInt256.valueOf(6));
+
+    assertTrue(hasSeededCollision(transaction, 20));
+  }
+
+  @Test
+  void aSeedTheRunHasNoEntryForIsACollision() {
+    final Transaction transaction = seededScenario(true);
+    putSlot(bonsaiUpdater, SEEDED_CONTRACT, 1, UInt256.valueOf(10), UInt256.valueOf(20));
+
+    assertTrue(
+        hasSeededCollision(
+            transaction,
+            Map.of(
+                new StorageSlotKey(UInt256.ONE),
+                UInt256.valueOf(20),
+                new StorageSlotKey(UInt256.valueOf(3)),
+                UInt256.ONE)));
+  }
+
+  @Test
+  void aRefreshedRunThatClearedStorageIsACollision() {
+    final Transaction transaction = seededScenario(true);
+    putSlot(bonsaiUpdater, SEEDED_CONTRACT, 1, UInt256.valueOf(10), UInt256.valueOf(20));
+    trxUpdater.getStorageToClear().add(Address.fromHexString("0x7"));
+
+    assertTrue(hasSeededCollision(transaction, 20));
+  }
 }

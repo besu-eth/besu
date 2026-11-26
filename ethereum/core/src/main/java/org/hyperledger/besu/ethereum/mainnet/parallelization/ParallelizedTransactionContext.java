@@ -14,12 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 
+import java.util.Map;
 import java.util.Objects;
 
+import org.apache.tuweni.units.bigints.UInt256;
 import org.jspecify.annotations.Nullable;
 
 public final class ParallelizedTransactionContext {
@@ -28,6 +32,7 @@ public final class ParallelizedTransactionContext {
   private final boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
   private final Wei miningBeneficiaryReward;
   private final @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator;
+  private final @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds;
 
   public ParallelizedTransactionContext(
       final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
@@ -48,12 +53,29 @@ public final class ParallelizedTransactionContext {
       final boolean isMiningBeneficiaryTouchedPreRewardByTransaction,
       final Wei miningBeneficiaryReward,
       final @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator) {
+    this(
+        transactionAccumulator,
+        transactionProcessingResult,
+        isMiningBeneficiaryTouchedPreRewardByTransaction,
+        miningBeneficiaryReward,
+        chainPredecessorAccumulator,
+        null);
+  }
+
+  public ParallelizedTransactionContext(
+      final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator,
+      final TransactionProcessingResult transactionProcessingResult,
+      final boolean isMiningBeneficiaryTouchedPreRewardByTransaction,
+      final Wei miningBeneficiaryReward,
+      final @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator,
+      final @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds) {
     this.transactionAccumulator = transactionAccumulator;
     this.transactionProcessingResult = transactionProcessingResult;
     this.isMiningBeneficiaryTouchedPreRewardByTransaction =
         isMiningBeneficiaryTouchedPreRewardByTransaction;
     this.miningBeneficiaryReward = miningBeneficiaryReward;
     this.chainPredecessorAccumulator = chainPredecessorAccumulator;
+    this.seeds = seeds;
   }
 
   public PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator() {
@@ -83,6 +105,16 @@ public final class ParallelizedTransactionContext {
     return chainPredecessorAccumulator;
   }
 
+  /**
+   * The slot values a refreshed run started from instead of the parent's: what the transactions
+   * before it were expected to leave there.
+   *
+   * @return the seeded slots by account, or null if the run started from the parent state alone
+   */
+  public @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds() {
+    return seeds;
+  }
+
   @Override
   public boolean equals(final Object obj) {
     if (obj == this) return true;
@@ -93,7 +125,8 @@ public final class ParallelizedTransactionContext {
         && this.isMiningBeneficiaryTouchedPreRewardByTransaction
             == that.isMiningBeneficiaryTouchedPreRewardByTransaction
         && Objects.equals(this.miningBeneficiaryReward, that.miningBeneficiaryReward)
-        && Objects.equals(this.chainPredecessorAccumulator, that.chainPredecessorAccumulator);
+        && Objects.equals(this.chainPredecessorAccumulator, that.chainPredecessorAccumulator)
+        && Objects.equals(this.seeds, that.seeds);
   }
 
   @Override
@@ -103,7 +136,8 @@ public final class ParallelizedTransactionContext {
         transactionProcessingResult,
         isMiningBeneficiaryTouchedPreRewardByTransaction,
         miningBeneficiaryReward,
-        chainPredecessorAccumulator);
+        chainPredecessorAccumulator,
+        seeds);
   }
 
   @Override
@@ -123,6 +157,9 @@ public final class ParallelizedTransactionContext {
         + ", "
         + "chainPredecessorAccumulator="
         + chainPredecessorAccumulator
+        + ", "
+        + "seeds="
+        + seeds
         + ']';
   }
 
@@ -132,6 +169,7 @@ public final class ParallelizedTransactionContext {
     private boolean isMiningBeneficiaryTouchedPreRewardByTransaction;
     private Wei miningBeneficiaryReward = Wei.ZERO;
     private @Nullable PathBasedWorldStateUpdateAccumulator<?> chainPredecessorAccumulator;
+    private @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds;
 
     public Builder transactionAccumulator(
         final PathBasedWorldStateUpdateAccumulator<?> transactionAccumulator) {
@@ -163,13 +201,19 @@ public final class ParallelizedTransactionContext {
       return this;
     }
 
+    public Builder seeds(final @Nullable Map<Address, Map<StorageSlotKey, UInt256>> seeds) {
+      this.seeds = seeds;
+      return this;
+    }
+
     public ParallelizedTransactionContext build() {
       return new ParallelizedTransactionContext(
           transactionAccumulator,
           transactionProcessingResult,
           isMiningBeneficiaryTouchedPreRewardByTransaction,
           miningBeneficiaryReward,
-          chainPredecessorAccumulator);
+          chainPredecessorAccumulator,
+          seeds);
     }
   }
 }
