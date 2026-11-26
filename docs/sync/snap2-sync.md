@@ -150,7 +150,7 @@ On Bonsai, the state is written as sorted files that RocksDB adds as they are, i
 
 **Before the final build,** the slot segment leaves the bulk load, and the build waits until its level 0 is merged. The slots that went through the regular write path pile up there, and the build opens a slot iterator per account, each of which would open every file of level 0.
 
-**The final build** writes the storage tries of each partition as one sorted file, and each partition's account nodes as files of their own. The partitions built at the same time share the same memory cap for the account nodes they hold.
+**The final build** writes the storage tries of each partition as one sorted file, and each partition's account nodes as files of their own. These files land in level 0, which already holds the storage tries the download wrote through the regular path, and are merged down with them after the sync. What they save is the write-ahead log and the memtable flushes of the regular path, which counts on a disk with little write bandwidth. The partitions built at the same time share the same memory cap for the account nodes they hold.
 
 **After the sync,** the bulk load ends: RocksDB merges level 0 down with its limits lifted and 2 extra background jobs, then merges the small files the load left at the bottom level.
 
