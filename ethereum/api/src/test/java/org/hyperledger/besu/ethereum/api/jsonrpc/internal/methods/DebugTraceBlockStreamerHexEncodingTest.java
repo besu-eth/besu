@@ -577,6 +577,26 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThat(lastSload.get("storage").get(slot2).asText()).isEqualTo(one);
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void streamingAndAccumulatingPathsNameAnUndefinedByte(final boolean enableEvmV2)
+      throws Exception {
+    final ExecutionContextTestFixture evmFixture = evmFixture(enableEvmV2);
+    final BlockchainQueries evmQueries = blockchainQueries(evmFixture);
+
+    final JsonNode undefined =
+        traceBothPaths(evmFixture, evmQueries, contractCreation("0x0c"), TraceOptions.DEFAULT);
+    assertThat(undefined.get(0).get("op").asText()).isEqualTo("opcode 0xc not defined");
+
+    final JsonNode ef =
+        traceBothPaths(evmFixture, evmQueries, contractCreation("0xef"), TraceOptions.DEFAULT);
+    assertThat(ef.get(0).get("op").asText()).isEqualTo("opcode 0xef not defined");
+
+    final JsonNode invalid =
+        traceBothPaths(evmFixture, evmQueries, contractCreation("0xfe"), TraceOptions.DEFAULT);
+    assertThat(invalid.get(0).get("op").asText()).isEqualTo("INVALID");
+  }
+
   /**
    * The SSTORE that earns a refund shows the refund from before it, and the next step shows the new
    * refund. Both paths must agree.

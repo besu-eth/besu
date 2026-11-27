@@ -128,7 +128,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
 
     frameWriter.writeFrame(
         pc,
-        opcode,
+        structLogOpName(opcode, currentOperation.getOpcode()),
         gasRemaining,
         thisGasCost,
         depth,

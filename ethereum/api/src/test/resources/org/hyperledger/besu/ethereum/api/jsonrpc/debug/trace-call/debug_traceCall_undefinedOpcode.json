@@ -1,0 +1,54 @@
+{
+  "comment": "PUSH0 (0x5f) is not defined before Shanghai, so its step is named after the byte and halts with an error.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "to": "0x00000000000000000000000000000000000000c1",
+        "gas": "0x100000"
+      },
+      "latest",
+      {
+        "stateOverrides": {
+          "0x00000000000000000000000000000000000000c1": {
+            "code": "0x60015f"
+          }
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 1048576,
+      "failed": true,
+      "returnValue": "0x",
+      "structLogs": [
+        {
+          "pc": 0,
+          "op": "PUSH1",
+          "gas": 1027576,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": []
+        },
+        {
+          "pc": 2,
+          "op": "opcode 0x5f not defined",
+          "gas": 1027573,
+          "gasCost": 0,
+          "depth": 1,
+          "stack": [
+            "0x1"
+          ],
+          "error": "INVALID_OPERATION"
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}
