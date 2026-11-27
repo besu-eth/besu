@@ -43,7 +43,7 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
 
   private final KeyedRegistrations<Function<PluginRpcRequest, ?>> rpcMethods;
   private final BooleanSupplier registrationOpen;
-  private final Predicate<String> pluginStarted;
+  private final Predicate<String> pluginRunning;
 
   /** Creates a registry that accepts endpoints at any time. */
   public RpcEndpointRegistryImpl() {
@@ -80,16 +80,17 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
    *     while it is closed are rejected
    * @param currentRegistrant the id of the plugin whose register() is running, empty when Besu
    *     itself is registering; a method name already registered by another registrant is rejected
-   * @param pluginStarted whether the plugin with the given id has returned from start(); a call to
-   *     a plugin's method is answered with {@link RpcErrorType#PLUGIN_NOT_STARTED} until then
+   * @param pluginRunning whether the plugin with the given id has returned from start() and not yet
+   *     from stop(); a call to a plugin's method is answered with {@link
+   *     RpcErrorType#PLUGIN_NOT_RUNNING} while it is not
    */
   public RpcEndpointRegistryImpl(
       final BooleanSupplier registrationOpen,
       final Supplier<Optional<String>> currentRegistrant,
-      final Predicate<String> pluginStarted) {
+      final Predicate<String> pluginRunning) {
     this.rpcMethods = new KeyedRegistrations<>("RPC method", currentRegistrant);
     this.registrationOpen = registrationOpen;
-    this.pluginStarted = pluginStarted;
+    this.pluginRunning = pluginRunning;
   }
 
   @Override
@@ -143,27 +144,27 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
             key -> key.toUpperCase(Locale.ROOT).startsWith(namespace.toUpperCase(Locale.ROOT)));
   }
 
-  /** Wraps a plugin's method so it is refused until that plugin has returned from start(). */
+  /** Wraps a plugin's method so it is refused while that plugin is not running. */
   private JsonRpcMethod gated(final String name, final JsonRpcMethod method) {
     return rpcMethods
         .registrantOf(name)
         .filter(registrant -> !KeyedRegistrations.BESU.equals(registrant))
-        .<JsonRpcMethod>map(pluginId -> new NotStartedGuard(pluginId, method, pluginStarted))
+        .<JsonRpcMethod>map(pluginId -> new NotRunningGuard(pluginId, method, pluginRunning))
         .orElse(method);
   }
 
-  private static final class NotStartedGuard implements JsonRpcMethod {
+  private static final class NotRunningGuard implements JsonRpcMethod {
     private final String pluginId;
     private final JsonRpcMethod delegate;
-    private final Predicate<String> pluginStarted;
+    private final Predicate<String> pluginRunning;
 
-    NotStartedGuard(
+    NotRunningGuard(
         final String pluginId,
         final JsonRpcMethod delegate,
-        final Predicate<String> pluginStarted) {
+        final Predicate<String> pluginRunning) {
       this.pluginId = pluginId;
       this.delegate = delegate;
-      this.pluginStarted = pluginStarted;
+      this.pluginRunning = pluginRunning;
     }
 
     @Override
@@ -173,9 +174,9 @@ public class RpcEndpointRegistryImpl implements RpcEndpointRegistry {
 
     @Override
     public JsonRpcResponse response(final JsonRpcRequestContext request) {
-      if (!pluginStarted.test(pluginId)) {
+      if (!pluginRunning.test(pluginId)) {
         return new JsonRpcErrorResponse(
-            request.getRequest().getId(), RpcErrorType.PLUGIN_NOT_STARTED, pluginId);
+            request.getRequest().getId(), RpcErrorType.PLUGIN_NOT_RUNNING, pluginId);
       }
       return delegate.response(request);
     }

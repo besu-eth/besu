@@ -953,7 +953,7 @@ public class BesuPluginContextImplTest {
   }
 
   @Test
-  void hasStartedReportsOnlyThePluginsWhoseStartReturned() {
+  void isRunningReportsOnlyThePluginsWhoseStartReturned() {
     final OptionPlugin started = new OptionPlugin();
     final RecordingPlugin failing = new RecordingPlugin("failing");
     failing.onStart =
@@ -964,14 +964,43 @@ public class BesuPluginContextImplTest {
     register(context);
     final String startedId = OptionPlugin.class.getName();
     final String failingId = RecordingPlugin.class.getName();
-    assertThat(context.hasStarted(startedId)).isFalse();
+    assertThat(context.isRunning(startedId)).isFalse();
 
     context.startPlugins();
 
-    assertThat(context.hasStarted(startedId)).isTrue();
-    assertThat(context.hasStarted(failingId)).isFalse();
+    assertThat(context.isRunning(startedId)).isTrue();
+    assertThat(context.isRunning(failingId)).isFalse();
     context.stopPlugins();
-    assertThat(context.hasStarted(startedId)).isFalse();
+    assertThat(context.isRunning(startedId)).isFalse();
+  }
+
+  @Test
+  void aPluginThatStartedEarlierIsStillRunningWhileALaterOneStops() {
+    final OptionPlugin earlier = new OptionPlugin();
+    final RecordingPlugin later = new RecordingPlugin("later");
+    final BesuPluginContextImpl context = contextReadyToRegister(false, earlier, later);
+    final String earlierId = OptionPlugin.class.getName();
+    final String laterId = RecordingPlugin.class.getName();
+    final List<String> runningWhileLaterStops = new ArrayList<>();
+    later.onStop =
+        () -> {
+          if (context.isRunning(earlierId)) {
+            runningWhileLaterStops.add("earlier");
+          }
+          if (context.isRunning(laterId)) {
+            runningWhileLaterStops.add("later");
+          }
+        };
+    register(context);
+    context.startPlugins();
+
+    context.stopPlugins();
+
+    // plugins stop newest first: the earlier plugin is still running while the later one stops,
+    // and a plugin leaves the running set only once its own stop() has returned
+    assertThat(runningWhileLaterStops).containsExactly("earlier", "later");
+    assertThat(context.isRunning(earlierId)).isFalse();
+    assertThat(context.isRunning(laterId)).isFalse();
   }
 
   @Test

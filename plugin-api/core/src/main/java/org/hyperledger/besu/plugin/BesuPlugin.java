@@ -82,7 +82,7 @@ public interface BesuPlugin {
    * the main loop. Not covered: storage factories and security modules, which Besu uses while it
    * builds the node; in-process work another plugin does from its own {@code start()}, since
    * plugins start in discovery order, except that a call to this plugin's RPC methods is refused
-   * until this plugin has started; the transaction pool, which on a node with no initial sync to
+   * while this plugin is not running; the transaction pool, which on a node with no initial sync to
    * wait for is enabled only after every plugin's {@code start()} has returned, so a transaction
    * submitted in-process from {@code start()} is refused as pool disabled before any validation
    * runs; and a plugin dropped under {@code --plugin-continue-on-error} after failing in {@code
@@ -136,6 +136,9 @@ public interface BesuPlugin {
    * <p>Called once for every plugin whose {@link #start(StartContext)} returned, in the reverse of
    * the start order, also when a later plugin or the node failed to start; a stop that runs longer
    * than 30 seconds is interrupted and abandoned, and a failure in it does not stop the others.
+   * This plugin's RPC methods are refused once this method has returned, and a plugin that started
+   * earlier is still running while this method runs, so its methods can still be called in-process
+   * from here.
    *
    * <p>The plugin should remove any registered listeners and stop any background threads it
    * started.

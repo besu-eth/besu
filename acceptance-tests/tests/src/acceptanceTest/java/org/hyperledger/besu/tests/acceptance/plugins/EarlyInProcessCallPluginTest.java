@@ -20,6 +20,8 @@ import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,7 +33,10 @@ import okhttp3.RequestBody;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-/** A plugin's RPC methods are refused until that plugin has returned from start(). */
+/**
+ * A plugin's RPC methods are refused while the plugin is not running: before its start() has
+ * returned and once its stop() has returned.
+ */
 public class EarlyInProcessCallPluginTest extends AcceptanceTestBase {
   private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -56,9 +61,29 @@ public class EarlyInProcessCallPluginTest extends AcceptanceTestBase {
   public void aCallFromAnEarlierPluginsStartIsRefusedUntilTheTargetHasStarted() throws IOException {
     final JsonNode outcomes = call("tests_earlyCallOutcome").get("result");
 
-    assertThat(outcomes.get(0).asText()).startsWith("ERROR").contains("Plugin has not started");
+    assertThat(outcomes.get(0).asText()).startsWith("ERROR").contains("Plugin is not running");
     assertThat(outcomes.get(1).asText()).isEqualTo("SUCCESS: ok");
     assertThat(call("tests_earlyTargetInvokedBeforeStart").get("result").asBoolean()).isFalse();
+  }
+
+  @Test
+  public void aCallFromALaterPluginsStopReachesAnEarlierPluginButNotAStoppedOne()
+      throws IOException {
+    cluster.stopNode(node);
+
+    waitForFile(signal("earlyInProcessTarget.stop"));
+    waitForFile(signal("earlyInProcessCall.stop"));
+    // the target plugin loads second, so it stops first, while the calling plugin is still running
+    assertThat(Files.readAllLines(signal("earlyInProcessTarget.stop")).get(0))
+        .startsWith("SUCCESS");
+    // the calling plugin stops last, when the target has already stopped
+    assertThat(Files.readAllLines(signal("earlyInProcessCall.stop")).get(0))
+        .startsWith("ERROR")
+        .contains("Plugin is not running");
+  }
+
+  private Path signal(final String name) {
+    return node.homeDirectory().resolve("plugins").resolve(name);
   }
 
   private JsonNode call(final String method) throws IOException {

@@ -23,6 +23,7 @@ import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcResponse;
 
+import java.io.File;
 import java.util.List;
 
 import com.google.auto.service.AutoService;
@@ -30,7 +31,9 @@ import picocli.CommandLine.Option;
 
 /**
  * Calls {@link TestEarlyInProcessTargetPlugin}'s method in-process from start(), before that plugin
- * has started, and again from afterMainLoop(), and reports both outcomes through an RPC method.
+ * has started, and again from afterMainLoop(), and reports both outcomes through an RPC method. It
+ * calls once more from stop(), when the target, which loads after it and so stops before it, has
+ * already stopped, and writes that outcome to a signal file that outlives the node.
  */
 @AutoService(BesuPlugin.class)
 public class TestEarlyInProcessCallPlugin implements BesuPlugin {
@@ -38,6 +41,7 @@ public class TestEarlyInProcessCallPlugin implements BesuPlugin {
   boolean enabled = false;
 
   private InProcessRpcService inProcessRpcService;
+  private File callbackDir;
   private volatile String outcomeFromStart = "not called";
   private volatile String outcomeFromAfterMainLoop = "not called";
 
@@ -48,6 +52,7 @@ public class TestEarlyInProcessCallPlugin implements BesuPlugin {
 
   @Override
   public void register(final RegistrationContext context) {
+    callbackDir = PluginCallbackDir.resolve(context);
     context
         .getBesuService(RpcEndpointRegistry.class)
         .registerRPCEndpoint(
@@ -72,10 +77,19 @@ public class TestEarlyInProcessCallPlugin implements BesuPlugin {
   }
 
   @Override
-  public void stop() {}
+  public void stop() {
+    if (enabled) {
+      PluginCallbackDir.writeKept(callbackDir, "earlyInProcessCall.stop", List.of(callTarget()));
+    }
+  }
 
   private String callTarget() {
-    final PluginRpcResponse response = inProcessRpcService.call("tests_earlyTarget", new Object[0]);
-    return response.getType() + ": " + response.getResult();
+    try {
+      final PluginRpcResponse response =
+          inProcessRpcService.call("tests_earlyTarget", new Object[0]);
+      return response.getType() + ": " + response.getResult();
+    } catch (final RuntimeException e) {
+      return "EXCEPTION: " + e;
+    }
   }
 }

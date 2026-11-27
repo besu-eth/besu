@@ -17,21 +17,32 @@ package org.hyperledger.besu.tests.acceptance.plugins;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.RegistrationContext;
 import org.hyperledger.besu.plugin.StartContext;
+import org.hyperledger.besu.plugin.services.InProcessRpcService;
 import org.hyperledger.besu.plugin.services.RpcEndpointRegistry;
+import org.hyperledger.besu.plugin.services.rpc.PluginRpcResponse;
+
+import java.io.File;
+import java.util.List;
 
 import com.google.auto.service.AutoService;
 
 /**
  * Registers an RPC method and records whether it was invoked before this plugin's start() returned.
  * It loads after {@link TestEarlyInProcessCallPlugin}, which calls the method from its own start().
+ * Loading after it, this plugin stops before it: from stop() it calls that plugin's method
+ * in-process, while that plugin is still running, and writes the outcome to a signal file that
+ * outlives the node.
  */
 @AutoService(BesuPlugin.class)
 public class TestEarlyInProcessTargetPlugin implements BesuPlugin {
   private volatile boolean started;
   private volatile boolean invokedBeforeStart;
+  private InProcessRpcService inProcessRpcService;
+  private File callbackDir;
 
   @Override
   public void register(final RegistrationContext context) {
+    callbackDir = PluginCallbackDir.resolve(context);
     final RpcEndpointRegistry registry = context.getBesuService(RpcEndpointRegistry.class);
     registry.registerRPCEndpoint(
         "tests",
@@ -48,9 +59,23 @@ public class TestEarlyInProcessTargetPlugin implements BesuPlugin {
 
   @Override
   public void start(final StartContext context) {
+    inProcessRpcService = context.getBesuService(InProcessRpcService.class);
     started = true;
   }
 
   @Override
-  public void stop() {}
+  public void stop() {
+    if (!inProcessRpcService.isEnabled()) {
+      return;
+    }
+    String outcome;
+    try {
+      final PluginRpcResponse response =
+          inProcessRpcService.call("tests_earlyCallOutcome", new Object[0]);
+      outcome = response.getType() + ": " + response.getResult();
+    } catch (final RuntimeException e) {
+      outcome = "EXCEPTION: " + e;
+    }
+    PluginCallbackDir.writeKept(callbackDir, "earlyInProcessTarget.stop", List.of(outcome));
+  }
 }

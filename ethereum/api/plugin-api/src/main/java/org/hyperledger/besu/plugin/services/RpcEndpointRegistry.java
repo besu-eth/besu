@@ -54,11 +54,12 @@ public interface RpcEndpointRegistry extends RegistrationService {
    * on every enabled JSON-RPC interface (HTTP, WebSocket and IPC) and through {@link
    * InProcessRpcService}. WebSocket also serves it when the namespace is enabled with {@code
    * --rpc-ws-api}. The interfaces open only after every plugin's {@link
-   * org.hyperledger.besu.plugin.BesuPlugin#start} has returned, and the handler never runs before
-   * this plugin's {@code start()} has returned: a call that arrives earlier, through {@link
-   * InProcessRpcService} from an earlier plugin's {@code start()}, or after this plugin's {@code
-   * start()} failed under {@code --plugin-continue-on-error}, is answered with the error "Plugin
-   * has not started" (code -60001) without reaching the handler.
+   * org.hyperledger.besu.plugin.BesuPlugin#start} has returned, and the handler runs only while
+   * this plugin is running, between the return of its {@code start()} and the return of its {@code
+   * stop()}: a call that arrives earlier, through {@link InProcessRpcService} from an earlier
+   * plugin's {@code start()}, after this plugin's {@code start()} failed under {@code
+   * --plugin-continue-on-error}, or after this plugin has stopped, is answered with the error
+   * "Plugin is not running" (code -60001) without reaching the handler.
    *
    * <p>The method name, {@code namespace_functionName}, must be free: a name another plugin already
    * registered fails the registration, and with it the plugin's startup; a plugin may register its
