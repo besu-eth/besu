@@ -36,12 +36,6 @@ public class RocksDBMetricsFactory {
       new RocksDBMetricsFactory(
           BesuMetricCategory.KVSTORE_ROCKSDB, BesuMetricCategory.KVSTORE_ROCKSDB_STATS);
 
-  /** The constant PRIVATE_ROCKS_DB_METRICS. */
-  public static final RocksDBMetricsFactory PRIVATE_ROCKS_DB_METRICS =
-      new RocksDBMetricsFactory(
-          BesuMetricCategory.KVSTORE_PRIVATE_ROCKSDB,
-          BesuMetricCategory.KVSTORE_PRIVATE_ROCKSDB_STATS);
-
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBMetricsFactory.class);
 
   private final MetricCategory rocksDbMetricCategory;
