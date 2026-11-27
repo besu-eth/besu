@@ -18,34 +18,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
-import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpServiceTest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class TraceRawTransactionSignedTest extends AbstractJsonRpcHttpServiceTest {
+class TraceRawTransactionSignedTest extends AbstractTraceRawTransactionTest {
   private static final String SENDER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
-  private static final String MARKER = "0x0000000000000000000000000000000000001002";
-  private static final String WORD_42 = "0x" + "0".repeat(62) + "2a";
-  private static final ObjectMapper MAPPER = new ObjectMapper();
   private BlockchainSetupUtil chain;
 
   @Override
@@ -185,17 +176,5 @@ class TraceRawTransactionSignedTest extends AbstractJsonRpcHttpServiceTest {
         rpc("trace_rawTransaction", List.of(transaction.raw(), List.of("trace")));
     assertThat(response.path("result").path("output").asText()).isEqualTo(WORD_42);
     assertThat(validations).hasValue(1);
-  }
-
-  private JsonNode rpc(final String method, final List<?> params) throws Exception {
-    final String body =
-        MAPPER.writeValueAsString(
-            Map.of("jsonrpc", "2.0", "id", 1, "method", method, "params", params));
-    final Request request =
-        new Request.Builder().url(baseUrl).post(RequestBody.create(body, JSON)).build();
-    try (final Response response = client.newCall(request).execute()) {
-      assertThat(response.code()).isEqualTo(200);
-      return MAPPER.readTree(response.body().string());
-    }
   }
 }
