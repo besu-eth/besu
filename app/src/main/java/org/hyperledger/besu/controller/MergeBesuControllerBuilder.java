@@ -41,8 +41,10 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSync;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync2.BackwardSyncV2;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
@@ -81,16 +83,24 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
         transactionPool,
         miningConfiguration,
         syncState,
-        new BackwardSyncContext(
-            protocolContext,
-            protocolSchedule,
-            syncConfig,
-            metricsSystem,
-            ethProtocolManager.ethContext(),
-            syncState,
-            BackwardChain.from(
-                storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)),
-            new BackwardSyncAlgorithmFactory()),
+        syncConfig.isBackwardSyncV2Enabled()
+            ? new BackwardSyncV2(
+                protocolContext,
+                protocolSchedule,
+                syncConfig,
+                metricsSystem,
+                ethProtocolManager.ethContext(),
+                storageProvider)
+            : new BackwardSyncContext(
+                protocolContext,
+                protocolSchedule,
+                syncConfig,
+                metricsSystem,
+                ethProtocolManager.ethContext(),
+                syncState,
+                BackwardChain.from(
+                    storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)),
+                new BackwardSyncAlgorithmFactory()),
         ethProtocolManager.ethContext().getScheduler());
   }
 
@@ -164,7 +174,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
       final TransactionPool transactionPool,
       final MiningConfiguration miningConfiguration,
       final SyncState syncState,
-      final BackwardSyncContext backwardSyncContext,
+      final BackwardSync backwardSyncContext,
       final EthScheduler ethScheduler) {
 
     this.syncState.set(syncState);

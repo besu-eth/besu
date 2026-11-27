@@ -112,6 +112,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG =
       "--snapsync-synchronizer-skip-pre-checkpoint-headers-enabled";
 
+  private static final String BACKWARD_SYNC_V2_ENABLED_FLAG = "--Xbackward-sync-v2-enabled";
+
   private static final String ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG =
       "--era1-import-prepipeline-enabled";
   private static final String ERA1_DATA_URI_FLAG = "--era1-data-uri";
@@ -449,6 +451,18 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       SynchronizerConfiguration.DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY;
 
   @CommandLine.Option(
+      names = BACKWARD_SYNC_V2_ENABLED_FLAG,
+      hidden = true,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "Backward sync downloads the next blocks while importing the current ones, and imports "
+              + "finalized blocks from their block access list instead of executing them. (default: ${DEFAULT-VALUE})")
+  private Boolean backwardSyncV2Enabled =
+      SynchronizerConfiguration.DEFAULT_BACKWARD_SYNC_V2_ENABLED;
+
+  @CommandLine.Option(
       names = ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
       paramLabel = "<Boolean>",
       arity = "0..1",
@@ -561,6 +575,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         config.getBackwardHeadersDownloadStepTimeoutMillis();
     options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
     options.snapSyncHeadersToCheckpointOnly = config.isSnapSyncHeadersToCheckpointOnly();
+    options.backwardSyncV2Enabled = config.isBackwardSyncV2Enabled();
     return options;
   }
 
@@ -607,6 +622,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
     builder.snapSyncHeadersToCheckpointOnly(snapSyncHeadersToCheckpointOnly);
+    builder.backwardSyncV2Enabled(backwardSyncV2Enabled);
     return builder;
   }
 
@@ -685,7 +701,9 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             ERA1_IMPORT_PREPIPELINE_CONCURRENCY_FLAG,
             OptionParser.format(era1ImportPrepipelineConcurrency),
             SNAP_SYNC_SKIP_PRE_CHECKPOINT_HEADERS_FLAG,
-            OptionParser.format(snapSyncHeadersToCheckpointOnly));
+            OptionParser.format(snapSyncHeadersToCheckpointOnly),
+            BACKWARD_SYNC_V2_ENABLED_FLAG,
+            OptionParser.format(backwardSyncV2Enabled));
     return value;
   }
 }

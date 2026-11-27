@@ -43,8 +43,9 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSync;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
-import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync2.BackwardSyncV2;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
@@ -116,16 +117,24 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
     preMergeBesuControllerBuilder.overrideMiningConfiguration(miningConfiguration);
 
     // construct a transition backward sync context
-    BackwardSyncContext transitionBackwardsSyncContext =
-        new TransitionBackwardSyncContext(
-            protocolContext,
-            transitionProtocolSchedule,
-            syncConfig,
-            metricsSystem,
-            ethProtocolManager.ethContext(),
-            syncState,
-            storageProvider,
-            new BackwardSyncAlgorithmFactory());
+    final BackwardSync transitionBackwardsSyncContext =
+        syncConfig.isBackwardSyncV2Enabled()
+            ? new BackwardSyncV2(
+                protocolContext,
+                transitionProtocolSchedule,
+                syncConfig,
+                metricsSystem,
+                ethProtocolManager.ethContext(),
+                storageProvider)
+            : new TransitionBackwardSyncContext(
+                protocolContext,
+                transitionProtocolSchedule,
+                syncConfig,
+                metricsSystem,
+                ethProtocolManager.ethContext(),
+                syncState,
+                storageProvider,
+                new BackwardSyncAlgorithmFactory());
 
     final TransitionCoordinator composedCoordinator =
         new TransitionCoordinator(

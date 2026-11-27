@@ -60,6 +60,7 @@ public class SynchronizerConfiguration {
   public static final URI DEFAULT_ERA1_DATA_URI = URI.create("https://mainnet.era1.nimbus.team/");
   public static final Integer DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY = 1;
   public static final boolean DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY = false;
+  public static final boolean DEFAULT_BACKWARD_SYNC_V2_ENABLED = false;
   // Fast sync config
   private final int syncPivotDistance;
   private final float fastSyncFullValidationRate;
@@ -96,6 +97,7 @@ public class SynchronizerConfiguration {
   private final long bodiesDownloadStepTimeoutMillis;
   private final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled;
   private final boolean snapSyncHeadersToCheckpointOnly;
+  private final boolean backwardSyncV2Enabled;
 
   // ERA1 import prepipeline config
   private final boolean era1ImportPrepipelineEnabled;
@@ -130,6 +132,7 @@ public class SynchronizerConfiguration {
       final long bodiesDownloadStepTimeoutMillis,
       final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled,
       final boolean snapSyncHeadersToCheckpointOnly,
+      final boolean backwardSyncV2Enabled,
       final boolean era1ImportPrepipelineEnabled,
       final URI era1DataUri,
       final int era1ImportPrepipelineConcurrency) {
@@ -160,6 +163,7 @@ public class SynchronizerConfiguration {
     this.bodiesDownloadStepTimeoutMillis = bodiesDownloadStepTimeoutMillis;
     this.snapSyncSavePreCheckpointHeadersOnlyEnabled = snapSyncSavePreCheckpointHeadersOnlyEnabled;
     this.snapSyncHeadersToCheckpointOnly = snapSyncHeadersToCheckpointOnly;
+    this.backwardSyncV2Enabled = backwardSyncV2Enabled;
     this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
     this.era1DataUri = era1DataUri;
     this.era1ImportPrepipelineConcurrency = era1ImportPrepipelineConcurrency;
@@ -348,6 +352,11 @@ public class SynchronizerConfiguration {
     return snapSyncHeadersToCheckpointOnly;
   }
 
+  /** Whether backward sync pipelines its downloads and imports finalized blocks from their BAL. */
+  public boolean isBackwardSyncV2Enabled() {
+    return backwardSyncV2Enabled;
+  }
+
   public boolean era1ImportPrepipelineEnabled() {
     return era1ImportPrepipelineEnabled;
   }
@@ -389,6 +398,7 @@ public class SynchronizerConfiguration {
     private int worldStateTaskCacheSize = DEFAULT_WORLD_STATE_TASK_CACHE_SIZE;
     private boolean snapSyncSavePreCheckpointHeadersOnlyEnabled = true;
     private boolean snapSyncHeadersToCheckpointOnly = DEFAULT_SNAP_SYNC_HEADERS_TO_CHECKPOINT_ONLY;
+    private boolean backwardSyncV2Enabled = DEFAULT_BACKWARD_SYNC_V2_ENABLED;
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
     private URI era1DataUri = DEFAULT_ERA1_DATA_URI;
     private int era1ImportPrepipelineConcurrency = DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY;
@@ -545,6 +555,11 @@ public class SynchronizerConfiguration {
       return this;
     }
 
+    public Builder backwardSyncV2Enabled(final boolean backwardSyncV2Enabled) {
+      this.backwardSyncV2Enabled = backwardSyncV2Enabled;
+      return this;
+    }
+
     public Builder era1ImportPrepipelineEnabled(final boolean era1ImportPrepipelineEnabled) {
       this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
       return this;
@@ -589,6 +604,7 @@ public class SynchronizerConfiguration {
           bodiesDownloadStepTimeoutMillis,
           snapSyncSavePreCheckpointHeadersOnlyEnabled,
           snapSyncHeadersToCheckpointOnly,
+          backwardSyncV2Enabled,
           era1ImportPrepipelineEnabled,
           era1DataUri,
           era1ImportPrepipelineConcurrency);
