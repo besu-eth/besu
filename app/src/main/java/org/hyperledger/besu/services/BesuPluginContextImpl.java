@@ -85,6 +85,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   private List<String> requestedPlugins = new ArrayList<>();
 
   private final List<BesuPlugin> registeredPlugins = new ArrayList<>();
+  private final List<BesuPlugin> startedPlugins = new ArrayList<>();
 
   private final Map<String, String> pluginVersions = new LinkedHashMap<>();
   private PluginConfiguration config;
@@ -265,6 +266,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
         Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED,
         state);
     state = Lifecycle.BEFORE_MAIN_LOOP_STARTED;
+    startedPlugins.clear();
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
 
     while (pluginsIterator.hasNext()) {
@@ -272,6 +274,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
       try {
         plugin.start();
+        startedPlugins.add(plugin);
         if (LOG.isDebugEnabled()) {
           LOG.debug("Started plugin of type {}.", plugin.getClass().getName());
         }
@@ -324,16 +327,21 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     }
   }
 
-  /** Stop plugins. */
+  /**
+   * Stop plugins. Safe to call from any lifecycle state: the JVM shutdown hook is registered before
+   * startup completes, so it can fire while the context is only partially started (for example when
+   * startup itself failed). In that case stop still runs so plugin resources and the plugin
+   * classloader are released. Only plugins that successfully reached {@code start()} are stopped,
+   * and repeated calls are ignored.
+   */
   public void stopPlugins() {
-    checkState(
-        state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        state);
+    if (state == Lifecycle.STOPPING || state == Lifecycle.STOPPED) {
+      LOG.debug("stopPlugins() called while already {}, ignoring.", state);
+      return;
+    }
     state = Lifecycle.STOPPING;
 
-    for (final BesuPlugin plugin : registeredPlugins) {
+    for (final BesuPlugin plugin : startedPlugins) {
       try {
         plugin.stop();
         if (LOG.isDebugEnabled()) {
