@@ -38,6 +38,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
@@ -291,5 +292,102 @@ public class CompositePeerDiscoveryAgentTest {
     assertThat(composite.start(30303)).succeedsWithin(Duration.ofSeconds(5)).isEqualTo(0);
     verify(transport, never()).start();
     verify(agentV4, never()).prepareHandlers();
+  }
+
+  @Test
+  public void start_bothAgents_startsV4BeforeV5() {
+    final PeerDiscoveryAgent agentV4 = mock(PeerDiscoveryAgent.class);
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    when(agentV4.isEnabled()).thenReturn(true);
+    when(transport.start()).thenReturn(CompletableFuture.completedFuture(null));
+    when(agentV4.start(30303)).thenReturn(CompletableFuture.completedFuture(30303));
+    when(agentV5.start(30303)).thenReturn(CompletableFuture.completedFuture(9999));
+
+    new CompositePeerDiscoveryAgent(agentV4, agentV5, transport).start(30303).join();
+
+    final InOrder inOrder = inOrder(agentV4, agentV5);
+    inOrder.verify(agentV4).start(30303);
+    inOrder.verify(agentV5).start(30303);
+  }
+
+  @Test
+  public void start_v5Only_returnsV5Port() {
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    when(agentV5.isEnabled()).thenReturn(true);
+    when(transport.start()).thenReturn(CompletableFuture.completedFuture(null));
+    when(agentV5.start(30303)).thenReturn(CompletableFuture.completedFuture(9999));
+
+    final CompositePeerDiscoveryAgent composite =
+        new CompositePeerDiscoveryAgent(null, agentV5, transport);
+
+    assertThat(composite.start(30303)).succeedsWithin(Duration.ofSeconds(5)).isEqualTo(9999);
+    verify(agentV5).prepareHandlers();
+  }
+
+  @Test
+  public void isEnabled_v5Only_followsV5() {
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    final CompositePeerDiscoveryAgent composite =
+        new CompositePeerDiscoveryAgent(null, agentV5, transport);
+
+    when(agentV5.isEnabled()).thenReturn(false);
+    assertThat(composite.isEnabled()).isFalse();
+
+    when(agentV5.isEnabled()).thenReturn(true);
+    assertThat(composite.isEnabled()).isTrue();
+  }
+
+  @Test
+  public void isStopped_v5Only_followsV5() {
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    final CompositePeerDiscoveryAgent composite =
+        new CompositePeerDiscoveryAgent(null, agentV5, transport);
+
+    when(agentV5.isStopped()).thenReturn(false);
+    assertThat(composite.isStopped()).isFalse();
+
+    when(agentV5.isStopped()).thenReturn(true);
+    assertThat(composite.isStopped()).isTrue();
+  }
+
+  @Test
+  public void getPeer_v5Only_delegatesToV5() {
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    final PeerId peerId = mock(PeerId.class);
+    final Peer v5Peer = mock(Peer.class);
+    when(agentV5.getPeer(peerId)).thenReturn(Optional.of(v5Peer));
+
+    final CompositePeerDiscoveryAgent composite =
+        new CompositePeerDiscoveryAgent(null, agentV5, transport);
+
+    assertThat(composite.getPeer(peerId)).contains(v5Peer);
+  }
+
+  @Test
+  public void streamDiscoveredPeers_v5Only_returnsV5Peers() {
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    final DiscoveryPeer fromV5 = mock(DiscoveryPeer.class);
+    doReturn(Stream.of(fromV5)).when(agentV5).streamDiscoveredPeers();
+
+    final CompositePeerDiscoveryAgent composite =
+        new CompositePeerDiscoveryAgent(null, agentV5, transport);
+
+    assertThat(composite.streamDiscoveredPeers().map(DiscoveryPeer.class::cast))
+        .containsExactly(fromV5);
+  }
+
+  @Test
+  public void getLocalNodeRecord_prefersV5AndFallsBackToV4() {
+    final PeerDiscoveryAgent agentV4 = mock(PeerDiscoveryAgent.class);
+    final PeerDiscoveryAgent agentV5 = mock(PeerDiscoveryAgent.class);
+    final NodeRecord recordV4 = mock(NodeRecord.class);
+    final NodeRecord recordV5 = mock(NodeRecord.class);
+    when(agentV4.getLocalNodeRecord()).thenReturn(Optional.of(recordV4));
+    when(agentV5.getLocalNodeRecord()).thenReturn(Optional.of(recordV5));
+
+    assertThat(new CompositePeerDiscoveryAgent(agentV4, agentV5, transport).getLocalNodeRecord())
+        .contains(recordV5);
+    assertThat(new CompositePeerDiscoveryAgent(agentV4, null, transport).getLocalNodeRecord())
+        .contains(recordV4);
   }
 }

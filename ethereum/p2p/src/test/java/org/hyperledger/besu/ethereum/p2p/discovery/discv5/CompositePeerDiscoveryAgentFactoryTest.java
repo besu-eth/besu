@@ -215,11 +215,15 @@ class CompositePeerDiscoveryAgentFactoryTest {
   }
 
   private static PeerDiscoveryAgent agentV4(final CompositePeerDiscoveryAgent composite) {
-    return (PeerDiscoveryAgent) getField(composite, CompositePeerDiscoveryAgent.class, "agentV4");
+    return ((Optional<?>) getField(composite, CompositePeerDiscoveryAgent.class, "agentV4"))
+        .map(PeerDiscoveryAgent.class::cast)
+        .orElse(null);
   }
 
   private static PeerDiscoveryAgent agentV5(final CompositePeerDiscoveryAgent composite) {
-    return (PeerDiscoveryAgent) getField(composite, CompositePeerDiscoveryAgent.class, "agentV5");
+    return ((Optional<?>) getField(composite, CompositePeerDiscoveryAgent.class, "agentV5"))
+        .map(PeerDiscoveryAgent.class::cast)
+        .orElse(null);
   }
 
   private static SharedDiscoveryTransport transportOf(final CompositePeerDiscoveryAgent composite) {

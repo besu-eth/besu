@@ -18,9 +18,9 @@ import org.hyperledger.besu.ethereum.p2p.discovery.transport.SharedDiscoveryTran
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -40,20 +40,35 @@ import org.slf4j.LoggerFactory;
  *   <li>{@code agentV4 = null}: V5-only ({@code --discovery-mode=V5} with secp256k1 key)
  * </ul>
  *
+ * <p>The constructor resolves the configured agents once into non-null fields: a primary agent (V5
+ * when configured, since it carries the authoritative ENR, otherwise V4) and an optional secondary
+ * agent (V4 when both are configured).
+ *
  * <p>Lifecycle order:
  *
  * <ol>
  *   <li>{@link SharedDiscoveryTransport#start()} — binds the shared UDP channel(s)
- *   <li>Non-null agents start in parallel
- *   <li>Non-null agents stop, then transport stops
+ *   <li>Configured agents start in parallel
+ *   <li>Configured agents stop, then transport stops
  * </ol>
  */
 public final class CompositePeerDiscoveryAgent implements PeerDiscoveryAgent {
 
   private static final Logger LOG = LoggerFactory.getLogger(CompositePeerDiscoveryAgent.class);
 
-  private final PeerDiscoveryAgent agentV4;
-  private final PeerDiscoveryAgent agentV5;
+  private final Optional<PeerDiscoveryAgent> agentV4;
+  private final Optional<PeerDiscoveryAgent> agentV5;
+
+  /** V5 when configured, otherwise V4. Never null. */
+  private final PeerDiscoveryAgent primary;
+
+  /** V4 when both agents are configured, otherwise empty. */
+  private final Optional<PeerDiscoveryAgent> secondary;
+
+  /** Every configured agent, V4 first then V5. Never empty. */
+  private final List<PeerDiscoveryAgent> agents;
+
+  private final String mode;
   private final SharedDiscoveryTransport transport;
 
   private final AtomicBoolean started = new AtomicBoolean(false);
@@ -67,8 +82,12 @@ public final class CompositePeerDiscoveryAgent implements PeerDiscoveryAgent {
       throw new IllegalArgumentException(
           "At least one discovery agent (V4 or V5) must be non-null");
     }
-    this.agentV4 = agentV4;
-    this.agentV5 = agentV5;
+    this.agentV4 = Optional.ofNullable(agentV4);
+    this.agentV5 = Optional.ofNullable(agentV5);
+    this.primary = this.agentV5.orElse(agentV4);
+    this.secondary = agentV5 != null ? this.agentV4 : Optional.empty();
+    this.agents = Stream.of(agentV4, agentV5).filter(Objects::nonNull).toList();
+    this.mode = agentV4 == null ? "V5 only" : agentV5 == null ? "V4 only" : "V4 + V5";
     this.transport = transport;
   }
 
@@ -81,33 +100,27 @@ public final class CompositePeerDiscoveryAgent implements PeerDiscoveryAgent {
       return CompletableFuture.failedFuture(
           new IllegalStateException("Composite peer discovery agent already started"));
     }
-    LOG.info(
-        "Starting discovery on shared UDP socket ({})",
-        agentV4 == null ? "V5 only" : agentV5 == null ? "V4 only" : "V4 + V5");
+    LOG.info("Starting discovery on shared UDP socket ({})", mode);
     // Wire inbound handlers BEFORE binding the shared channel so packets arriving in the
     // bind → agent.start window aren't dropped. V5's prepareHandlers is a no-op; instead
     // SharedDiscoveryTransport buffers V5 packets in a bounded replay sink until the discv5
     // library subscribes inside agentV5.start().
-    if (agentV4 != null) agentV4.prepareHandlers();
-    if (agentV5 != null) agentV5.prepareHandlers();
+    agents.forEach(PeerDiscoveryAgent::prepareHandlers);
     final CompletableFuture<Integer> result =
         transport
             .start()
             .thenCompose(
                 ignored -> {
-                  if (agentV4 == null) {
-                    // V5-only: V5 port is authoritative
-                    return agentV5.start(rlpxTcpPort);
+                  if (secondary.isEmpty()) {
+                    return primary.start(rlpxTcpPort);
                   }
-                  final CompletableFuture<Integer> v4Future = agentV4.start(rlpxTcpPort);
-                  if (agentV5 == null) {
-                    return v4Future;
-                  }
-                  final CompletableFuture<Integer> v5Future = agentV5.start(rlpxTcpPort);
-                  // Return V5's port - it carries the ENR and is authoritative. allOf propagates
-                  // either agent's failure rather than continuing half-started.
-                  return CompletableFuture.allOf(v4Future, v5Future)
-                      .thenApply(done -> v5Future.join());
+                  final CompletableFuture<Integer> secondaryFuture =
+                      secondary.get().start(rlpxTcpPort);
+                  final CompletableFuture<Integer> primaryFuture = primary.start(rlpxTcpPort);
+                  // Return the primary (V5) port - it carries the ENR and is authoritative. allOf
+                  // propagates either agent's failure rather than continuing half-started.
+                  return CompletableFuture.allOf(secondaryFuture, primaryFuture)
+                      .thenApply(done -> primaryFuture.join());
                 });
     // Best-effort rollback: if startup fails, stop whatever was started so channels, event
     // loops, and executors don't leak. The original failure still surfaces via `result`.
@@ -127,11 +140,11 @@ public final class CompositePeerDiscoveryAgent implements PeerDiscoveryAgent {
       return CompletableFuture.completedFuture(null);
     }
     LOG.info("Stopping discovery ...");
-    // Built dynamically so a null agent can't NPE past this and skip transport.stop() below.
-    final List<CompletableFuture<?>> agentStops = new ArrayList<>();
-    if (agentV4 != null) agentStops.add(agentV4.stop().toCompletableFuture());
-    if (agentV5 != null) agentStops.add(agentV5.stop().toCompletableFuture());
-    return CompletableFuture.allOf(agentStops.toArray(new CompletableFuture<?>[0]))
+    final CompletableFuture<?>[] agentStops =
+        agents.stream()
+            .map(agent -> agent.stop().toCompletableFuture())
+            .toArray(CompletableFuture<?>[]::new);
+    return CompletableFuture.allOf(agentStops)
         .handle(
             (v, ex) -> {
               if (ex != null) {
@@ -144,32 +157,26 @@ public final class CompositePeerDiscoveryAgent implements PeerDiscoveryAgent {
 
   @Override
   public void updateNodeRecord() {
-    if (agentV4 != null) agentV4.updateNodeRecord();
-    if (agentV5 != null) agentV5.updateNodeRecord();
+    agents.forEach(PeerDiscoveryAgent::updateNodeRecord);
   }
 
   @Override
   public boolean checkForkId(final DiscoveryPeer peer) {
     // V4 and V5 both delegate to the same shared ForkIdManager check, so only one call is
-    // needed. If that ever diverges, decide explicitly between AND/OR before calling both.
-    if (agentV4 == null) {
-      return agentV5.checkForkId(peer);
-    }
-    return agentV4.checkForkId(peer);
+    // needed. V4 is used when configured. If the checks ever diverge, decide explicitly between
+    // AND/OR before calling both.
+    return agentV4.orElse(primary).checkForkId(peer);
   }
 
   @Override
   public Stream<? extends DiscoveryPeer> streamDiscoveredPeers() {
-    if (agentV4 == null) {
-      return agentV5.streamDiscoveredPeers();
-    }
-    if (agentV5 == null) {
-      return agentV4.streamDiscoveredPeers();
+    if (secondary.isEmpty()) {
+      return primary.streamDiscoveredPeers();
     }
     // Dedup by peerId, not full DefaultPeer equality - the same peer can appear in both streams
     // with different endpoints (e.g. V5's ENR TCP port vs V4's bonding-observed port). V5 wins,
     // same reason as getPeer(peerId): it carries the authoritative ENR.
-    return Stream.concat(agentV5.streamDiscoveredPeers(), agentV4.streamDiscoveredPeers())
+    return Stream.concat(primary.streamDiscoveredPeers(), secondary.get().streamDiscoveredPeers())
         .collect(Collectors.toMap(DiscoveryPeer::getId, p -> p, (v5, v4) -> v5, LinkedHashMap::new))
         .values()
         .stream();
@@ -177,54 +184,34 @@ public final class CompositePeerDiscoveryAgent implements PeerDiscoveryAgent {
 
   @Override
   public void dropPeer(final PeerId peer) {
-    if (agentV4 != null) agentV4.dropPeer(peer);
-    if (agentV5 != null) agentV5.dropPeer(peer);
+    agents.forEach(agent -> agent.dropPeer(peer));
   }
 
   @Override
   public boolean isEnabled() {
-    if (agentV4 == null) {
-      return agentV5.isEnabled();
-    }
-    if (agentV5 == null) {
-      return agentV4.isEnabled();
-    }
-    return agentV4.isEnabled() || agentV5.isEnabled();
+    return agents.stream().anyMatch(PeerDiscoveryAgent::isEnabled);
   }
 
   @Override
   public boolean isStopped() {
-    if (agentV4 == null) {
-      return agentV5.isStopped();
-    }
-    if (agentV5 == null) {
-      return agentV4.isStopped();
-    }
-    return agentV4.isStopped() && agentV5.isStopped();
+    return agents.stream().allMatch(PeerDiscoveryAgent::isStopped);
   }
 
   @Override
   public void addPeer(final Peer peer) {
-    if (agentV4 != null) agentV4.addPeer(peer);
-    if (agentV5 != null) agentV5.addPeer(peer);
+    agents.forEach(agent -> agent.addPeer(peer));
   }
 
   @Override
   public Optional<Peer> getPeer(final PeerId peerId) {
-    if (agentV4 == null) {
-      return agentV5.getPeer(peerId);
-    }
-    if (agentV5 == null) {
-      return agentV4.getPeer(peerId);
-    }
     // V5 is preferred (holds ENR); fall back to V4 if not found
-    return agentV5.getPeer(peerId).or(() -> agentV4.getPeer(peerId));
+    return primary.getPeer(peerId).or(() -> secondary.flatMap(agent -> agent.getPeer(peerId)));
   }
 
   @Override
   public Optional<NodeRecord> getLocalNodeRecord() {
     // V5 holds the authoritative ENR when enabled; fall back to V4's NodeRecord
     // (e.g. when the node key is not secp256k1 and V5 is disabled).
-    return agentV5 == null ? agentV4.getLocalNodeRecord() : agentV5.getLocalNodeRecord();
+    return primary.getLocalNodeRecord();
   }
 }
