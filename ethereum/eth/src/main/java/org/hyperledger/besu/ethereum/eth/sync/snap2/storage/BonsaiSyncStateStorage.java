@@ -22,15 +22,27 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.Bonsai
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.TrieNodeKey;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.SegmentBulkLoad;
+import org.hyperledger.besu.plugin.services.storage.SortedWriter;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Sync storage writing straight into the Bonsai flat database and trie node store. */
 public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
@@ -58,11 +70,76 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
         public void close() {}
       };
 
+  // the storage nodes of one account sorted in memory before going to a file
+  private static final long MAX_SORTED_STORAGE_BYTES = 32L * 1024 * 1024;
+
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiSyncStateStorage.class);
+
   private final BonsaiWorldStateKeyValueStorage bonsai;
+  private final long maxSortedStorageBytes;
+  private final boolean sortedFlatState;
+  // the bytes of account nodes that the partition writers open at the same time hold together
+  private final long trieNodeBudget;
+  private final AtomicInteger openTrieWriters = new AtomicInteger();
+  private volatile SortedIngestStats stats = new SortedIngestStats();
+  private volatile SortedStateIngest ingest;
+  private volatile SegmentBulkLoad bulkLoad;
 
   public BonsaiSyncStateStorage(final BonsaiWorldStateKeyValueStorage bonsai) {
+    this(bonsai, false);
+  }
+
+  /**
+   * Creates the storage.
+   *
+   * @param bonsai the Bonsai storage
+   * @param sortedFlatState whether to write the downloaded accounts and slots, and the nodes of the
+   *     final trie build, as sorted files, with the compaction of the flat state and trie node
+   *     segments held back until the sync is complete
+   */
+  public BonsaiSyncStateStorage(
+      final BonsaiWorldStateKeyValueStorage bonsai, final boolean sortedFlatState) {
+    this(bonsai, MAX_SORTED_STORAGE_BYTES, SortedStateIngest.memoryLimit(), sortedFlatState);
+  }
+
+  @VisibleForTesting
+  BonsaiSyncStateStorage(
+      final BonsaiWorldStateKeyValueStorage bonsai, final long maxSortedStorageBytes) {
+    this(bonsai, maxSortedStorageBytes, SortedStateIngest.memoryLimit());
+  }
+
+  @VisibleForTesting
+  BonsaiSyncStateStorage(
+      final BonsaiWorldStateKeyValueStorage bonsai,
+      final long maxSortedStorageBytes,
+      final long trieNodeBudget) {
+    this(bonsai, maxSortedStorageBytes, trieNodeBudget, true);
+  }
+
+  private BonsaiSyncStateStorage(
+      final BonsaiWorldStateKeyValueStorage bonsai,
+      final long maxSortedStorageBytes,
+      final long trieNodeBudget,
+      final boolean sortedFlatState) {
     super(bonsai.getComposedWorldStateStorage(), ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE);
     this.bonsai = bonsai;
+    this.maxSortedStorageBytes = maxSortedStorageBytes;
+    this.trieNodeBudget = trieNodeBudget;
+    this.sortedFlatState = sortedFlatState;
+  }
+
+  @Override
+  public Optional<SortedWrites> sortedWrites() {
+    return Optional.ofNullable(ingest);
+  }
+
+  @Override
+  public void deleteStorage(final Bytes32 accountHash) {
+    final SortedStateIngest current = ingest;
+    if (current != null) {
+      current.storageRemoved(accountHash);
+    }
+    super.deleteStorage(accountHash);
   }
 
   @Override
@@ -148,6 +225,171 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
   }
 
   @Override
+  public TrieWriter partitionTrieWriter() {
+    // the files hold the nodes under the keys of the default strategy only
+    return sortedFlatState
+            && bonsai.getTrieNodeStrategy().getClass() == BonsaiTrieNodeStrategy.class
+        ? new SortedTrieWriter()
+        : trieWriter();
+  }
+
+  /**
+   * Writes the trie nodes of a partition as sorted files, which RocksDB adds without the
+   * write-ahead log and the memtable flushes of the usual writes. They land in level 0 next to the
+   * storage tries the download wrote, as the trie segment is held back from the start, and are
+   * merged down with them after the sync. The storage nodes of each account are sorted and added to
+   * the file of the partition. A storage too large to sort in memory gets files of its own, one
+   * sorted chunk at a time, and the file of the partition ends before it so that the two do not
+   * overlap. The account nodes of the partition go into a file of their own at the end, or before
+   * once they reach the writer's share of the heap budget, which the partition writers open at the
+   * same time split between them.
+   */
+  private final class SortedTrieWriter implements TrieWriter {
+    // the account nodes of a partition are held for as many bytes as this many storage chunks
+    private static final int ACCOUNT_NODE_CHUNKS = 8;
+
+    private final List<SortedNode> nodes = new ArrayList<>();
+    private final List<SortedNode> accountNodes = new ArrayList<>();
+    private Bytes32 accountHash;
+    private long sortedBytes;
+    private long accountBytes;
+    private boolean tooLarge;
+    private SortedWriter file;
+    private boolean open = true;
+
+    private record SortedNode(byte[] key, byte[] rlp) {}
+
+    private SortedTrieWriter() {
+      openTrieWriters.incrementAndGet();
+    }
+
+    @Override
+    public void accountNode(final Bytes location, final Bytes32 hash, final Bytes rlp) {
+      if (hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        return;
+      }
+
+      acquire();
+      accountNodes.add(new SortedNode(location.toArrayUnsafe(), rlp.toArrayUnsafe()));
+      accountBytes += location.size() + rlp.size();
+      if (accountBytes > accountNodeLimit()) {
+        writeSorted(accountNodes);
+        accountBytes = 0;
+      }
+    }
+
+    // the open partition writers split the budget, so that together they stay within it on any
+    // number of cores
+    private long accountNodeLimit() {
+      return Math.min(
+          ACCOUNT_NODE_CHUNKS * maxSortedStorageBytes,
+          trieNodeBudget / Math.max(1, openTrieWriters.get()));
+    }
+
+    @Override
+    public void storageNode(
+        final Bytes32 accountHash, final Bytes location, final Bytes32 hash, final Bytes rlp) {
+      if (hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+        return;
+      }
+
+      acquire();
+      if (!accountHash.equals(this.accountHash)) {
+        finishAccount();
+        this.accountHash = accountHash.copy();
+      }
+      final byte[] key = TrieNodeKey.of(Hash.wrap(accountHash), location).toArrayUnsafe();
+      nodes.add(new SortedNode(key, rlp.toArrayUnsafe()));
+      sortedBytes += key.length + rlp.size();
+      if (sortedBytes > maxSortedStorageBytes) {
+        // the storage gets files of its own: the file of the partition ends before it
+        closeFile();
+        writeSorted(nodes);
+        sortedBytes = 0;
+        tooLarge = true;
+      }
+    }
+
+    @Override
+    public void commit() {
+      finishAccount();
+      closeFile();
+      writeSorted(accountNodes);
+      accountBytes = 0;
+      release();
+    }
+
+    @Override
+    public void abort() {
+      nodes.clear();
+      accountNodes.clear();
+      sortedBytes = 0;
+      accountBytes = 0;
+      tooLarge = false;
+      accountHash = null;
+      if (file != null) {
+        file.rollback();
+        file = null;
+      }
+      release();
+    }
+
+    // a writer committed in the middle of its partition takes its share again
+    private void acquire() {
+      if (!open) {
+        open = true;
+        openTrieWriters.incrementAndGet();
+      }
+    }
+
+    private void release() {
+      if (open) {
+        open = false;
+        openTrieWriters.decrementAndGet();
+      }
+    }
+
+    private void finishAccount() {
+      if (tooLarge) {
+        writeSorted(nodes);
+      } else if (!nodes.isEmpty()) {
+        nodes.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+        if (file == null) {
+          file = flat.startSortedWriter(TRIE_BRANCH_STORAGE);
+        }
+        nodes.forEach(node -> file.put(node.key(), node.rlp()));
+      }
+      nodes.clear();
+      sortedBytes = 0;
+      tooLarge = false;
+    }
+
+    private void closeFile() {
+      if (file != null) {
+        file.commit();
+        file = null;
+      }
+    }
+
+    // nodes in a file of their own
+    private void writeSorted(final List<SortedNode> sorted) {
+      if (sorted.isEmpty()) {
+        return;
+      }
+      sorted.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+      final SortedWriter own = flat.startSortedWriter(TRIE_BRANCH_STORAGE);
+      try {
+        sorted.forEach(node -> own.put(node.key(), node.rlp()));
+        own.commit();
+      } catch (final RuntimeException e) {
+        own.rollback();
+        throw e;
+      }
+      sorted.clear();
+    }
+  }
+
+  @Override
   public void saveWorldState(final BlockHeader header, final Bytes rootNode) {
     final BonsaiWorldStateKeyValueStorage.Updater updater = newUpdater();
     updater.saveWorldState(
@@ -162,22 +404,76 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
   }
 
   @Override
-  public void prepareForSync() {
+  public synchronized void prepareForSync() {
     if (!bonsai.getFlatDbStrategy().isCodeByCodeHash()) {
       // the database decides, not the flag, once it holds code
       throw new IllegalStateException(
           "SNAP2 sync needs Bonsai to store bytecode by code hash, but this database stores it by"
               + " account: delete it, with --Xbonsai-code-using-code-hash-enabled left to true");
     }
+    endSortedFlatState();
     bonsai.clear();
+    if (sortedFlatState) {
+      // the compactions of the state and trie segments wait, so that the files stay where they are
+      // put; the bytecodes come in no key order, and each compaction on their way down would
+      // rewrite them
+      bulkLoad =
+          flat.startBulkLoad(
+              List.of(ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE),
+              List.of(CODE_STORAGE));
+      // after the load, as a load that fails to start would leave its thread behind
+      stats = new SortedIngestStats();
+      ingest = new SortedStateIngest(flat, ACCOUNT_INFO_STATE, ACCOUNT_STORAGE_STORAGE, stats);
+    }
+  }
+
+  @Override
+  public CompletableFuture<Void> prepareTrieBuild() {
+    final SegmentBulkLoad load = bulkLoad;
+    if (load == null) {
+      return CompletableFuture.completedFuture(null);
+    }
+    // the slots written outside the sorted files are all in level 0, which every iterator of the
+    // build's scan opens, one per account
+    LOG.info("SNAP2 merging the slots written while downloading before the trie build");
+    return load.end(ACCOUNT_STORAGE_STORAGE)
+        .exceptionally(
+            error -> {
+              // slower, not wrong
+              LOG.warn("SNAP2 trie build starts before the slots are merged", error);
+              return null;
+            });
   }
 
   @Override
   public void completeSync() {
+    if (ingest != null) {
+      LOG.info("SNAP2 accounts and slots written with {}", stats);
+    }
+    endSortedFlatState();
     if (bonsai.getFlatDbMode() == FlatDbMode.PARTIAL) {
       bonsai.upgradeToFullFlatDbMode();
     }
     bonsai.clearCrossBlockCache();
+  }
+
+  @Override
+  public void abandonSync() {
+    endSortedFlatState();
+  }
+
+  // a stop and the end of the failed sync it causes may both get here
+  private synchronized void endSortedFlatState() {
+    final SortedStateIngest current = ingest;
+    if (current != null) {
+      current.close();
+      ingest = null;
+    }
+    final SegmentBulkLoad load = bulkLoad;
+    if (load != null) {
+      load.close();
+      bulkLoad = null;
+    }
   }
 
   // the sync is the only writer, its writes skip the conflict checks

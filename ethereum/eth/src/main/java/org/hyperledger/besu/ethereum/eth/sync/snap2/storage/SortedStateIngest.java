@@ -169,7 +169,7 @@ public final class SortedStateIngest implements SyncStateStorage.SortedWrites {
   }
 
   // what waits takes about twice its size on the heap: a twelfth of the heap may wait
-  private static long memoryLimit() {
+  static long memoryLimit() {
     return Math.clamp(Runtime.getRuntime().maxMemory() / 12, MIN_MEMORY_LIMIT, MAX_MEMORY_LIMIT);
   }
 

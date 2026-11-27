@@ -75,6 +75,8 @@ final class StorageRangesRequest implements SyncRequest<StorageRangesRequest.Res
   final Bytes32 limit;
   private final long bytes;
   private final String name;
+  // the slot range whose requests follow each other, null for the first request of a storage
+  final RangeTask chunk;
 
   StorageRangesRequest(
       final Pivot pivot,
@@ -83,6 +85,17 @@ final class StorageRangesRequest implements SyncRequest<StorageRangesRequest.Res
       final Bytes32 limit,
       final long bytes,
       final String name) {
+    this(pivot, tasks, origin, limit, bytes, name, null);
+  }
+
+  StorageRangesRequest(
+      final Pivot pivot,
+      final List<StorageTask> tasks,
+      final Bytes32 origin,
+      final Bytes32 limit,
+      final long bytes,
+      final String name,
+      final RangeTask chunk) {
     // several storages get no origin or limit, which servers apply differently or ignore
     checkArgument(tasks.size() == 1 || origin.isZero(), "an origin for several storages");
     checkArgument(
@@ -95,6 +108,7 @@ final class StorageRangesRequest implements SyncRequest<StorageRangesRequest.Res
     this.limit = limit;
     this.bytes = bytes;
     this.name = name;
+    this.chunk = chunk;
   }
 
   @Override

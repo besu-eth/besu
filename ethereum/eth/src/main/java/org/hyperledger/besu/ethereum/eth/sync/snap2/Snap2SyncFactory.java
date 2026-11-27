@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.ForestSyncStateStora
 import org.hyperledger.besu.ethereum.eth.sync.snap2.storage.SyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.trie.WorldStateTrieBuilder;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -150,7 +151,9 @@ public final class Snap2SyncFactory {
     if (!needsSync(marker, syncState, blockchain)) {
       return Optional.empty();
     }
-    final SyncStateStorage storage = syncStorage(worldStateStorageCoordinator, storageProvider);
+    final SyncStateStorage storage =
+        syncStorage(
+            worldStateStorageCoordinator, storageProvider, syncConfig.getSnapSyncConfiguration());
     final Snap2Configuration config =
         Snap2Configuration.create(
             syncConfig.getDownloaderHeaderRequestSize(),
@@ -238,11 +241,14 @@ public final class Snap2SyncFactory {
   }
 
   private static SyncStateStorage syncStorage(
-      final WorldStateStorageCoordinator coordinator, final StorageProvider storageProvider) {
+      final WorldStateStorageCoordinator coordinator,
+      final StorageProvider storageProvider,
+      final SnapSyncConfiguration snapConfig) {
     return switch (coordinator.getDataStorageFormat()) {
       case BONSAI ->
           new BonsaiSyncStateStorage(
-              coordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class));
+              coordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class),
+              Boolean.TRUE.equals(snapConfig.isSnap2SortedIngestEnabled()));
       case FOREST ->
           new ForestSyncStateStorage(
               coordinator.getStrategy(ForestWorldStateKeyValueStorage.class), storageProvider);

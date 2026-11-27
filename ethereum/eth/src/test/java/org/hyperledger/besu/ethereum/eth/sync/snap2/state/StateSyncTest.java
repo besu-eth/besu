@@ -43,6 +43,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snap2.trie.WorldStateTrieBuilder;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
@@ -117,6 +118,33 @@ class StateSyncTest {
     final WorldStateTrieBuilder.Result built = build(storages);
     assertThat(built.root()).isEqualTo(world.root());
     assertThat(built.keptStorageTries()).isEqualTo(withStorage);
+  }
+
+  // a move queued before the stop fails once the next download wiped the state and started
+  @Test
+  void leavesTheSortedWritesOfTheNextDownloadOpen() {
+    final TestWorld world = TestWorld.random(new Random(5), 20, 1, 10);
+    network.serve(world);
+    final SyncStateStorage storage = SyncStorageFixture.create(Format.BONSAI_SORTED).sync();
+    start(storage, header(1, world.root()));
+    stateSync.stop();
+    storage.prepareForSync();
+    final SyncStateStorage.SortedWrites next = storage.sortedWrites().orElseThrow();
+
+    assertThat(stateSync.moveTo(header(2, world.root()), new StateDiff()))
+        .isCompletedExceptionally();
+
+    final Map.Entry<Bytes32, Bytes> account = world.accountLeaves().firstEntry();
+    next.start(List.of(RangeManager.MAX_RANGE), hash -> false);
+    next.accounts(
+        RangeManager.MAX_RANGE,
+        List.of(account.getKey()),
+        List.of(account.getValue()),
+        List.of(),
+        true);
+    next.flush();
+    assertThat(storage.getAccount(account.getKey())).contains(account.getValue());
+    next.close();
   }
 
   // its ranges come at two roots, so the final build makes its trie from its slots

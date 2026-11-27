@@ -121,6 +121,8 @@ public final class StateSync {
   // the requests the scheduler holds, which a stop withdraws
   private final Set<CompletableFuture<?>> submitted = ConcurrentHashMap.newKeySet();
   private volatile Pivot pivot;
+  // those of this download: once it stops, the storage may hold those of the next one
+  private volatile Optional<SyncStateStorage.SortedWrites> sortedWrites = Optional.empty();
   private volatile Instant started = Instant.now();
   // the epoch of the pivot that peers stopped serving, so that a move leaves its successor fresh
   private volatile int staleEpoch = NO_EPOCH;
@@ -212,10 +214,16 @@ public final class StateSync {
     }
     pivot = new Pivot(0, pivotHeader);
     started = Instant.now();
+    sortedWrites = storage.sortedWrites();
     execute(
         () -> {
           RangeManager.generateAllRanges(settings.accountChunks())
               .forEach((from, to) -> accountTasks.add(new RangeTask(from, to)));
+          sortedWrites.ifPresent(
+              sorted ->
+                  sorted.start(
+                      accountTasks.stream().map(task -> task.limit).toList(),
+                      hash -> coverage.storageTask(hash) != null));
           LOG.info(
               "SNAP2 state download started at {} | {} account ranges",
               ProgressFormat.block(pivotHeader.getNumber()),
@@ -400,6 +408,8 @@ public final class StateSync {
       if (stopped) {
         throw new IllegalStateException("state download stopped");
       }
+      // a sorted file stored after the write, or a read before it is stored, would miss it
+      sortedWrites.ifPresent(SyncStateStorage.SortedWrites::flush);
       return write.get();
     } finally {
       lock.writeLock().unlock();
@@ -427,6 +437,7 @@ public final class StateSync {
     // the requests the scheduler still holds no longer go out, before the wait for the updates
     submitted.forEach(request -> request.cancel(false));
     trieUpdater.stop();
+    sortedWrites.ifPresent(SyncStateStorage.SortedWrites::close);
     // last, as a callback may start a new download
     completion.completeExceptionally(cause);
   }
@@ -655,7 +666,8 @@ public final class StateSync {
             chunk.next,
             chunk.limit,
             settings.responseBytes(),
-            "storage_chunk");
+            "storage_chunk",
+            chunk);
     sendStorage(request, written -> afterChunk(chunk, written));
   }
 
@@ -870,6 +882,8 @@ public final class StateSync {
   }
 
   private void complete() {
+    // the final build reads what was written
+    sortedWrites.ifPresent(SyncStateStorage.SortedWrites::flush);
     LOG.info(
         "SNAP2 state download complete at {} in {} | accounts {} | slots {} | bytecodes {}"
             + " | storage tries {} built, {} left to the final build",
