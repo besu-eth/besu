@@ -1,5 +1,10 @@
 # Changelog
 
+## 26.11.3
+
+### Additions and Improvements
+- Schedule the Amsterdam fork on Hoodi at timestamp `1797361944` (Tue, 15 Dec 2026, 19:12:24 UTC). [#12058](https://github.com/besu-eth/besu/pull/12058)
+
 ## 26.11.2
 
 ### Breaking Changes
