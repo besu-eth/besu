@@ -372,7 +372,9 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     RpcEndpointRegistryImpl provideRpcEndpointRegistry(
         final BesuPluginContextImpl besuPluginContext) {
       return new RpcEndpointRegistryImpl(
-          besuPluginContext::isRegistering, besuPluginContext::currentRegistrant);
+          besuPluginContext::isRegistering,
+          besuPluginContext::currentRegistrant,
+          besuPluginContext::isRunning);
     }
 
     @Provides

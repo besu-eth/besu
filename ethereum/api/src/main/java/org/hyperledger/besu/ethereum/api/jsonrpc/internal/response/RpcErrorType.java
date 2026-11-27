@@ -280,6 +280,7 @@ public enum RpcErrorType implements RpcMethodError {
 
   /** Plugins error */
   PLUGIN_NOT_FOUND(-60000, "Plugin not found"),
+  PLUGIN_NOT_RUNNING(-60001, "Plugin is not running"),
   PLUGIN_INTERNAL_ERROR(-32603, "Plugin internal error"),
 
   // Retesteth Errors

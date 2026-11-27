@@ -23,6 +23,7 @@ import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.EXCEEDS_MAX_TX_BYTES;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.INTERNAL_ERROR;
 import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TRANSACTION_ALREADY_KNOWN;
+import static org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason.TX_POOL_DISABLED;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -271,6 +272,16 @@ public class TransactionPool implements BlockAddedObserver {
       final boolean isLocal,
       final boolean hasPriority,
       final byte score) {
+
+    if (!isEnabled()) {
+      // refuse before validating, so no plugin validator runs while the pool is disabled
+      LOG.atTrace()
+          .setMessage("Discard transaction {}, pool disabled")
+          .addArgument(baseTransaction::toTraceLog)
+          .log();
+      metrics.incrementRejected(isLocal, hasPriority, TX_POOL_DISABLED, "txpool");
+      return new AdditionOutcome(ValidationResult.invalid(TX_POOL_DISABLED), baseTransaction);
+    }
 
     if (pendingTransactions.containsTransaction(baseTransaction)) {
       LOG.atTrace()

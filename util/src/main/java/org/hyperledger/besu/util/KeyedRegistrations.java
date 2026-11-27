@@ -152,6 +152,16 @@ public final class KeyedRegistrations<V> {
   }
 
   /**
+   * The registrant recorded for a name: a plugin id, or {@link #BESU} when Besu registered it.
+   *
+   * @param name the name, as given at registration
+   * @return the registrant, or empty when nothing is registered under the name
+   */
+  public Optional<String> registrantOf(final String name) {
+    return Optional.ofNullable(entries.get(keyOf.apply(name))).map(Registered::registrant);
+  }
+
+  /**
    * Whether a name is registered.
    *
    * @param name the name

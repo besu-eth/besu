@@ -69,6 +69,8 @@ import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
+import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
+import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidatorFactory;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.testutil.MockExecutorService;
 import org.hyperledger.besu.util.number.Percentage;
@@ -1115,6 +1117,38 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
     givenTransactionIsValid(transaction0);
 
     addAndAssertRemoteTransactionInvalid(transaction0);
+  }
+
+  @Test
+  public void pluginValidatorIsNotConsultedWhileThePoolIsDisabled() {
+    final AtomicInteger pluginValidatorCalls = new AtomicInteger();
+    final TransactionPoolValidatorService transactionPoolValidatorService =
+        new TransactionPoolValidatorService() {
+          @Override
+          public PluginTransactionPoolValidator createTransactionValidator() {
+            return (transaction, isLocal, hasPriority) -> {
+              pluginValidatorCalls.incrementAndGet();
+              return Optional.empty();
+            };
+          }
+
+          @Override
+          public void registerPluginTransactionValidatorFactory(
+              final PluginTransactionPoolValidatorFactory pluginTransactionPoolValidatorFactory) {}
+        };
+    this.transactionPool =
+        createTransactionPool(
+            b -> b.transactionPoolValidatorService(transactionPoolValidatorService));
+    givenTransactionIsValid(transaction0);
+    transactionPool.setDisabled();
+
+    final var localResult = transactionPool.addTransactionViaApi(transaction0);
+    final var remoteResults = transactionPool.addRemoteTransactions(List.of(transaction0));
+
+    assertThat(localResult.getInvalidReason()).isEqualTo(TransactionInvalidReason.TX_POOL_DISABLED);
+    assertThat(remoteResults.get(transaction0.getHash()).getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.TX_POOL_DISABLED);
+    assertThat(pluginValidatorCalls).hasValue(0);
   }
 
   @ParameterizedTest

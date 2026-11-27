@@ -787,7 +787,9 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
         new PermissioningServiceImpl(besuPluginContext::isRegistering),
         new RpcEndpointRegistryImpl(
-            besuPluginContext::isRegistering, besuPluginContext::currentRegistrant),
+            besuPluginContext::isRegistering,
+            besuPluginContext::currentRegistrant,
+            besuPluginContext::isRunning),
         new TransactionSelectionServiceImpl(besuPluginContext::isRegistering),
         new TransactionPoolValidatorServiceImpl(besuPluginContext::isRegistering),
         new TransactionValidatorServiceImpl(besuPluginContext::isRegistering),

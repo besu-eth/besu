@@ -154,6 +154,13 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    */
   private final List<BesuPlugin> startedPlugins = new ArrayList<>();
 
+  /**
+   * Ids of the plugins whose {@code start()} returned and whose own {@code stop()} has not returned
+   * yet: the ones whose RPC methods are served. Kept apart from {@link #startedPlugins}, which a
+   * stop takes and empties in one step before the first {@code stop()} runs.
+   */
+  private final Set<String> runningPlugins = ConcurrentHashMap.newKeySet();
+
   /** Set once a shutdown has begun, so the start loop starts nothing more. */
   private volatile boolean stopRequested;
 
@@ -210,6 +217,21 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
    */
   public Optional<String> currentRegistrant() {
     return Optional.ofNullable(currentRegistrant);
+  }
+
+  /**
+   * Whether the plugin with the given id is running: its {@code start()} has returned and its own
+   * {@code stop()} has not. False before it starts, after it failed in {@code start()}, and once
+   * its {@code stop()} has returned, or been abandoned, at a shutdown or an Ephemery restart;
+   * plugins stop newest first, so a plugin that started earlier is still running while a later one
+   * stops. Besu's RPC method tables refuse a plugin's methods while this is false, so a call that
+   * reaches the node before the plugin is ready, or after it has stopped, never runs its code.
+   *
+   * @param pluginId the plugin's id, its fully qualified class name
+   * @return true if the plugin's start() has returned and its stop() has not
+   */
+  public boolean isRunning(final String pluginId) {
+    return runningPlugins.contains(pluginId);
   }
 
   /**
@@ -829,6 +851,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
         return false;
       }
       startedPlugins.add(plugin);
+      runningPlugins.add(pluginId(plugin));
       return true;
     }
   }
@@ -914,7 +937,11 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     state = Lifecycle.REGISTERED;
   }
 
-  /** Stops the started plugins, newest first, and empties the list. */
+  /**
+   * Stops the started plugins, newest first, and empties the list. The list is taken in one step,
+   * so a second stop that overlaps this one finds nothing to stop; each plugin stays running, for
+   * {@link #isRunning}, until its own stop() has returned.
+   */
   private void stopStartedPlugins() {
     final List<BesuPlugin> toStop;
     synchronized (startedPlugins) {
@@ -927,6 +954,7 @@ public class BesuPluginContextImpl implements PluginVersionsProvider {
     boolean interrupted = Thread.interrupted();
     for (final BesuPlugin plugin : toStop) {
       interrupted |= stopPlugin(plugin);
+      runningPlugins.remove(pluginId(plugin));
     }
     if (interrupted) {
       Thread.currentThread().interrupt();

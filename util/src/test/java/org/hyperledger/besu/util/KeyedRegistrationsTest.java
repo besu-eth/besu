@@ -103,4 +103,15 @@ class KeyedRegistrationsTest {
     assertThatThrownBy(() -> registrations.byName().put("three", "3"))
         .isInstanceOf(UnsupportedOperationException.class);
   }
+
+  @Test
+  void theRegistrantOfANameIsReported() {
+    registrations.register("mine", "a");
+    registrant.set(null);
+    registrations.register("besus", "b");
+
+    assertThat(registrations.registrantOf("mine")).contains("pluginA");
+    assertThat(registrations.registrantOf("besus")).contains(KeyedRegistrations.BESU);
+    assertThat(registrations.registrantOf("unknown")).isEmpty();
+  }
 }
