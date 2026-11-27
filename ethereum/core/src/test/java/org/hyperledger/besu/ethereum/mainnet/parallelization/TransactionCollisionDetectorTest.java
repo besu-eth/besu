@@ -1110,6 +1110,17 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void creditToAnAccountWhoseSlotTheBlockChangedIsACollision() {
+    final Address credited = Address.fromHexString("0x2");
+    final Transaction transaction = creditScenario(55);
+    // the run and an earlier transaction of the block both wrote the slot
+    putSlot(bonsaiUpdater, credited, 1, UInt256.ONE, UInt256.valueOf(3));
+    putSlot(trxUpdater, credited, 1, UInt256.ONE, UInt256.valueOf(2));
+
+    assertThat(carryOver(transaction)).isEmpty();
+  }
+
+  @Test
   void spendingFromAnAccountWhoseBalanceChangedIsACollision() {
     assertThat(carryOver(creditScenario(45))).isEmpty();
   }
