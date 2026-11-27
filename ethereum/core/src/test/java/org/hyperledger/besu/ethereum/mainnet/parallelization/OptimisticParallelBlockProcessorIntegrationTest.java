@@ -325,6 +325,23 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     }
 
     @Test
+    @DisplayName(
+        "A transfer of nothing to an account whose balance changed earlier in the block is reused")
+    void transferOfNothingToAnAccountWhoseBalanceChangedIsReused() {
+      final String recipient = "0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0, 0L, 300_000L, 0L, 5L, recipient, ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
     @DisplayName("A credit to an account whose balance the transaction reads is executed again")
     void creditToAnAccountWhoseBalanceIsReadIsExecutedAgain() {
       // the contract self-destructs to itself, which reads its balance
@@ -392,6 +409,26 @@ class OptimisticParallelBlockProcessorIntegrationTest {
 
       assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "A payment to the mining beneficiary that no earlier transaction changed is reused")
+    void firstPaymentToTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  MINING_BENEFICIARY.toHexString(),
+                  ACCOUNT_GENESIS_1_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
     }
 
     @Test
