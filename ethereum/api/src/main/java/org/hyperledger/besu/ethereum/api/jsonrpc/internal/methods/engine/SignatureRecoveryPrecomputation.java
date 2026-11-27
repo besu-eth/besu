@@ -26,7 +26,12 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Recovers the senders and EIP-7702 authorities of a payload's transactions in the background, so
- * that executing the payload finds them already cached.
+ * that executing the payload finds them already recovered.
+ *
+ * <p>For a block executed in parallel the recovery starts from the last transaction: the parallel
+ * workers recover the signatures of the transactions they reach first themselves, so the two split
+ * the block between them. For a block executed sequentially it starts from the first transaction,
+ * so it stays ahead of execution while executing a transaction takes longer than recovering it.
  *
  * <p>The payload has not been validated when this starts, so the work must not outlive its
  * execution. A fixed number of tasks share the transactions, recover one signature at a time, and
@@ -41,11 +46,14 @@ final class SignatureRecoveryPrecomputation {
   static final int MAX_WORKERS = 2;
 
   private final List<Transaction> transactions;
-  private final AtomicInteger nextTransaction = new AtomicInteger();
+  private final boolean fromLastTransaction;
+  private final AtomicInteger claimedTransactions = new AtomicInteger();
   private volatile boolean cancelled;
 
-  private SignatureRecoveryPrecomputation(final List<Transaction> transactions) {
+  private SignatureRecoveryPrecomputation(
+      final List<Transaction> transactions, final boolean fromLastTransaction) {
     this.transactions = transactions;
+    this.fromLastTransaction = fromLastTransaction;
   }
 
   /**
@@ -53,12 +61,16 @@ final class SignatureRecoveryPrecomputation {
    *
    * @param scheduler the scheduler whose computation pool runs the recovery
    * @param transactions the transactions to recover the senders and authorities of
+   * @param parallelExecution whether the block is executed in parallel, which makes the recovery
+   *     start from the last transaction instead of the first
    * @return a handle to stop the recovery
    */
   static SignatureRecoveryPrecomputation start(
-      final EthScheduler scheduler, final List<Transaction> transactions) {
+      final EthScheduler scheduler,
+      final List<Transaction> transactions,
+      final boolean parallelExecution) {
     final SignatureRecoveryPrecomputation precomputation =
-        new SignatureRecoveryPrecomputation(transactions);
+        new SignatureRecoveryPrecomputation(transactions, parallelExecution);
     final int workers = Math.min(MAX_WORKERS, transactions.size());
     for (int i = 0; i < workers; i++) {
       scheduler.scheduleComputationTask(precomputation::recoverUntilDoneOrCancelled);
@@ -75,9 +87,10 @@ final class SignatureRecoveryPrecomputation {
   }
 
   private Void recoverUntilDoneOrCancelled() {
-    int index;
-    while (!cancelled && (index = nextTransaction.getAndIncrement()) < transactions.size()) {
-      recover(transactions.get(index));
+    final int count = transactions.size();
+    int claimed;
+    while (!cancelled && (claimed = claimedTransactions.getAndIncrement()) < count) {
+      recover(transactions.get(fromLastTransaction ? count - 1 - claimed : claimed));
     }
     return null;
   }
