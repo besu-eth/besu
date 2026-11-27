@@ -577,6 +577,29 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThat(lastSload.get("storage").get(slot2).asText()).isEqualTo(one);
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void streamingAndAccumulatingPathsMatchForFailingNestedPrecompile(
+      final boolean enableEvmV2) throws Exception {
+    final ExecutionContextTestFixture evmFixture = evmFixture(enableEvmV2);
+    // MSTORE(0, 1) MSTORE(32, 1) CALL(0xffff, ECADD, 0, 0, 128, 0, 0) POP STOP: (1, 1) is not on
+    // the curve, so the precompile fails.
+    final JsonNode structLogs =
+        traceBothPaths(
+            evmFixture,
+            blockchainQueries(evmFixture),
+            contractCreation("0x6001600052600160205260006000608060006000600661ffff" + "f15000"),
+            TraceOptions.DEFAULT);
+
+    final JsonNode call = structLogs.get(structLogs.size() - 3);
+    final JsonNode pop = structLogs.get(structLogs.size() - 2);
+    assertThat(call.get("op").asText()).isEqualTo("CALL");
+    assertThat(pop.get("stack").get(0).asText()).isEqualTo("0x0");
+    for (final JsonNode log : structLogs) {
+      assertThat(log.has("error")).isFalse();
+    }
+  }
+
   /**
    * The SSTORE that earns a refund shows the refund from before it, and the next step shows the new
    * refund. Both paths must agree.

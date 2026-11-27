@@ -54,8 +54,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
    * Creates the operation tracer.
    *
    * @param options The options, as passed in through the RPC
-   * @param recordChildCallGas A flag on whether to produce geth style (true) or parity style
-   *     (false) gas amounts for call operations
+   * @param recordChildCallGas If true, the trace follows the execution-apis struct logs ({@code
+   *     debug_} RPCs): call gas amounts include the gas forwarded to the child, and an error is
+   *     reported only at the step that halts itself, not at a step whose child frame, precompile or
+   *     creation fails. If false, it follows the Parity traces ({@code trace_} RPCs).
    */
   public DebugOperationTracer(final OpCodeTracerConfig options, final boolean recordChildCallGas) {
     super(options, recordChildCallGas);
@@ -192,20 +194,25 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       lastFrameNeedsGasPostExecution = true;
     } else {
       final TraceFrame lastTraceFrame = traceFrames.removeLast();
-      final TraceFrame updatedTraceFrame =
+      final TraceFrame.Builder updatedTraceFrame =
           TraceFrame.from(lastTraceFrame)
-              .setExceptionalHaltReason(frame.getExceptionalHaltReason())
-              .setRevertReason(frame.getRevertReason())
               .setPrecompiledGasCost(gasRequirement)
-              .setPrecompileIOData(recipient, inputData, output)
-              .build();
-      traceFrames.add(updatedTraceFrame);
+              .setPrecompileIOData(recipient, inputData, output);
+      if (!recordChildCallGas) {
+        updatedTraceFrame
+            .setExceptionalHaltReason(frame.getExceptionalHaltReason())
+            .setRevertReason(frame.getRevertReason());
+      }
+      traceFrames.add(updatedTraceFrame.build());
     }
   }
 
   @Override
   public void traceAccountCreationResult(
       final MessageFrame frame, final Optional<ExceptionalHaltReason> haltReason) {
+    if (recordChildCallGas) {
+      return;
+    }
     haltReason.ifPresent(
         exceptionalHaltReason -> {
           if (!traceFrames.isEmpty()) {

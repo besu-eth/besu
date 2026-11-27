@@ -1,5 +1,5 @@
 {
-  "comment": "The constructor returns 512 bytes of code it lacks the gas to deposit; the failed code deposit is reported on its RETURN, the creation's last operation",
+  "comment": "The constructor returns 512 bytes of code it lacks the gas to deposit. The RETURN completes, so it has no error; the failed code deposit shows only in failed",
   "request": {
     "jsonrpc": "2.0",
     "method": "debug_traceCall",
@@ -54,8 +54,7 @@
           "stack": [
             "0x200",
             "0x0"
-          ],
-          "error": "INSUFFICIENT_GAS"
+          ]
         }
       ]
     }
