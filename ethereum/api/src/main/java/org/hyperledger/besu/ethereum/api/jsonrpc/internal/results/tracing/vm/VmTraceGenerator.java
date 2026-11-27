@@ -131,32 +131,25 @@ public class VmTraceGenerator {
     currentIndex++;
   }
 
-  /**
-   * Whether the opcode of this frame itself ran out of gas. The tracer also stamps {@code
-   * INSUFFICIENT_GAS} onto opcodes that succeeded: a CALL whose precompile callee was underfunded,
-   * and the last non-RETURN opcode before a code deposit that could not be paid. An opcode that
-   * runs out of gas always ends its call context and fails it without reverting. The deposit's
-   * opcode ends its call context only when it is a callee's last: a REVERT, or an opcode whose call
-   * succeeded.
-   */
   private static boolean ranOutOfGas(
       final TraceFrame frame, final Optional<TraceFrame> nextTraceFrame) {
     return frame.getExceptionalHaltReason().orElse(null) == ExceptionalHaltReason.INSUFFICIENT_GAS
-        && frame.getPrecompiledGasCost().isEmpty()
-        && frame.getRevertReason().isEmpty()
-        && nextTraceFrame
-            .map(next -> next.getDepth() < frame.getDepth() && resumesAfterFailedCall(next))
-            .orElse(true);
+        && halted(frame, nextTraceFrame);
   }
 
-  /** Whether the caller resumes with zero, the result of a failed CALL or CREATE, on its stack. */
-  private static boolean resumesAfterFailedCall(final TraceFrame resumption) {
-    // the traced stack is the pre-execution snapshot, bottom to top
-    return resumption
-        .getStack()
-        .filter(stack -> stack.length > 0)
-        .map(stack -> stack[stack.length - 1].isZero())
-        .orElse(true);
+  /**
+   * Whether the opcode of this frame halted exceptionally, rather than only carrying a halt reason
+   * the tracer added after it completed. The tracer gives a precompile's halt reason to the CALL
+   * that ran it, the halt reason of a callee that fails before its first opcode to the CALL or
+   * CREATE that started it, and a failed code deposit's to the RETURN of the creation. An opcode
+   * that halts ends its call frame, and a RETURN that halts does so before it sets the frame's
+   * output, while a code deposit fails only for non-empty code.
+   */
+  private static boolean halted(final TraceFrame frame, final Optional<TraceFrame> nextTraceFrame) {
+    return frame.getExceptionalHaltReason().isPresent()
+        && frame.getPrecompiledGasCost().isEmpty()
+        && nextTraceFrame.map(next -> next.getDepth() < frame.getDepth()).orElse(true)
+        && !("RETURN".equals(frame.getOpcode()) && !frame.getOutputData().isEmpty());
   }
 
   private void handleDepthIncreased(

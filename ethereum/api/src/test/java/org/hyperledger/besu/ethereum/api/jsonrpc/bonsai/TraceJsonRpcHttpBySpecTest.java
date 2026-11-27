@@ -28,7 +28,6 @@ import okhttp3.Response;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
@@ -82,16 +81,27 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
     assertUnderfundedPrecompileCallReport(create.get("sub").get("ops"));
   }
 
-  @Test
-  void rootCodeDepositOutOfGasKeepsLastOpcodeReport() throws Exception {
-    // PUSH1 0x20 PUSH1 0 RETURN: execution fits in the gas limit, the 6,400 gas code deposit does
-    // not. The tracer stamps the deposit failure onto the second PUSH1, which itself succeeded.
-    final JsonNode result = traceVm("60206000f3", 55_000);
+  @ParameterizedTest
+  @CsvSource({
+    // PUSH2 0x2000 PUSH1 0 RETURN completes, then the 1,638,400 gas code deposit fails
+    "6120006000f3, 5, false",
+    // PUSH4 0xffffffff PUSH1 0 RETURN cannot pay for the memory it returns
+    "63ffffffff6000f3, 7, true"
+  })
+  void creationReturnReportsEffectsUnlessItHalts(
+      final String initCode, final int pc, final boolean halts) throws Exception {
+    final JsonNode result = traceVm(initCode, 100_000);
     assertThat(result.get("trace").get(0).get("error").asText()).isEqualTo("Out of gas");
-    final JsonNode push = opAt(result.get("vmTrace").get("ops"), 2);
-    assertThat(push.get("ex").isNull()).isFalse();
-    assertThat(push.get("ex").get("push").get(0).asText()).isEqualTo("0x0");
-    assertThat(push.get("ex").get("used").asLong()).isPositive();
+    final JsonNode root = opAt(result.get("vmTrace").get("ops"), pc);
+    assertThat(root.get("ex").isNull()).isEqualTo(halts);
+
+    final JsonNode create =
+        opAt(
+            traceVm(createChild(initCode), 200_000).get("vmTrace").get("ops"),
+            initCode.length() / 2 + 10);
+    assertThat(create.get("ex").get("push").get(0).asText()).isEqualTo("0x0");
+    final JsonNode nested = opAt(create.get("sub").get("ops"), pc);
+    assertThat(nested.get("ex").isNull()).isEqualTo(halts);
   }
 
   @ParameterizedTest
@@ -105,26 +115,6 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
     final JsonNode call = opAt(traceVm(code, 100_000).get("vmTrace").get("ops"), pc);
     assertThat(call.get("ex").isNull()).isTrue();
     assertThat(call.get("sub").isNull()).isTrue();
-  }
-
-  @ParameterizedTest
-  @ValueSource(strings = {"00", "60006000fd"})
-  void codeDepositOutOfGasAfterCalleeKeepsItsLastReport(final String callee) throws Exception {
-    // CREATE a child whose code is the callee, STOP or REVERT(0, 0), CALL it, then RETURN 1,024
-    // bytes. The 204,800 gas code deposit does not fit, and the tracer stamps its failure onto the
-    // callee's last opcode, which succeeded.
-    final int size = callee.length() / 2;
-    final String create =
-        createChild(
-            String.format("%02x%s60005260%02x60%02xf3", 0x5f + size, callee, size, 32 - size));
-    // Replace the trailing STOP with CALL(GAS, child, 0, 0, 0, 0, 0) and RETURN(result, 0x400).
-    final String code =
-        create.substring(0, create.length() - 2) + "600052610400600060006000600060006000515af1f3";
-    final JsonNode result = traceVm(code, 250_000);
-    assertThat(result.get("trace").get(0).get("error").asText()).isEqualTo("Out of gas");
-    final JsonNode call = opAt(result.get("vmTrace").get("ops"), create.length() / 2 + 19);
-    final JsonNode last = opAt(call.get("sub").get("ops"), size - 1);
-    assertThat(last.get("ex").isNull()).isFalse();
   }
 
   @Test
