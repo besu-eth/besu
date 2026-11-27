@@ -146,6 +146,54 @@ class DebugOperationTracerTest {
     assertThat(traceFrame.getExceptionalHaltReason()).isEqualTo(haltReason);
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void shouldReportAFailedPrecompileOnTheCallingStepOnlyForParityStyle(final boolean gethStyle) {
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, gethStyle);
+    traceFrame(validMessageFrame(), tracer, anOperation);
+
+    final MessageFrame precompile = validMessageFrame();
+    precompile.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
+    precompile.setRevertReason(Bytes.fromHexString("0x6572726f72"));
+    tracer.tracePrecompileCall(precompile, 150L, Bytes.EMPTY);
+
+    final TraceFrame callingStep = getOnlyTraceFrame(tracer);
+    assertThat(callingStep.getExceptionalHaltReason())
+        .isEqualTo(
+            gethStyle ? Optional.empty() : Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR));
+    assertThat(callingStep.getRevertReason().isPresent()).isEqualTo(!gethStyle);
+    assertThat(callingStep.isPrecompile()).isTrue();
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void shouldReportAFailedCreationOnTheLastStepOnlyForParityStyle(final boolean gethStyle) {
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, gethStyle);
+    final MessageFrame creation = validMessageFrame();
+    traceFrame(creation, tracer, anOperation);
+
+    tracer.traceAccountCreationResult(creation, Optional.of(ExceptionalHaltReason.CODE_TOO_LARGE));
+
+    assertThat(getOnlyTraceFrame(tracer).getExceptionalHaltReason())
+        .isEqualTo(
+            gethStyle ? Optional.empty() : Optional.of(ExceptionalHaltReason.CODE_TOO_LARGE));
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void shouldAddAnEntryForACreationThatFailsBeforeItsFirstOpcodeOnlyForParityStyle(
+      final boolean gethStyle) {
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(OpCodeTracerConfig.DEFAULT, gethStyle);
+
+    tracer.traceAccountCreationResult(
+        validMessageFrame(), Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
+
+    assertThat(tracer.getTraceFrames()).hasSize(gethStyle ? 0 : 1);
+  }
+
   @Test
   void shouldRecordOpcode() {
     final MessageFrame frame = validMessageFrame();

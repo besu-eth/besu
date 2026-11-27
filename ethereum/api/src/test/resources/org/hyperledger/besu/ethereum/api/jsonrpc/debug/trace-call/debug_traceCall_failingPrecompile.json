@@ -1,0 +1,127 @@
+{
+  "comment": "0xc1 calls the alt_bn128 addition precompile with a point that is not on the curve. The precompile fails, the CALL completes and pushes 0, so its step has no error.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "to": "0x00000000000000000000000000000000000000c1",
+        "gas": "0x100000"
+      },
+      "latest",
+      {
+        "disableStack": true,
+        "stateOverrides": {
+          "0x00000000000000000000000000000000000000c1": {
+            "code": "0x602a60005260006000604060006000600661fffff15000"
+          }
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 87273,
+      "failed": false,
+      "returnValue": "0x",
+      "structLogs": [
+        {
+          "pc": 0,
+          "op": "PUSH1",
+          "gas": 1027576,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 2,
+          "op": "PUSH1",
+          "gas": 1027573,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 4,
+          "op": "MSTORE",
+          "gas": 1027570,
+          "gasCost": 6,
+          "depth": 1
+        },
+        {
+          "pc": 5,
+          "op": "PUSH1",
+          "gas": 1027564,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 7,
+          "op": "PUSH1",
+          "gas": 1027561,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 9,
+          "op": "PUSH1",
+          "gas": 1027558,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 11,
+          "op": "PUSH1",
+          "gas": 1027555,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 13,
+          "op": "PUSH1",
+          "gas": 1027552,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 15,
+          "op": "PUSH1",
+          "gas": 1027549,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 17,
+          "op": "PUSH2",
+          "gas": 1027546,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 20,
+          "op": "CALL",
+          "gas": 1027543,
+          "gasCost": 66238,
+          "depth": 1
+        },
+        {
+          "pc": 21,
+          "op": "POP",
+          "gas": 961305,
+          "gasCost": 2,
+          "depth": 1
+        },
+        {
+          "pc": 22,
+          "op": "STOP",
+          "gas": 961303,
+          "gasCost": 0,
+          "depth": 1
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

@@ -1,0 +1,99 @@
+{
+  "comment": "0xc2 runs CREATE, whose address already has code and a nonce. The CREATE completes and pushes 0, so its step has no error.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "to": "0x00000000000000000000000000000000000000c2",
+        "gas": "0x100000"
+      },
+      "latest",
+      {
+        "stateOverrides": {
+          "0x00000000000000000000000000000000000000c2": {
+            "code": "0x600060006000f05000",
+            "nonce": "0x1"
+          },
+          "0x993c64fdb86b3c961ab00172e5a3f996db14100f": {
+            "code": "0x00",
+            "nonce": "0x1"
+          }
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 1033023,
+      "failed": false,
+      "returnValue": "0x",
+      "structLogs": [
+        {
+          "pc": 0,
+          "op": "PUSH1",
+          "gas": 1027576,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": []
+        },
+        {
+          "pc": 2,
+          "op": "PUSH1",
+          "gas": 1027573,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0"
+          ]
+        },
+        {
+          "pc": 4,
+          "op": "PUSH1",
+          "gas": 1027570,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0"
+          ]
+        },
+        {
+          "pc": 6,
+          "op": "CREATE",
+          "gas": 1027567,
+          "gasCost": 32000,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0",
+            "0x0"
+          ]
+        },
+        {
+          "pc": 7,
+          "op": "POP",
+          "gas": 15555,
+          "gasCost": 2,
+          "depth": 1,
+          "stack": [
+            "0x0"
+          ]
+        },
+        {
+          "pc": 8,
+          "op": "STOP",
+          "gas": 15553,
+          "gasCost": 0,
+          "depth": 1,
+          "stack": []
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}
