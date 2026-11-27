@@ -38,7 +38,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -550,17 +549,14 @@ class TransactionCollisionDetectorTest {
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 2, 40)));
 
-    final Map<Address, CarriedAccount> carried = new HashMap<>();
-
-    assertFalse(
-        hasCollisionCarryingCredits(
-            createTransaction(beneficiary, Address.fromHexString("0x2")), carried),
-        "Expected no collision as the fees only raised the balance that paid for the gas");
-    assertThat(carried).containsOnlyKeys(beneficiary);
+    // the run's spending of 10 on the block's balance of 60, and the run's nonce
+    assertThat(carryOver(createTransaction(beneficiary, Address.fromHexString("0x2"))))
+        .as("Expected no collision as the fees only raised the balance that paid for the gas")
+        .contains(Map.of(beneficiary, new CarriedAccount(Wei.of(50), 2)));
   }
 
   @Test
-  void miningBeneficiaryWhoseBalanceWasReadCollidesEvenCarryingCredits() {
+  void miningBeneficiaryWhoseBalanceWasReadCollides() {
     final Address sender = Address.fromHexString("0x1");
     final Address beneficiary = Address.ZERO;
     trxUpdater.recordBalanceObservations();
@@ -578,9 +574,9 @@ class TransactionCollisionDetectorTest {
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 50)));
 
-    assertTrue(
-        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), new HashMap<>()),
-        "Expected a collision as the transaction read the beneficiary's balance");
+    assertThat(carryOver(createTransaction(sender, beneficiary)))
+        .as("Expected a collision as the transaction read the beneficiary's balance")
+        .isEmpty();
   }
 
   @Test
@@ -600,12 +596,11 @@ class TransactionCollisionDetectorTest {
             beneficiary,
             new BonsaiValue<>(
                 createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 55)));
-    final Map<Address, CarriedAccount> carriedAccounts = new HashMap<>();
 
-    assertFalse(
-        hasCollisionCarryingCredits(createTransaction(sender, beneficiary), carriedAccounts),
-        "Expected the payment to the beneficiary to be carried over");
-    assertThat(carriedAccounts).containsOnlyKeys(beneficiary);
+    // the run's credit of 5 on the block's balance of 60
+    assertThat(carryOver(createTransaction(sender, beneficiary)))
+        .as("Expected the payment to the beneficiary to be carried over")
+        .contains(Map.of(beneficiary, new CarriedAccount(Wei.of(65), 1)));
   }
 
   @Test
@@ -622,9 +617,9 @@ class TransactionCollisionDetectorTest {
     // Simulate that the deleted address is read in the next transaction
     trxUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, accountValue));
 
-    assertTrue(
-        hasCollisionCarryingCredits(transaction, new HashMap<>()),
-        "Expected a collision with the deleted address");
+    assertThat(carryOver(transaction))
+        .as("Expected a collision with the deleted address")
+        .isEmpty();
   }
 
   @Test
@@ -644,9 +639,9 @@ class TransactionCollisionDetectorTest {
     trxUpdater.deleteAccount(address);
     trxUpdater.commit();
 
-    assertTrue(
-        hasCollisionCarryingCredits(transaction, new HashMap<>()),
-        "Expected a collision with the address the transaction deleted");
+    assertThat(carryOver(transaction))
+        .as("Expected a collision with the address the transaction deleted")
+        .isEmpty();
   }
 
   @Test
@@ -764,7 +759,7 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
-  void runThatDeletedTheMiningBeneficiaryCollidesEvenCarryingCredits() {
+  void runThatDeletedTheMiningBeneficiaryCollides() {
     final Address sender = Address.fromHexString("0x1");
     final Address beneficiary = Address.fromHexString("0x9");
     trxUpdater.recordBalanceObservations();
@@ -844,7 +839,7 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
-  void chainedTransactionThatTouchedTheMiningBeneficiaryCollidesEvenCarryingCredits() {
+  void chainedTransactionThatTouchedTheMiningBeneficiaryCollides() {
     final Address sender = Address.fromHexString("0x1");
     final Address beneficiary = Address.fromHexString("0x9");
     final BonsaiAccount parent = createAccount(sender, 0, 100);
@@ -1070,16 +1065,12 @@ class TransactionCollisionDetectorTest {
         "Expected a collision when the block cleared a storage the transaction touched");
   }
 
-  private boolean hasCollisionCarryingCredits(
-      final Transaction transaction, final Map<Address, CarriedAccount> carriedAccounts) {
-    final Optional<Map<Address, CarriedAccount>> carried =
-        collisionDetector.carryOverIfNoCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-    carried.ifPresent(carriedAccounts::putAll);
-    return carried.isEmpty();
+  private Optional<Map<Address, CarriedAccount>> carryOver(final Transaction transaction) {
+    return collisionDetector.carryOverIfNoCollision(
+        transaction,
+        Address.ZERO,
+        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+        bonsaiUpdater);
   }
 
   private Transaction creditScenario(final long creditedBalance) {
@@ -1105,10 +1096,9 @@ class TransactionCollisionDetectorTest {
 
   @Test
   void creditToAnAccountWhoseBalanceChangedIsCarriedOver() {
-    final Map<Address, CarriedAccount> carried = new HashMap<>();
-
-    assertFalse(hasCollisionCarryingCredits(creditScenario(55), carried));
-    assertThat(carried).containsOnlyKeys(Address.fromHexString("0x2"));
+    // the run's credit of 5 on the block's balance of 70
+    assertThat(carryOver(creditScenario(55)))
+        .contains(Map.of(Address.fromHexString("0x2"), new CarriedAccount(Wei.of(75), 1)));
   }
 
   @Test
@@ -1116,12 +1106,12 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = creditScenario(55);
     trxUpdater.observeBalance(Address.fromHexString("0x2"));
 
-    assertTrue(hasCollisionCarryingCredits(transaction, new HashMap<>()));
+    assertThat(carryOver(transaction)).isEmpty();
   }
 
   @Test
   void spendingFromAnAccountWhoseBalanceChangedIsACollision() {
-    assertTrue(hasCollisionCarryingCredits(creditScenario(45), new HashMap<>()));
+    assertThat(carryOver(creditScenario(45))).isEmpty();
   }
 
   @Test
@@ -1129,10 +1119,9 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = creditScenario(45);
     // the transaction found 50 where it spent 10
     trxUpdater.observeSufficientBalance(Address.fromHexString("0x2"), Wei.of(40));
-    final Map<Address, CarriedAccount> carried = new HashMap<>();
-
-    assertFalse(hasCollisionCarryingCredits(transaction, carried));
-    assertThat(carried).containsOnlyKeys(Address.fromHexString("0x2"));
+    // the run's spending of 5 on the block's balance of 70
+    assertThat(carryOver(transaction))
+        .contains(Map.of(Address.fromHexString("0x2"), new CarriedAccount(Wei.of(65), 1)));
   }
 
   @Test
@@ -1152,7 +1141,7 @@ class TransactionCollisionDetectorTest {
     // the transaction found 50 where it spent 45
     trxUpdater.observeSufficientBalance(spent, Wei.of(5));
 
-    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, spent), new HashMap<>()));
+    assertThat(carryOver(createTransaction(sender, spent))).isEmpty();
   }
 
   @Test
@@ -1195,7 +1184,7 @@ class TransactionCollisionDetectorTest {
             credited,
             new BonsaiValue<>(createAccount(credited, 0, 50), createAccount(credited, 0, 60)));
 
-    assertTrue(hasCollisionCarryingCredits(createTransaction(sender, credited), new HashMap<>()));
+    assertThat(carryOver(createTransaction(sender, credited))).isEmpty();
   }
 
   private Transaction senderScenario(final long blockBalance) {
@@ -1216,15 +1205,14 @@ class TransactionCollisionDetectorTest {
 
   @Test
   void senderBalanceTheBlockRaisedIsCarriedOver() {
-    final Map<Address, CarriedAccount> carried = new HashMap<>();
-
-    assertFalse(hasCollisionCarryingCredits(senderScenario(70), carried));
-    assertThat(carried).containsOnlyKeys(Address.fromHexString("0x1"));
+    // the run's spending of 10 on the block's balance of 70, and the run's nonce
+    assertThat(carryOver(senderScenario(70)))
+        .contains(Map.of(Address.fromHexString("0x1"), new CarriedAccount(Wei.of(60), 2)));
   }
 
   @Test
   void senderBalanceTheBlockLoweredIsACollision() {
-    assertTrue(hasCollisionCarryingCredits(senderScenario(45), new HashMap<>()));
+    assertThat(carryOver(senderScenario(45))).isEmpty();
   }
 
   @Test
@@ -1232,7 +1220,7 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = senderScenario(70);
     trxUpdater.observeBalance(Address.fromHexString("0x1"));
 
-    assertTrue(hasCollisionCarryingCredits(transaction, new HashMap<>()));
+    assertThat(carryOver(transaction)).isEmpty();
   }
 
   @Test
@@ -1246,9 +1234,7 @@ class TransactionCollisionDetectorTest {
         .getAccountsToUpdate()
         .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 40)));
 
-    assertTrue(
-        hasCollisionCarryingCredits(
-            createTransaction(sender, Address.fromHexString("0x3")), new HashMap<>()));
+    assertThat(carryOver(createTransaction(sender, Address.fromHexString("0x3")))).isEmpty();
   }
 
   /**
@@ -1278,14 +1264,9 @@ class TransactionCollisionDetectorTest {
   void nonceTheBlockChangedIsKeptForAnAccountTheTransactionPaid() {
     final Address paid = Address.fromHexString("0x2");
     nonceScenario(paid, 1, 1);
-    final Map<Address, CarriedAccount> carried = new HashMap<>();
-
-    assertFalse(
-        hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), paid), carried));
-    assertThat(carried).containsOnlyKeys(paid);
     // the run's credit of 5 on the block's balance of 70, and the block's nonce
-    assertThat(carried.get(paid)).isEqualTo(new CarriedAccount(Wei.of(75), 2));
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), paid)))
+        .contains(Map.of(paid, new CarriedAccount(Wei.of(75), 2)));
   }
 
   @Test
@@ -1313,10 +1294,9 @@ class TransactionCollisionDetectorTest {
                 createAccount(account, 1, 50, delegation),
                 createAccount(account, 1, 55, delegation)));
 
-    assertTrue(
-        hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), account), new HashMap<>()),
-        "Expected a collision as the block changed the account's code");
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), account)))
+        .as("Expected a collision as the block changed the account's code")
+        .isEmpty();
   }
 
   @Test
@@ -1331,9 +1311,7 @@ class TransactionCollisionDetectorTest {
         .getAccountsToUpdate()
         .put(contract, new BonsaiValue<>(createContract(contract, 1), createContract(contract, 1)));
 
-    assertTrue(
-        hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), contract), new HashMap<>()));
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), contract))).isEmpty();
   }
 
   @Test
@@ -1343,9 +1321,7 @@ class TransactionCollisionDetectorTest {
     final Address paid = Address.fromHexString("0x2");
     nonceScenario(paid, 0, 0);
 
-    assertTrue(
-        hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), paid), new HashMap<>()));
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), paid))).isEmpty();
   }
 
   @Test
@@ -1353,9 +1329,7 @@ class TransactionCollisionDetectorTest {
     final Address paid = Address.fromHexString("0x2");
     nonceScenario(paid, 1, 2);
 
-    assertTrue(
-        hasCollisionCarryingCredits(
-            createTransaction(Address.fromHexString("0x1"), paid), new HashMap<>()));
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), paid))).isEmpty();
   }
 
   @Test
@@ -1384,6 +1358,6 @@ class TransactionCollisionDetectorTest {
             .sender(Address.fromHexString("0x1"))
             .build();
 
-    assertTrue(hasCollisionCarryingCredits(transaction, new HashMap<>()));
+    assertThat(carryOver(transaction)).isEmpty();
   }
 }
