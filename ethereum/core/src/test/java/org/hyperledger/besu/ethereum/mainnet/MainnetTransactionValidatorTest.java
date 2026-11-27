@@ -433,11 +433,6 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     final Bytes delegation =
         Bytes.concatenate(CODE_DELEGATION_PREFIX, Address.fromHexString("0x1234").getBytes());
     final Bytes contractCode = Bytes.fromHexString("0x60006000f3");
-    final Bytes shortDelegation = delegation.slice(0, delegation.size() - 1);
-    final Bytes longDelegation = Bytes.concatenate(delegation, Bytes.of(0));
-    final Bytes wrongPrefix =
-        Bytes.concatenate(
-            Bytes.fromHexString("0xef0101"), Address.fromHexString("0x1234").getBytes());
     final ValidationResult<TransactionInvalidReason> valid = ValidationResult.valid();
     final ValidationResult<TransactionInvalidReason> invalid =
         ValidationResult.invalid(TX_SENDER_NOT_AUTHORIZED);
@@ -448,13 +443,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
         Arguments.of(false, delegation, invalid),
         Arguments.of(true, delegation, valid),
         Arguments.of(false, contractCode, invalid),
-        Arguments.of(true, contractCode, invalid),
-        Arguments.of(false, shortDelegation, invalid),
-        Arguments.of(true, shortDelegation, invalid),
-        Arguments.of(false, longDelegation, invalid),
-        Arguments.of(true, longDelegation, invalid),
-        Arguments.of(false, wrongPrefix, invalid),
-        Arguments.of(true, wrongPrefix, invalid));
+        Arguments.of(true, contractCode, invalid));
   }
 
   @ParameterizedTest

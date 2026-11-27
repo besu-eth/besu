@@ -164,11 +164,16 @@ public class MainnetProtocolSpecsTest {
     sender.setCode(
         Bytes.concatenate(CODE_DELEGATION_PREFIX, Address.fromHexString("0x1234").getBytes()));
 
+    assertTransactionIsValid(validator, transaction);
+    return validator.validateForSender(transaction, sender, processingBlockParams);
+  }
+
+  private void assertTransactionIsValid(
+      final TransactionValidator validator, final Transaction transaction) {
     assertThat(
             validator.validate(
                 transaction, Optional.of(Wei.ZERO), Optional.empty(), processingBlockParams))
         .isEqualTo(ValidationResult.valid());
-    return validator.validateForSender(transaction, sender, processingBlockParams);
   }
 
   @Test

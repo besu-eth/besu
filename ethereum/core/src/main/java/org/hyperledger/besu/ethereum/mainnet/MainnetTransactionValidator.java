@@ -368,6 +368,8 @@ public class MainnetTransactionValidator implements TransactionValidator {
   }
 
   private boolean canSendTransaction(final Account sender, final Hash codeHash) {
+    // EIP-3607 rejects senders with code. EIP-7702 exempts a delegation designator only from
+    // Prague, when DELEGATE_CODE transactions are accepted.
     return codeHash.equals(Hash.EMPTY)
         || (acceptedTransactionTypes.contains(TransactionType.DELEGATE_CODE)
             && hasCodeDelegation(sender.getCode()));
