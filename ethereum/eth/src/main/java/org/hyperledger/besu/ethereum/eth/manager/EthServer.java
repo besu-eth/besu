@@ -517,6 +517,13 @@ class EthServer {
     final Iterable<Hash> hashes = getCells.pooledTransactions();
     final CellMask reqCellMask = getCells.cellMask();
 
+    if (reqCellMask.isEmpty()) {
+      // A request for no cells would match every blob transaction named, since an empty mask is
+      // contained in any held one: answer with the nothing that was asked for, instead of echoing
+      // the hashes back with empty cell groups attached.
+      return CellsMessage.create(List.of(), List.of(), reqCellMask);
+    }
+
     final boolean traceEnabled = LOG.isTraceEnabled();
     final Iterable<Hash> hashesToProcess;
     if (traceEnabled) {

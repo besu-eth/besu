@@ -73,6 +73,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -788,6 +789,86 @@ public class EthServerTest {
   }
 
   @Test
+  public void shouldLimitTheNumberOfTransactionsServedCells() {
+    final List<Transaction> txs = setupBlobTransactions(3, 1);
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool,
+            ethPeer,
+            GetCellsMessage.create(txs, CellMask.FULL),
+            2,
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).containsExactly(txs.get(0).getHash(), txs.get(1).getHash());
+  }
+
+  @Test
+  public void shouldOmitATransactionWhoseCellsDoNotCoverTheRequest() {
+    // The responder may truncate how many transactions it answers for, but not which cells: the
+    // response carries one mask for all of them, so a transaction this node holds too little of
+    // is left out rather than answered short.
+    final Transaction halfHeld = setupBlobTransactions(1, 1, range(0, 64)).getFirst();
+    final Transaction fullyHeld = setupBlobTransactions(1, 1, CellMask.FULL).getFirst();
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool,
+            ethPeer,
+            GetCellsMessage.create(List.of(halfHeld, fullyHeld), CellMask.FULL),
+            16,
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).containsExactly(fullyHeld.getHash());
+  }
+
+  @Test
+  public void shouldServeExactlyTheRequestedCells() {
+    // Each synthetic cell's bytes repeat its own index, so the content says which cell was picked.
+    final List<Transaction> txs = setupBlobTransactions(1, 2);
+    final CellMask requestedMask = range(32, 48);
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool,
+            ethPeer,
+            GetCellsMessage.create(txs, requestedMask),
+            16,
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.cellMask()).isEqualTo(requestedMask);
+    final List<Cell> served = cells.cellsList().getFirst();
+    // blob major: for each of the 2 blobs in turn, the requested cells by ascending index
+    assertThat(served.stream().map(cell -> (int) cell.getData().get(0)).toList())
+        .containsExactlyElementsOf(
+            Stream.concat(
+                    requestedMask.streamIndexes().boxed(), requestedMask.streamIndexes().boxed())
+                .toList());
+  }
+
+  @Test
+  public void shouldAnswerAnEmptyMaskRequestWithAnEmptyResponse() {
+    // An empty mask is contained in every held one, so without the short circuit each named blob
+    // transaction would come back with an empty cell group attached — wire-valid noise.
+    final List<Transaction> txs = setupBlobTransactions(1, 1);
+
+    final MessageData response =
+        EthServer.constructGetCellsResponse(
+            transactionPool,
+            ethPeer,
+            GetCellsMessage.create(txs, CellMask.EMPTY),
+            16,
+            EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+
+    final CellsMessage cells = CellsMessage.readFrom(response);
+    assertThat(cells.txHashes()).isEmpty();
+    assertThat(cells.cellsList()).isEmpty();
+  }
+
+  @Test
   public void shouldReturnEmptyCellsResponseWhenNothingFitsTheMessageSize() {
     final List<Transaction> txs = setupBlobTransactions(1, 6);
 
@@ -828,7 +909,16 @@ public class EthServerTest {
    * Blob transactions whose cells are synthetic: the server serves cells without verifying them, so
    * sizing behaviour can be exercised without a KZG trusted setup.
    */
+  /** Distinguishes the blob transactions of one test from another's, hash collisions included. */
+  private byte blobTxSeed = 0;
+
   private List<Transaction> setupBlobTransactions(final int count, final int blobsPerTx) {
+    return setupBlobTransactions(count, blobsPerTx, CellMask.FULL);
+  }
+
+  /** Each cell's bytes repeat its own index, so a served cell says which one it is. */
+  private List<Transaction> setupBlobTransactions(
+      final int count, final int blobsPerTx, final CellMask heldMask) {
     final List<Transaction> txs = new ArrayList<>(count);
     for (int t = 0; t < count; t++) {
       final List<KZGCommitment> commitments = new ArrayList<>(blobsPerTx);
@@ -836,12 +926,12 @@ public class EthServerTest {
       final List<KZGProof> proofs = new ArrayList<>(blobsPerTx * CELL_PROOFS_PER_BLOB);
       final List<VersionedHash> versionedHashes = new ArrayList<>(blobsPerTx);
       for (int b = 0; b < blobsPerTx; b++) {
-        final List<Cell> cells = new ArrayList<>(CELLS_PER_EXT_BLOB);
-        for (int c = 0; c < CELLS_PER_EXT_BLOB; c++) {
-          cells.add(new Cell(Bytes.repeat((byte) c, Cell.SIZE)));
-        }
+        final List<Cell> cells = new ArrayList<>(heldMask.cardinality());
+        heldMask
+            .streamIndexes()
+            .forEach(index -> cells.add(new Cell(Bytes.repeat((byte) index, Cell.SIZE))));
         commitments.add(new KZGCommitment(Bytes48.wrap(Bytes.repeat((byte) 1, 48))));
-        cellsWithMasks.add(new CellsWithMask(cells, CellMask.FULL));
+        cellsWithMasks.add(new CellsWithMask(cells, heldMask));
         // Proofs are never elided on the wire, so every blob carries a full set of them.
         proofs.addAll(
             Collections.nCopies(
@@ -852,7 +942,7 @@ public class EthServerTest {
                     Bytes.concatenate(Bytes.of((byte) 1), Bytes.repeat((byte) (t + 3), 31)))));
       }
       final Transaction tx = mock(Transaction.class);
-      final Hash hash = Hash.wrap(Bytes32.wrap(Bytes.repeat((byte) (t + 1), 32)));
+      final Hash hash = Hash.wrap(Bytes32.wrap(Bytes.repeat(++blobTxSeed, 32)));
       when(tx.getHash()).thenReturn(hash);
       when(tx.getType()).thenReturn(TransactionType.BLOB);
       when(tx.getBlobsWithCommitments())
@@ -864,6 +954,15 @@ public class EthServerTest {
       txs.add(tx);
     }
     return txs;
+  }
+
+  private static CellMask range(final int fromInclusive, final int toExclusive) {
+    final BitSet bits = new BitSet(CELLS_PER_EXT_BLOB);
+    bits.set(fromInclusive, toExclusive);
+    final byte[] bytes = new byte[CellMask.BYTE_LENGTH];
+    final byte[] set = bits.toByteArray();
+    System.arraycopy(set, 0, bytes, 0, set.length);
+    return CellMask.fromBytes(Bytes.wrap(bytes));
   }
 
   private List<Transaction> setupTransactions(final int count) {

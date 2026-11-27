@@ -106,6 +106,11 @@ public class GetCellsFromPeerTask implements PeerTask<List<CellsWithMask>> {
               .formatted(resCellMask.toString(), requestedCellMask.toString()));
     }
 
+    if (resCellMask.isEmpty()) {
+      LOG.debug("Received an empty cell mask for tx hash {}", requestedTx.getHash());
+      return List.of();
+    }
+
     // The responder MAY truncate its response, so receiving fewer cells than requested is valid.
     if (!resCellMask.containsAll(requestedCellMask)) {
       LOG.atTrace()
@@ -173,6 +178,12 @@ public class GetCellsFromPeerTask implements PeerTask<List<CellsWithMask>> {
    * been merged, a single bad cell condemns the whole transaction with nothing to say who supplied
    * it. It also keeps cells that open nothing out of the recovery that rebuilds the blobs, which
    * would otherwise produce a blob that is merely wrong.
+   *
+   * <p>Only the verification's verdict blames the peer. The KZG boundary answers false for cell
+   * content that does not even deserialize, so everything the peer controls lands in the verdict;
+   * anything thrown here — the trusted setup failing to load, a result shape {@link
+   * #processResponse} cannot produce — is a local bug, and propagates to be seen as one rather than
+   * costing the peer its connection.
    */
   @Override
   public PeerTaskValidationResponse validateResult(final List<CellsWithMask> result) {
@@ -182,20 +193,13 @@ public class GetCellsFromPeerTask implements PeerTask<List<CellsWithMask>> {
     }
 
     final BlobsWithCommitments blobs = requestedTx.getBlobsWithCommitments().orElseThrow();
-    final boolean valid;
-    try {
-      valid =
-          CKZG4844Helper.verify4844Kzg(
-              BlobsWithCommitments.createFromBlobCells(
-                  blobs.getKzgCommitments(),
-                  result,
-                  blobs.getKzgProofs(),
-                  blobs.getVersionedHashes()));
-    } catch (final RuntimeException e) {
-      // anything that does not fit the sidecar at all, which is no better than rubbish
-      LOG.debug("Cells answered for tx {} do not fit its sidecar", requestedTx.getHash(), e);
-      return PeerTaskValidationResponse.INVALID_CELLS_RETURNED;
-    }
+    final boolean valid =
+        CKZG4844Helper.verify4844Kzg(
+            BlobsWithCommitments.createFromBlobCells(
+                blobs.getKzgCommitments(),
+                result,
+                blobs.getKzgProofs(),
+                blobs.getVersionedHashes()));
 
     return valid
         ? PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD

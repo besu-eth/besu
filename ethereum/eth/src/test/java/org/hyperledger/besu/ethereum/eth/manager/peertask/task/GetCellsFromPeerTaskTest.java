@@ -15,22 +15,31 @@
 package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.CellsOnlyBlobTransactionFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
+import org.hyperledger.besu.ethereum.core.kzg.Cell;
 import org.hyperledger.besu.ethereum.core.kzg.CellMask;
 import org.hyperledger.besu.ethereum.core.kzg.CellsWithMask;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
+import org.hyperledger.besu.ethereum.eth.messages.CellsMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 
+import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -101,14 +110,143 @@ class GetCellsFromPeerTaskTest extends TrustedSetupClassLoaderExtension {
   }
 
   @Test
-  void rejectsAnAnswerThatDoesNotFitTheSidecar() {
-    // One cell list for a transaction that carries one blob, but two blobs' worth of them.
+  void rejectsCellContentThatDoesNotDecode() {
+    // Well shaped and well sized, but bytes that are not field elements at all. The KZG boundary
+    // answers false for these rather than throwing, so garbage content still reads as a peer
+    // sending wrong cells, not as a local failure.
+    final List<Cell> garbage =
+        Collections.nCopies(
+            REQUESTED.cardinality(), new Cell(Bytes.repeat((byte) 0xFF, Cell.SIZE)));
+
+    assertThat(task.validateResult(List.of(new CellsWithMask(garbage, REQUESTED))))
+        .isEqualTo(PeerTaskValidationResponse.INVALID_CELLS_RETURNED);
+  }
+
+  @Test
+  void surfacesAResultThatCouldNotComeFromItsOwnDecoding() {
+    // Two blobs' worth of groups for a one-blob transaction cannot leave processResponse, so it
+    // is a local bug: it propagates to be seen as one, instead of blaming the peer for it.
     final List<CellsWithMask> tooMany =
         List.of(
             cellsOf(fullSidecar, REQUESTED).getFirst(), cellsOf(fullSidecar, REQUESTED).getFirst());
 
-    assertThat(task.validateResult(tooMany))
-        .isEqualTo(PeerTaskValidationResponse.INVALID_CELLS_RETURNED);
+    assertThatThrownBy(() -> task.validateResult(tooMany))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void returnsNothingForAnAnswerNamingNoTransaction() throws Exception {
+    final CellsMessage response = CellsMessage.create(List.of(), List.of(), CellMask.EMPTY);
+
+    assertThat(task.processResponse(response, Set.of())).isEmpty();
+  }
+
+  @Test
+  void treatsAnEmptyMaskAsAnEmptyAnswer() throws Exception {
+    // A responder that truncated to nothing still names the hash. That reads as the allowed empty
+    // answer, not as one cell-less result per blob for validateResult to accept as if cells came.
+    final CellsMessage response =
+        CellsMessage.create(List.of(requestedTx.getHash()), List.of(List.of()), CellMask.EMPTY);
+
+    assertThat(task.processResponse(response, Set.of())).isEmpty();
+  }
+
+  @Test
+  void rejectsAnAnswerForMoreTransactionsThanTheOneAsked() {
+    final CellsMessage response =
+        CellsMessage.create(
+            List.of(requestedTx.getHash(), otherHash()),
+            List.of(fullCells(), fullCells()),
+            REQUESTED);
+
+    assertThatThrownBy(() -> task.processResponse(response, Set.of()))
+        .isInstanceOf(InvalidPeerTaskResponseException.class);
+  }
+
+  @Test
+  void rejectsAnAnswerForAnotherTransaction() {
+    final CellsMessage response =
+        CellsMessage.create(List.of(otherHash()), List.of(fullCells()), REQUESTED);
+
+    assertThatThrownBy(() -> task.processResponse(response, Set.of()))
+        .isInstanceOf(InvalidPeerTaskResponseException.class);
+  }
+
+  @Test
+  void rejectsAMaskBeyondTheRequestedOne() {
+    final GetCellsFromPeerTask halfTask = new GetCellsFromPeerTask(requestedTx, range(0, 64));
+    final CellsMessage response =
+        CellsMessage.create(List.of(requestedTx.getHash()), List.of(fullCells()), REQUESTED);
+
+    assertThatThrownBy(() -> halfTask.processResponse(response, Set.of()))
+        .isInstanceOf(InvalidPeerTaskResponseException.class);
+  }
+
+  @Test
+  void rejectsACellCountThatDoesNotMatchTheBlobCount() {
+    // Two blobs' worth of cells for a one-blob transaction. A count that is not a multiple of the
+    // mask's cardinality never gets this far: the message decoding already rejects it.
+    final List<Cell> doubled = new ArrayList<>(fullCells());
+    doubled.addAll(fullCells());
+    final CellsMessage response =
+        CellsMessage.create(List.of(requestedTx.getHash()), List.of(doubled), REQUESTED);
+
+    assertThatThrownBy(() -> task.processResponse(response, Set.of()))
+        .isInstanceOf(InvalidPeerTaskResponseException.class);
+  }
+
+  @Test
+  void rejectsACellListCountThatDoesNotMatchTheHashes() {
+    // One hash with two cell groups cannot be built through CellsMessage.create, so craft the
+    // body by hand; such a message is malformed at decode, before the task's own checks see it.
+    final BytesValueRLPOutput hashesOut = new BytesValueRLPOutput();
+    hashesOut.writeList(List.of(requestedTx.getHash()), (h, w) -> w.writeBytes(h.getBytes()));
+    final BytesValueRLPOutput cellsOut = new BytesValueRLPOutput();
+    cellsOut.writeList(
+        List.of(fullCells(), fullCells()), (cells, w) -> w.writeList(cells, Cell::writeTo));
+    final BytesValueRLPOutput maskOut = new BytesValueRLPOutput();
+    maskOut.writeBytes(REQUESTED.toBytes());
+    final CellsMessage response =
+        CellsMessage.createUnsafe(
+            Bytes.concatenate(hashesOut.encoded(), cellsOut.encoded(), maskOut.encoded()));
+
+    assertThatThrownBy(() -> task.processResponse(response, Set.of()))
+        .isInstanceOf(MalformedRlpFromPeerException.class);
+  }
+
+  @Test
+  void splitsAMultiBlobAnswerIntoOneGroupPerBlob() throws Exception {
+    // A group arrives blob major: for each blob in transaction order, its cells by ascending
+    // index. The split must hand each blob its own contiguous run, under the answered mask.
+    final BlobsWithCommitments twoBlobs =
+        CKZG4844Helper.convertToVersion1(blobTestFixture.createBlobsWithCommitments(2));
+    final Transaction twoBlobTx =
+        new CellsOnlyBlobTransactionFixture()
+            .create(
+                BlobsWithCommitments.createFromBlobCells(
+                    twoBlobs.getKzgCommitments(),
+                    List.of(CellsWithMask.EMPTY, CellsWithMask.EMPTY),
+                    twoBlobs.getKzgProofs(),
+                    twoBlobs.getVersionedHashes()));
+    final GetCellsFromPeerTask twoBlobTask = new GetCellsFromPeerTask(twoBlobTx, REQUESTED);
+
+    final CellMask served = range(0, 64);
+    final List<CellsWithMask> perBlob = cellsOf(twoBlobs, served);
+    final List<Cell> blobMajor = new ArrayList<>();
+    perBlob.forEach(group -> blobMajor.addAll(group.getCells()));
+    final CellsMessage response =
+        CellsMessage.create(List.of(twoBlobTx.getHash()), List.of(blobMajor), served);
+
+    final List<CellsWithMask> result = twoBlobTask.processResponse(response, Set.of());
+
+    assertThat(result).hasSize(2);
+    for (int blob = 0; blob < 2; blob++) {
+      assertThat(result.get(blob).getCellMask()).isEqualTo(served);
+      assertThat(result.get(blob).getCells()).isEqualTo(perBlob.get(blob).getCells());
+    }
+    // and the split agrees with the sidecar itself, not merely with how this test built the list
+    assertThat(twoBlobTask.validateResult(result))
+        .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
   }
 
   @Test
@@ -136,6 +274,15 @@ class GetCellsFromPeerTaskTest extends TrustedSetupClassLoaderExtension {
     final EthPeerImmutableAttributes attributes = Mockito.mock(EthPeerImmutableAttributes.class);
     Mockito.when(attributes.ethPeer()).thenReturn(peer);
     return attributes;
+  }
+
+  /** A full blob's worth of real cells, for answers whose shape, not content, is under test. */
+  private List<Cell> fullCells() {
+    return cellsOf(fullSidecar, REQUESTED).getFirst().getCells();
+  }
+
+  private static Hash otherHash() {
+    return Hash.hash(Bytes.of(0x01));
   }
 
   private static List<CellsWithMask> cellsOf(
