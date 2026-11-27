@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.internal.InterruptibleExecution;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -79,6 +81,10 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
   // chained runs of transactions whose sender was recovered only after they ran alone
   private volatile AtomicReferenceArray<CompletableFuture<ParallelizedTransactionContext>>
       lateChainFutures = new AtomicReferenceArray<>(0);
+  // One handle per chain task, interrupted only by abort(): a chain stops at its next member
+  // boundary when the serial loop passes or a member's future is cancelled, and an overtaken
+  // member runs on to pass its state to the rest, so only a dropped block kills one mid-member.
+  private volatile List<InterruptibleExecution> chainExecutions = List.of();
   // senders recovered per task, few enough to spread over the executor's threads
   private static final int SENDER_RECOVERY_BATCH = 8;
   // A member's result holds everything the members before it changed, which the serial loop
@@ -172,7 +178,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
     }
 
     futures = new CompletableFuture[transactions.size()];
+    executionSlots = new InterruptibleExecution[transactions.size()];
     lateChainFutures = new AtomicReferenceArray<>(transactions.size());
+    chainExecutions = new CopyOnWriteArrayList<>();
     // The serial loop needs the first runs at once. The recoveries go right behind them, ahead of
     // the other runs, as chaining the unknown senders waits for every recovery.
     final int recoverAt = Math.min(runsAheadOfRecovery, transactions.size());
@@ -185,22 +193,26 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       final List<Integer> chain = senders[i] == null ? null : capped(bySender.get(senders[i]), 0);
       if (chain == null || chain.size() == 1 || i > chain.get(chain.size() - 1)) {
         final int txIndex = i;
+        final InterruptibleExecution executionSlot = new InterruptibleExecution();
+        executionSlots[i] = executionSlot;
         futures[i] =
             CompletableFuture.supplyAsync(
                 () ->
-                    serialLoopHasPassed(txIndex)
-                        ? null
-                        : runTransaction(
-                            protocolContext,
-                            blockHeader,
-                            txIndex,
-                            transaction,
-                            miningBeneficiary,
-                            blockHashLookup,
-                            blobGasPrice,
-                            blockAccessListBuilder,
-                            maybeParentHeader,
-                            null),
+                    executionSlot.run(
+                        () ->
+                            serialLoopHasPassed(txIndex)
+                                ? null
+                                : runTransaction(
+                                    protocolContext,
+                                    blockHeader,
+                                    txIndex,
+                                    transaction,
+                                    miningBeneficiary,
+                                    blockHashLookup,
+                                    blobGasPrice,
+                                    blockAccessListBuilder,
+                                    maybeParentHeader,
+                                    null)),
                 executor);
       } else if (chain.get(0) == i) {
         final List<CompletableFuture<ParallelizedTransactionContext>> chainFutures =
@@ -209,21 +221,25 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           futures[member] = new CompletableFuture<>();
           chainFutures.add(futures[member]);
         }
+        final InterruptibleExecution chainExecution = new InterruptibleExecution();
+        chainExecutions.add(chainExecution);
         executor.execute(
             () ->
-                runChain(
-                    protocolContext,
-                    blockHeader,
-                    transactions,
-                    chain,
-                    chainFutures,
-                    0,
-                    null,
-                    miningBeneficiary,
-                    blockHashLookup,
-                    blobGasPrice,
-                    blockAccessListBuilder,
-                    maybeParentHeader));
+                chainExecution.run(
+                    () ->
+                        runChain(
+                            protocolContext,
+                            blockHeader,
+                            transactions,
+                            chain,
+                            chainFutures,
+                            0,
+                            null,
+                            miningBeneficiary,
+                            blockHashLookup,
+                            blobGasPrice,
+                            blockAccessListBuilder,
+                            maybeParentHeader)));
         // a member runs only after its predecessors, so what it reads is fetched meanwhile
         for (int k = 1; k < chain.size(); k++) {
           final int member = chain.get(k);
@@ -396,19 +412,23 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       dropFrom(chainFutures, 1);
       return;
     }
-    runChain(
-        protocolContext,
-        blockHeader,
-        transactions,
-        chain,
-        chainFutures,
-        1,
-        first.transactionAccumulator(),
-        miningBeneficiary,
-        blockHashLookup,
-        blobGasPrice,
-        blockAccessListBuilder,
-        maybeParentHeader);
+    final InterruptibleExecution chainExecution = new InterruptibleExecution();
+    chainExecutions.add(chainExecution);
+    chainExecution.run(
+        () ->
+            runChain(
+                protocolContext,
+                blockHeader,
+                transactions,
+                chain,
+                chainFutures,
+                1,
+                first.transactionAccumulator(),
+                miningBeneficiary,
+                blockHashLookup,
+                blobGasPrice,
+                blockAccessListBuilder,
+                maybeParentHeader));
   }
 
   /**
@@ -539,12 +559,14 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
 
   /**
    * Also stops what the futures of the block do not cover: the late chains and the chains and
-   * warm-ups not started yet skip every transaction once the block is done with.
+   * warm-ups not started yet skip every transaction once the block is done with, and a chain
+   * mid-member is interrupted so the kill switch stops it at its next poll.
    */
   @Override
   public void abort() {
     serialLoopPosition.set(Integer.MAX_VALUE);
     super.abort();
+    chainExecutions.forEach(InterruptibleExecution::interrupt);
   }
 
   @Override
@@ -790,7 +812,11 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       }
     }
     if (future != null) {
+      // the block importer re-executes this transaction sequentially, so the still-running
+      // speculative execution is useless for its result: cancel its future and stop its thread,
+      // freeing its CPU for the executions the importer still needs
       future.cancel(true);
+      interruptSlot(transactionLocation);
     }
     return Optional.empty();
   }
