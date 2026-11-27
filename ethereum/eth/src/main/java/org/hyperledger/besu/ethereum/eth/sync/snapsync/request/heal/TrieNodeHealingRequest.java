@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.patricia.TrieNodeDecoder;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -45,7 +46,11 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   private final Bytes location;
   protected Bytes data;
 
-  protected AtomicBoolean requiresPersisting = new AtomicBoolean(true);
+  // false when the node is already stored, so that it is only counted in its parent
+  private volatile boolean requiresPersisting = true;
+
+  // set once the node is persisted and counted in its parent, so that it is counted only once
+  private final AtomicBoolean persisted = new AtomicBoolean(false);
 
   protected TrieNodeHealingRequest(final Hash nodeHash, final Hash rootHash, final Bytes location) {
     super(TRIE_NODE, rootHash);
@@ -60,13 +65,25 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
       final WorldStateKeyValueStorage.Updater updater,
       final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
-      final SnapSyncConfiguration snapSyncConfiguration) {
+      final SnapSyncConfiguration snapSyncConfiguration,
+      final UndoLog undoLog) {
     if (isExpired(snapSyncState) || pendingChildren.get() > 0) {
       // we do nothing. Our last child will eventually persist us.
       return 0;
     }
+    if (!isResponseReceived()) {
+      // the data was cleared to retry a failed write, so writing it now would store an empty
+      // value under the node's hash; the retried download persists the node
+      return 0;
+    }
+    if (!persisted.compareAndSet(false, true)) {
+      // a child counted in this node again after its failed batch was undone, but another batch
+      // had already persisted this node
+      return 0;
+    }
+    undoLog.add(() -> persisted.set(false));
     int saved = 0;
-    if (requiresPersisting.getAndSet(false)) {
+    if (requiresPersisting) {
       checkNotNull(data, "Must set data before node can be persisted.");
       saved =
           doPersist(
@@ -84,7 +101,8 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
                   updater,
                   downloadState,
                   snapSyncState,
-                  snapSyncConfiguration)
+                  snapSyncConfiguration,
+                  undoLog)
           + saved;
     }
     return saved;
@@ -144,7 +162,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   }
 
   public boolean isRequiresPersisting() {
-    return requiresPersisting.get();
+    return requiresPersisting;
   }
 
   public Bytes32 getNodeHash() {
@@ -174,7 +192,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   }
 
   public void setRequiresPersisting(final boolean requiresPersisting) {
-    this.requiresPersisting.set(requiresPersisting);
+    this.requiresPersisting = requiresPersisting;
   }
 
   private boolean nodeIsHashReferencedDescendant(final Node<Bytes> node) {

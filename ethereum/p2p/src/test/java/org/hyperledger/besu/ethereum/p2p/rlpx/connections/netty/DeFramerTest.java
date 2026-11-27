@@ -36,7 +36,7 @@ import org.hyperledger.besu.ethereum.p2p.network.exceptions.PeerDisconnectedExce
 import org.hyperledger.besu.ethereum.p2p.network.exceptions.UnexpectedPeerConnectionException;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
-import org.hyperledger.besu.ethereum.p2p.peers.LocalNode;
+import org.hyperledger.besu.ethereum.p2p.peers.MutableLocalNode;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnectionEvents;
@@ -109,8 +109,7 @@ public class DeFramerTest {
           .discoveryAndListeningPorts(port)
           .nodeId(Peer.randomId())
           .build();
-  private final LocalNode localNode =
-      LocalNode.create(clientId, p2pVersion, capabilities, localEnode);
+  private final MutableLocalNode localNode = createLocalNode();
 
   private final Bytes authenticatedNodeId = Peer.randomId();
   private final DeFramer deFramer = createDeFramer(null, Optional.empty(), authenticatedNodeId);
@@ -270,6 +269,30 @@ public class DeFramerTest {
     verify(pipeline, times(1)).addLast(any(ChannelHandler[].class));
     deFramer.decode(ctx, nextData, out);
     assertThat(out.size()).isEqualTo(1);
+  }
+
+  @Test
+  public void decode_agreesOnTheCapabilitiesOfTheHelloSentEvenIfOneIsAddedMeanwhile()
+      throws ExecutionException, InterruptedException {
+    final ChannelFuture future = NettyMocks.channelFuture(false);
+    when(channel.closeFuture()).thenReturn(future);
+    final Capability eth69 = Capability.create("eth", 69);
+    final Peer peer = createRemotePeer();
+    final PeerInfo remotePeerInfo =
+        new PeerInfo(
+            p2pVersion, clientId, List.of(EthProtocolHelper.LATEST, eth69), 0, peer.getId());
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), peer.getId());
+    localNode.addCapability(eth69);
+
+    final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
+    final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
+    when(framer.deframe(eq(data)))
+        .thenReturn(new RawMessage(helloMessage.getCode(), helloMessage.getData()))
+        .thenReturn(null);
+    deFramer.decode(ctx, data, new ArrayList<>());
+
+    assertThat(connectFuture.get().getAgreedCapabilities())
+        .containsExactly(EthProtocolHelper.LATEST);
   }
 
   @Test
@@ -473,6 +496,12 @@ public class DeFramerTest {
             .build());
   }
 
+  private MutableLocalNode createLocalNode() {
+    final MutableLocalNode node = MutableLocalNode.create(clientId, p2pVersion, capabilities);
+    node.setEnode(localEnode);
+    return node;
+  }
+
   private PeerInfo createPeerInfo(final Peer forPeer) {
     return new PeerInfo(
         p2pVersion,
@@ -493,7 +522,7 @@ public class DeFramerTest {
     return new DeFramer(
         framer,
         Arrays.asList(MockSubProtocol.create("eth")),
-        localNode,
+        localNode.getPeerInfo().getCapabilities(),
         Optional.ofNullable(expectedPeer),
         connectionEventDispatcher,
         connectFuture,

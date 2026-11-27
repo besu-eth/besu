@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -32,7 +33,12 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public abstract class ParallelBlockTransactionProcessor {
+  private static final Logger LOG =
+      LoggerFactory.getLogger(ParallelBlockTransactionProcessor.class);
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
@@ -111,6 +117,33 @@ public abstract class ParallelBlockTransactionProcessor {
         .getWorldStateArchive()
         .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
         .map(BonsaiWorldState.class::cast);
+  }
+
+  /**
+   * Copies the transaction for a worker after recovering its sender and EIP-7702 authorities on the
+   * block's own transaction, which newPayload's signature precompute also uses, so each signature
+   * is recovered once.
+   */
+  protected static Transaction detachedCopyWithSigners(final Transaction transaction) {
+    recoverSender(transaction);
+    transaction.getCodeDelegationList().ifPresent(list -> list.forEach(CodeDelegation::authorizer));
+    return transaction.detachedCopy();
+  }
+
+  /**
+   * Recovers the sender of the block's transaction. A signature that recovers no sender is left to
+   * processing the transaction, which reports it.
+   */
+  protected static void recoverSender(final Transaction transaction) {
+    try {
+      transaction.getSender();
+    } catch (final IllegalStateException e) {
+      LOG.atTrace()
+          .setMessage("Could not recover the sender of transaction {}")
+          .addArgument(transaction::getHash)
+          .setCause(e)
+          .log();
+    }
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(

@@ -1,4 +1,7 @@
 name: BFT Soak Test
+# manual runs are named after the ref they test: that is the besu_ref input, not the branch
+# the run was started from, which is all the run list and the failure alerts otherwise show
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('BFT Soak Test ({0}{1})', inputs.besu_repo && format('{0}:', inputs.besu_repo) || '', inputs.besu_ref) || '' }}
 on:
   schedule:
     # Run once a day at 06:00 UTC

@@ -66,9 +66,9 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
   // Shared engine consensus API Vertx instance. Only read by OrderedExecutionJsonRpcMethod
-  // (engine_forkchoiceUpdated / engine_newPayload), which uses it to run calls on a dedicated
-  // single-threaded executor rather than spinning up a Vertx instance just for ordering; every
-  // other engine method computes its response directly on the calling thread.
+  // (engine_forkchoiceUpdated / engine_newPayload), which uses it to run each series on a
+  // single-threaded executor of its own rather than spinning up a Vertx instance just for ordering;
+  // every other engine method computes its response directly on the calling thread.
   protected final Vertx syncVertx;
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
@@ -114,9 +114,9 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
    * JsonRpcErrorResponse} instead of letting it propagate.
    *
    * <p>{@link #response} calls this directly; {@link OrderedExecutionJsonRpcMethod} overrides
-   * {@link #response} to instead run this on a dedicated single-threaded executor, for methods the
-   * Engine API spec requires to be processed serially in arrival order (e.g. {@code
-   * engine_forkchoiceUpdated}, {@code engine_newPayload}).
+   * {@link #response} to instead run this on a single-threaded executor of the method's series, for
+   * methods processed serially in arrival order ({@code engine_forkchoiceUpdated}, {@code
+   * engine_newPayload}).
    */
   protected final JsonRpcResponse computeResponseSafely(final JsonRpcRequestContext request) {
     logger()

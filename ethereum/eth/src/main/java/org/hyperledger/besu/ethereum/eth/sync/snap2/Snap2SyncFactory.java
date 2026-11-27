@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
+import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.snap2.chain.BalFetcher;
@@ -42,8 +43,11 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -64,6 +68,56 @@ public final class Snap2SyncFactory {
   private static final int BAL_ROUNDS = 60;
 
   private Snap2SyncFactory() {}
+
+  /**
+   * Returns the sync configuration with SNAP in place of SNAP2 until the fork that adds block
+   * access lists, which the SNAP2 sync moves its pivot with, and while a SNAP sync from an earlier
+   * start is unfinished. Started past the fork, SNAP2 waits for a pivot with a block access list
+   * after it.
+   *
+   * @param syncConfig the configured sync
+   * @param forkTime the time of the fork that adds block access lists, unsigned, if scheduled
+   * @param clock tells whether the fork passed
+   * @param dataDirectory the data directory of the node
+   * @return the sync configuration the node runs
+   */
+  public static SynchronizerConfiguration snap2OrSnap(
+      final SynchronizerConfiguration syncConfig,
+      final Optional<Long> forkTime,
+      final Clock clock,
+      final Path dataDirectory) {
+    if (syncConfig.getSyncMode() != SyncMode.SNAP2) {
+      return syncConfig;
+    }
+    final String reason;
+    if (SnapDownloaderFactory.isSyncInProgress(dataDirectory)) {
+      // SNAP2 cannot resume it, and would take the chain it imported for a finished sync
+      reason = "a SNAP sync from an earlier start did not finish";
+    } else if (forkTime.isEmpty()) {
+      reason = "no fork that adds block access lists is scheduled";
+    } else if (Long.compareUnsigned(clock.instant().getEpochSecond(), forkTime.get()) < 0) {
+      reason = "block access lists start with the fork at " + Long.toUnsignedString(forkTime.get());
+    } else {
+      return syncConfig;
+    }
+    LOG.info("Syncing with SNAP instead of SNAP2: {}", reason);
+    // otherwise a restart after the fork would wipe the state the SNAP sync downloaded
+    deleteUnfinishedSyncMarker(dataDirectory);
+    return syncConfig.withSyncMode(SyncMode.SNAP);
+  }
+
+  // before the fork that adds block access lists, SNAP2 cannot pick a pivot, so it downloaded
+  // nothing
+  private static void deleteUnfinishedSyncMarker(final Path dataDirectory) {
+    final Path marker = Snap2SyncController.markerFile(dataDirectory);
+    try {
+      if (Files.deleteIfExists(marker)) {
+        LOG.info("Dropped the SNAP2 sync that waited for block access lists");
+      }
+    } catch (final IOException e) {
+      throw new UncheckedIOException("cannot delete " + marker, e);
+    }
+  }
 
   /**
    * Creates the sync when the node holds nothing but genesis or the bare checkpoint header, when a
