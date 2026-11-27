@@ -50,8 +50,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         long preExecutionGasRefund,
         Bytes preExecutionReturnData,
         Map<UInt256, UInt256> storage,
-        ExceptionalHaltReason haltReason,
-        Bytes revertReason);
+        ExceptionalHaltReason haltReason);
   }
 
   private final FrameWriter frameWriter;
@@ -64,8 +63,8 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
    * Creates a streaming operation tracer.
    *
    * @param options The opcode tracer config (stack/memory/storage options, opcode filter)
-   * @param recordChildCallGas If true, gas cost for CALL ops includes gas granted to the child call
-   *     (Parity style). If false, only the operation cost is reported (Geth style).
+   * @param recordChildCallGas If true, gas costs follow the execution-apis struct logs ({@code
+   *     debug_} RPCs). If false, only the operation cost is reported ({@code trace_} RPCs).
    * @param frameWriter Callback invoked once per traced operation with live frame data
    */
   public StreamingDebugOperationTracer(
@@ -124,8 +123,6 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
             ? operationResult.getHaltReason()
             : frame.getExceptionalHaltReason().orElse(null);
 
-    final Bytes revertReason = frame.getRevertReason().orElse(null);
-
     frameWriter.writeFrame(
         pc,
         opcode,
@@ -137,8 +134,7 @@ public class StreamingDebugOperationTracer extends AbstractDebugOperationTracer 
         preExecutionGasRefund,
         preExecutionReturnData,
         storage,
-        haltReason,
-        revertReason);
+        haltReason);
 
     frame.reset();
   }

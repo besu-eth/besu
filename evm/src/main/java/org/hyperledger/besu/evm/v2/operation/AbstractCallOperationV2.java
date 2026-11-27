@@ -254,13 +254,14 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     final boolean insufficientBalance = transferValue.compareTo(balance) > 0;
     final boolean isFrameDepthTooDeep = frame.getDepth() >= 1024;
     if (insufficientBalance || isFrameDepthTooDeep) {
+      // For the following, we either increment the gas or return zero, so we don't get double
+      // charged. If we return zero then the traces don't have the right per-opcode cost.
+      // Before the refund, so the 63/64 cap sees the same gas as a call that enters its child.
+      final long gasAvailableForChildCall = gasAvailableForChildCall(frame);
       // EIP-8037: no child frame runs, so no account is created — undo the charge above.
       refundCallNewAccountStateGas(frame, recipientAddress, transferValue);
       frame.expandMemory(inputDataOffset, inputDataLength);
       frame.expandMemory(outputDataOffset, outputDataLength);
-      // For the following, we either increment the gas or return zero, so we don't get double
-      // charged. If we return zero then the traces don't have the right per-opcode cost.
-      final long gasAvailableForChildCall = gasAvailableForChildCall(frame);
       frame.incrementRemainingGas(gasAvailableForChildCall + cost);
       popArgumentsAndPushResult(frame, false);
       final SoftFailureReason softFailureReason =

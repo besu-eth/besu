@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.vm;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
 import org.hyperledger.besu.evm.operation.AbstractCallOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
@@ -46,9 +47,9 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   protected final OpCodeTracerConfig options;
 
   /**
-   * If {@code true}, gas cost for CALL operations includes gas granted to the child call (Parity
-   * style, {@code trace_} RPCs). If {@code false}, only the operation cost is reported (Geth style,
-   * {@code debug_} RPCs).
+   * If {@code true}, gas costs follow the execution-apis struct logs ({@code debug_} RPCs): CALL
+   * operations include the gas forwarded to the child call, and a step that halts exceptionally
+   * costs 0. If {@code false}, only the operation cost is reported ({@code trace_} RPCs).
    */
   protected final boolean recordChildCallGas;
 
@@ -86,6 +87,8 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
 
   private Operation previousOpcode = null;
 
+  private boolean callTransfersValue;
+
   private Optional<UInt256> preExecutionStorageKey = Optional.empty();
   private final Map<Address, Map<UInt256, UInt256>> accessedStorage = new HashMap<>();
 
@@ -117,6 +120,7 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
     }
     pc = frame.getPC();
     depth = frame.getDepth();
+    callTransfersValue = transfersValue(currentOperation, frame);
     capturePreExecutionState(frame);
     preExecutionStack = traceOpcode ? captureStack(frame) : Optional.empty();
   }
@@ -141,11 +145,33 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
       final Operation currentOperation,
       final OperationResult operationResult,
       final MessageFrame frame) {
+    if (!recordChildCallGas) {
+      return operationResult.getGasCost();
+    }
+    // execution-apis StructLog.gasCost: 0 on an exceptional halt; a call adds the forwarded gas
+    // but not the value transfer stipend.
+    if (operationResult.getHaltReason() != null
+        || frame.getState() == MessageFrame.State.EXCEPTIONAL_HALT) {
+      return 0;
+    }
     long gasCost = operationResult.getGasCost();
-    if (recordChildCallGas && currentOperation instanceof AbstractCallOperation) {
-      gasCost += frame.getMessageFrameStack().getFirst().getRemainingGas();
+    if (currentOperation instanceof AbstractCallOperation) {
+      final long childGas =
+          frame.getState() == MessageFrame.State.CODE_SUSPENDED
+              ? frame.getMessageFrameStack().getFirst().getRemainingGas()
+              : operationResult.getGasAvailableForChildCall().orElse(0L);
+      gasCost +=
+          childGas - (callTransfersValue ? FrontierGasCalculator.ADDITIONAL_CALL_STIPEND : 0);
     }
     return gasCost;
+  }
+
+  // CALL and CALLCODE take the value as the third stack item.
+  private static boolean transfersValue(final Operation operation, final MessageFrame frame) {
+    final int opcode = operation.getOpcode();
+    return (opcode == 0xF1 || opcode == 0xF2)
+        && TracedStack.size(frame) > 2
+        && !TracedStack.item(frame, 2).isZero();
   }
 
   /**

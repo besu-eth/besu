@@ -174,30 +174,8 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     assertThatCode(() -> streamer.streamTo(out, mapper, () -> true)).doesNotThrowAnyException();
   }
 
-  /**
-   * The first byte of an ABI Error selector is 0x08. Leading zeros are stripped (compact hex
-   * format), matching the accumulating path's StructLog.toCompactHex behaviour.
-   */
   @Test
-  public void revertReasonUsesCompactHex() throws Exception {
-    final Block block = buildBlockWithCalldata(ABI_ERROR_EMPTY, 0);
-    final DebugTraceBlockStreamer streamer =
-        new DebugTraceBlockStreamer(
-            block, TraceOptions.DEFAULT, fixture.getProtocolSchedule(), blockchainQueries);
-
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    streamer.streamTo(out, mapper, () -> true);
-
-    final JsonNode structLogs = getStructLogs(out);
-    final String reason = findRevertReason(structLogs);
-    assertThat(reason).isNotNull();
-    // 0x08 → high nibble stripped → "0x8c379a0..."
-    assertThat(reason).startsWith("0x8c379a0");
-  }
-
-  /** Verifies the full hex encoding length for a 100-byte revert reason in compact format. */
-  @Test
-  public void revertReasonEncodedCorrectlyFor100BytePayload() throws Exception {
+  public void revertDataIsReturnValueAndNoStructLogHasReason() throws Exception {
     final Block block = buildBlockWithCalldata(ABI_ERROR_WITH_MESSAGE, 0);
     final DebugTraceBlockStreamer streamer =
         new DebugTraceBlockStreamer(
@@ -206,12 +184,12 @@ public class DebugTraceBlockStreamerHexEncodingTest {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     streamer.streamTo(out, mapper, () -> true);
 
-    final JsonNode structLogs = getStructLogs(out);
-    final String reason = findRevertReason(structLogs);
-    assertThat(reason).isNotNull();
-    assertThat(reason).startsWith("0x8c379a0");
-    // compact hex: "0x" + 1 (stripped high nibble of 0x08) + 99*2 = 201 chars
-    assertThat(reason).hasSize(201);
+    final JsonNode result = mapper.readTree(out.toByteArray()).get(0).get("result");
+    assertThat(result.get("failed").asBoolean()).isTrue();
+    assertThat(result.get("returnValue").asText()).isEqualTo(ABI_ERROR_WITH_MESSAGE.toHexString());
+    for (final JsonNode log : result.get("structLogs")) {
+      assertThat(log.has("reason")).isFalse();
+    }
   }
 
   /**
@@ -807,15 +785,5 @@ public class DebugTraceBlockStreamerHexEncodingTest {
   private JsonNode getStructLogs(final ByteArrayOutputStream out) throws Exception {
     final JsonNode root = mapper.readTree(out.toByteArray());
     return root.get(0).get("result").get("structLogs");
-  }
-
-  /** Returns the "reason" field from the first struct log that has one, or null. */
-  private String findRevertReason(final JsonNode structLogs) {
-    for (final JsonNode log : structLogs) {
-      if (log.has("reason")) {
-        return log.get("reason").asText();
-      }
-    }
-    return null;
   }
 }

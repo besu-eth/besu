@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -80,7 +81,6 @@ public class DebugTraceBlockStreamer {
   private static final byte[] SL_RETURN_DATA =
       ",\"returnData\":\"".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_STORAGE = ",\"storage\":{".getBytes(StandardCharsets.US_ASCII);
-  private static final byte[] SL_REASON = ",\"reason\":\"".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] SL_ERROR = ",\"error\":\"".getBytes(StandardCharsets.US_ASCII);
 
   private static final byte COMMA = ',';
@@ -392,7 +392,7 @@ public class DebugTraceBlockStreamer {
       writeBytes(TX_GAS_PREFIX);
       writeLong(transaction.getGasLimit() - result.getGasRemaining());
       writeBytes(result.isSuccessful() ? TX_FAILED_FALSE_RV : TX_FAILED_TRUE_RV);
-      writeAscii(result.getOutput().toHexString());
+      writeAscii(OpCodeLoggerTracerResult.returnValue(result).toHexString());
       writeBytes(TX_CLOSE);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
@@ -450,8 +450,7 @@ public class DebugTraceBlockStreamer {
       final long refund,
       final Bytes returnData,
       final Map<UInt256, UInt256> storage,
-      final ExceptionalHaltReason haltReason,
-      final Bytes revertReason) {
+      final ExceptionalHaltReason haltReason) {
     try {
       if (!firstStructLog) writeByte(COMMA);
       firstStructLog = false;
@@ -522,12 +521,6 @@ public class DebugTraceBlockStreamer {
           writeByte(QUOTE);
         }
         writeByte(OBJ_CLOSE);
-      }
-
-      if (revertReason != null) {
-        writeBytes(SL_REASON);
-        writeHex(revertReason.toArrayUnsafe(), true);
-        writeByte(QUOTE);
       }
 
       if (haltReason != null) {

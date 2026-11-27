@@ -127,6 +127,7 @@ public class DebugTraceBlockStreamerPrecompileTest {
 
     final JsonNode result = streamedRoot.get(0).get("result");
     assertThat(result.get("failed").asBoolean()).isTrue();
+    assertThat(result.get("returnValue").asText()).isEqualTo("0x");
     assertThat(result.get("structLogs")).isEmpty();
   }
 

@@ -1,0 +1,180 @@
+{
+  "comment": "0xc1 sends 1 wei to 0xc2 twice, forwarding 60000 gas each time. The first call enters 0xc2 with the 2300 stipend; the second has no balance left, so 0xc2 is not entered. Each CALL costs the forwarded gas plus its own cost, without the stipend.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "to": "0x00000000000000000000000000000000000000c1",
+        "gas": "0x100000"
+      },
+      "latest",
+      {
+        "disableStack": true,
+        "stateOverrides": {
+          "0x00000000000000000000000000000000000000c1": {
+            "code": "0x6000600060006000600160c261ea60f1506000600060006000600160c261ea60f15000",
+            "balance": "0x1"
+          },
+          "0x00000000000000000000000000000000000000c2": {
+            "code": "0x00"
+          }
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 35846,
+      "failed": false,
+      "returnValue": "0x",
+      "structLogs": [
+        {
+          "pc": 0,
+          "op": "PUSH1",
+          "gas": 1027576,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 2,
+          "op": "PUSH1",
+          "gas": 1027573,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 4,
+          "op": "PUSH1",
+          "gas": 1027570,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 6,
+          "op": "PUSH1",
+          "gas": 1027567,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 8,
+          "op": "PUSH1",
+          "gas": 1027564,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 10,
+          "op": "PUSH1",
+          "gas": 1027561,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 12,
+          "op": "PUSH2",
+          "gas": 1027558,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 15,
+          "op": "CALL",
+          "gas": 1027555,
+          "gasCost": 69700,
+          "depth": 1
+        },
+        {
+          "pc": 0,
+          "op": "STOP",
+          "gas": 62300,
+          "gasCost": 0,
+          "depth": 2
+        },
+        {
+          "pc": 16,
+          "op": "POP",
+          "gas": 1020155,
+          "gasCost": 2,
+          "depth": 1
+        },
+        {
+          "pc": 17,
+          "op": "PUSH1",
+          "gas": 1020153,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 19,
+          "op": "PUSH1",
+          "gas": 1020150,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 21,
+          "op": "PUSH1",
+          "gas": 1020147,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 23,
+          "op": "PUSH1",
+          "gas": 1020144,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 25,
+          "op": "PUSH1",
+          "gas": 1020141,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 27,
+          "op": "PUSH1",
+          "gas": 1020138,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 29,
+          "op": "PUSH2",
+          "gas": 1020135,
+          "gasCost": 3,
+          "depth": 1
+        },
+        {
+          "pc": 32,
+          "op": "CALL",
+          "gas": 1020132,
+          "gasCost": 69700,
+          "depth": 1
+        },
+        {
+          "pc": 33,
+          "op": "POP",
+          "gas": 1012732,
+          "gasCost": 2,
+          "depth": 1
+        },
+        {
+          "pc": 34,
+          "op": "STOP",
+          "gas": 1012730,
+          "gasCost": 0,
+          "depth": 1
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

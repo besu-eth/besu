@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.AbstractDebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
@@ -43,8 +44,7 @@ public class OpCodeLoggerTracerResult {
   public OpCodeLoggerTracerResult(
       final TransactionTrace transactionTrace, final boolean truncated) {
     gas = transactionTrace.getGas();
-    final Bytes output = transactionTrace.getResult().getOutput();
-    returnValue = output.toHexString();
+    returnValue = returnValue(transactionTrace.getResult()).toHexString();
     structLogs = new ArrayList<>(transactionTrace.getTraceFrames().size());
     transactionTrace.getTraceFrames().parallelStream()
         .filter(frame -> !isSyntheticEndOfCodeStop(frame) && !isRootPrecompileCall(frame))
@@ -52,6 +52,20 @@ public class OpCodeLoggerTracerResult {
         .forEachOrdered(structLogs::add);
     failed = !transactionTrace.getResult().isSuccessful();
     this.truncated = truncated;
+  }
+
+  /**
+   * The revert data of a transaction that reverts, otherwise its output. A precompile that halts
+   * exceptionally can also set a revert reason, which is not returned data.
+   *
+   * @param result the result of the transaction
+   * @return the struct log {@code returnValue}
+   */
+  public static Bytes returnValue(final TransactionProcessingResult result) {
+    if (result.getExceptionalHaltReason().isPresent()) {
+      return result.getOutput();
+    }
+    return result.getRevertReason().orElse(result.getOutput());
   }
 
   public static Collection<DebugTraceTransactionResult> of(

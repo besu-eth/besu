@@ -1,0 +1,219 @@
+{
+  "comment": "0xc1 makes a STATICCALL to 0xc2, which halts on SSTORE, and then reverts with 32 bytes of data. The halting step reports a gasCost of 0, the REVERT has no reason field, and returnValue holds the revert data.",
+  "request": {
+    "jsonrpc": "2.0",
+    "method": "debug_traceCall",
+    "params": [
+      {
+        "from": "0xcccccccccccccccccccccccccccccccccccccccc",
+        "to": "0x00000000000000000000000000000000000000c1",
+        "gas": "0x100000"
+      },
+      "latest",
+      {
+        "stateOverrides": {
+          "0x00000000000000000000000000000000000000c1": {
+            "code": "0x600060006000600060c2620186a0fa50600160005260206000fd"
+          },
+          "0x00000000000000000000000000000000000000c2": {
+            "code": "0x6001600055"
+          }
+        }
+      }
+    ],
+    "id": 1
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+      "gas": 121738,
+      "failed": true,
+      "returnValue": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "structLogs": [
+        {
+          "pc": 0,
+          "op": "PUSH1",
+          "gas": 1027576,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": []
+        },
+        {
+          "pc": 2,
+          "op": "PUSH1",
+          "gas": 1027573,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0"
+          ]
+        },
+        {
+          "pc": 4,
+          "op": "PUSH1",
+          "gas": 1027570,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0"
+          ]
+        },
+        {
+          "pc": 6,
+          "op": "PUSH1",
+          "gas": 1027567,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0",
+            "0x0"
+          ]
+        },
+        {
+          "pc": 8,
+          "op": "PUSH1",
+          "gas": 1027564,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0",
+            "0x0",
+            "0x0"
+          ]
+        },
+        {
+          "pc": 10,
+          "op": "PUSH3",
+          "gas": 1027561,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0",
+            "0x0",
+            "0x0",
+            "0xc2"
+          ]
+        },
+        {
+          "pc": 14,
+          "op": "STATICCALL",
+          "gas": 1027558,
+          "gasCost": 100700,
+          "depth": 1,
+          "stack": [
+            "0x0",
+            "0x0",
+            "0x0",
+            "0x0",
+            "0xc2",
+            "0x186a0"
+          ]
+        },
+        {
+          "pc": 0,
+          "op": "PUSH1",
+          "gas": 100000,
+          "gasCost": 3,
+          "depth": 2,
+          "stack": []
+        },
+        {
+          "pc": 2,
+          "op": "PUSH1",
+          "gas": 99997,
+          "gasCost": 3,
+          "depth": 2,
+          "stack": [
+            "0x1"
+          ]
+        },
+        {
+          "pc": 4,
+          "op": "SSTORE",
+          "gas": 99994,
+          "gasCost": 0,
+          "depth": 2,
+          "stack": [
+            "0x1",
+            "0x0"
+          ],
+          "error": "ILLEGAL_STATE_CHANGE"
+        },
+        {
+          "pc": 15,
+          "op": "POP",
+          "gas": 926858,
+          "gasCost": 2,
+          "depth": 1,
+          "stack": [
+            "0x0"
+          ]
+        },
+        {
+          "pc": 16,
+          "op": "PUSH1",
+          "gas": 926856,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": []
+        },
+        {
+          "pc": 18,
+          "op": "PUSH1",
+          "gas": 926853,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x1"
+          ]
+        },
+        {
+          "pc": 20,
+          "op": "MSTORE",
+          "gas": 926850,
+          "gasCost": 6,
+          "depth": 1,
+          "stack": [
+            "0x1",
+            "0x0"
+          ]
+        },
+        {
+          "pc": 21,
+          "op": "PUSH1",
+          "gas": 926844,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": []
+        },
+        {
+          "pc": 23,
+          "op": "PUSH1",
+          "gas": 926841,
+          "gasCost": 3,
+          "depth": 1,
+          "stack": [
+            "0x20"
+          ]
+        },
+        {
+          "pc": 25,
+          "op": "REVERT",
+          "gas": 926838,
+          "gasCost": 0,
+          "depth": 1,
+          "stack": [
+            "0x20",
+            "0x0"
+          ]
+        }
+      ]
+    }
+  },
+  "statusCode": 200
+}

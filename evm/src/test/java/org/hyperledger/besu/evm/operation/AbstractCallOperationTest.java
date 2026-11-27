@@ -30,6 +30,7 @@ import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
@@ -126,6 +127,24 @@ class AbstractCallOperationTest {
   }
 
   @Test
+  void callThatIsNotEnteredReportsTheChildGasOfACallThatIsEntered() {
+    final Address newAccount = Address.fromHexString("0x00000000000000000000000000000000000000c4");
+    final long requestedGas = INITIAL_GAS;
+
+    final MessageFrame entered = createParentFrame(worldWithAliveStateContext(), 0L);
+    pushValueCall(entered, Wei.ONE, newAccount, requestedGas);
+    new CallOperation(gasCalculator).execute(entered, evm);
+    final long enteredChildGas = entered.getMessageFrameStack().peek().getRemainingGas();
+
+    final MessageFrame notEntered = createParentFrame(worldWithAliveStateContext(), 0L);
+    pushValueCall(notEntered, Wei.of(2), newAccount, requestedGas);
+    final OperationResult result = new CallOperation(gasCalculator).execute(notEntered, evm);
+
+    assertThat(result.getSoftFailureReason()).isPresent();
+    assertThat(result.getGasAvailableForChildCall()).hasValue(enteredChildGas);
+  }
+
+  @Test
   void callToDelegatedAccountBeforePragueRunsTheDesignatorAsCode() {
     final GasCalculator cancunGasCalculator = new CancunGasCalculator();
     final EVM cancun =
@@ -187,6 +206,10 @@ class AbstractCallOperationTest {
   }
 
   private MessageFrame createParentFrame(final SimpleWorld world) {
+    return createParentFrame(world, initialStateGasReservoir);
+  }
+
+  private MessageFrame createParentFrame(final SimpleWorld world, final long stateGasReservoir) {
     return MessageFrame.builder()
         .enableEvmV2(false)
         .type(MessageFrame.Type.MESSAGE_CALL)
@@ -204,9 +227,20 @@ class AbstractCallOperationTest {
         .miningBeneficiary(Address.ZERO)
         .originator(Address.ZERO)
         .initialGas(INITIAL_GAS)
-        .initialStateGasReservoir(initialStateGasReservoir)
+        .initialStateGasReservoir(stateGasReservoir)
         .worldUpdater(world)
         .build();
+  }
+
+  private void pushValueCall(
+      final MessageFrame frame, final Wei value, final Address to, final long gas) {
+    frame.pushStackItem(Bytes.EMPTY); // output size
+    frame.pushStackItem(Bytes.EMPTY); // output offset
+    frame.pushStackItem(Bytes.EMPTY); // input size
+    frame.pushStackItem(Bytes.EMPTY); // input offset
+    frame.pushStackItem(value);
+    frame.pushStackItem(to.getBytes());
+    frame.pushStackItem(Bytes.ofUnsignedLong(gas));
   }
 
   private void pushCallArguments(final MessageFrame frame) {
