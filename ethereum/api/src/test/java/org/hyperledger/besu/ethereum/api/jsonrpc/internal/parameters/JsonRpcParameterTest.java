@@ -55,6 +55,17 @@ class JsonRpcParameterTest {
   }
 
   @Test
+  void optional_throws_whenRawValueCoercesToNull() {
+    // Jackson coerces an empty string to a null Boolean rather than failing. The parameter must be
+    // reported as invalid instead of triggering a NullPointerException inside Optional.of (the
+    // second, hydrated-transactions parameter of eth_getBlockByNumber / eth_getBlockByHash; see
+    // issue #11846).
+    assertThatExceptionOfType(JsonRpcParameterException.class)
+        .isThrownBy(() -> parameterAccessor.optional(new Object[] {""}, 0, Boolean.class, DEFAULT))
+        .withMessageContaining("Invalid json rpc parameter at index 0");
+  }
+
+  @Test
   void optional_castsDirectly_whenRawParamIsAlreadyExpectedType() throws Exception {
     final KnownOnly direct = new KnownOnly("hello");
     final Optional<KnownOnly> result =
