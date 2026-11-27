@@ -20,6 +20,7 @@ import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 
@@ -37,7 +38,7 @@ public class MergePeerFilter implements MergeStateHandler, UnverifiedForkchoiceL
   private final AtomicBoolean finalized = new AtomicBoolean(false);
   private static final Logger LOG = LoggerFactory.getLogger(MergePeerFilter.class);
 
-  public boolean disconnectIfPoW(final StatusMessage status, final EthPeer peer) {
+  public boolean disconnectIfPoW(final StatusMessage status, final PeerConnection connection) {
     long lockStamp = this.powTerminalDifficultyLock.readLock();
     try {
       if (this.powTerminalDifficulty.isPresent()
@@ -46,7 +47,7 @@ public class MergePeerFilter implements MergeStateHandler, UnverifiedForkchoiceL
         LOG.debug(
             "Disconnecting peer with difficulty {}, likely still on PoW chain",
             status.totalDifficulty().get());
-        peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY);
+        connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_DIFFICULTY);
         return true;
       } else {
         return false;
@@ -56,13 +57,14 @@ public class MergePeerFilter implements MergeStateHandler, UnverifiedForkchoiceL
     }
   }
 
-  public boolean disconnectIfGossipingBlocks(final Message message, final EthPeer peer) {
+  public boolean disconnectIfGossipingBlocks(
+      final Message message, final PeerConnection connection) {
     final int code = message.getData().getCode();
     if (isFinalized()
         && (code == EthProtocolMessages.NEW_BLOCK
             || code == EthProtocolMessages.NEW_BLOCK_HASHES)) {
       LOG.debug("disconnecting peer for sending new blocks after transition to PoS");
-      peer.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_BLOCKS);
+      connection.disconnect(DisconnectReason.SUBPROTOCOL_TRIGGERED_POW_BLOCKS);
       return true;
     } else {
       return false;

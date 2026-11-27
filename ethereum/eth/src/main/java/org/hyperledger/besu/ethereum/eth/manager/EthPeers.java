@@ -269,6 +269,7 @@ public class EthPeers implements PeerSelector {
           .log();
       return false;
     }
+    peer.unregisterConnection(connection);
     if (peer.getConnection().equals(connection)) {
       final Bytes id = peer.getId();
       if (!peerHasIncompleteConnection(id)) {
@@ -812,7 +813,7 @@ public class EthPeers implements PeerSelector {
 
     final boolean isCurrentConnectionOfPeer =
         peer != null && evictedConnection.equals(peer.getConnection());
-    if (isCurrentConnectionOfPeer && peer.statusHasBeenReceived()) {
+    if (isCurrentConnectionOfPeer && peer.statusHasBeenReceived(evictedConnection)) {
       // The peer completed (or is completing) the eth STATUS handshake and is being promoted to an
       // active connection; its incomplete-cache entry is expiring naturally. Leave the live
       // connection alone - it is (or will be) tracked in activeConnections.

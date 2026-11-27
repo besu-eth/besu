@@ -657,7 +657,7 @@ public class EthPeersTest {
     when(connection.isDisconnected()).thenReturn(false);
     final EthPeer peer = mock(EthPeer.class);
     when(peer.getConnection()).thenReturn(connection);
-    when(peer.statusHasBeenReceived()).thenReturn(false);
+    when(peer.statusHasBeenReceived(connection)).thenReturn(false);
 
     ethPeers.onCacheRemoval(RemovalNotification.create(connection, peer, RemovalCause.SIZE));
 
@@ -673,7 +673,7 @@ public class EthPeersTest {
     when(connection.isDisconnected()).thenReturn(false);
     final EthPeer peer = mock(EthPeer.class);
     when(peer.getConnection()).thenReturn(connection);
-    when(peer.statusHasBeenReceived()).thenReturn(true);
+    when(peer.statusHasBeenReceived(connection)).thenReturn(true);
 
     ethPeers.onCacheRemoval(RemovalNotification.create(connection, peer, RemovalCause.SIZE));
 

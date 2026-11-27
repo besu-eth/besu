@@ -18,7 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -30,6 +32,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.SnapProtocolVersion;
+import org.hyperledger.besu.ethereum.eth.manager.EthMessage;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -58,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 
@@ -177,6 +181,7 @@ class SnapProtocolManagerTest {
             new HashSet<>(Collections.singletonList(SnapProtocolVersion.V1.getCapability())),
             (cap, msg, conn) -> {});
     when(ethPeers.peer(peerConnection)).thenReturn(ethPeer);
+    when(ethPeer.statusHasBeenReceived(peerConnection)).thenReturn(true);
     when(ethPeer.validateReceivedMessage(any(), any())).thenReturn(true);
 
     // Create a RawMessage with invalid compressed data that will throw FramingException
@@ -184,9 +189,56 @@ class SnapProtocolManagerTest {
     snapProtocolManager.processMessage(
         SnapProtocolVersion.V1.getCapability(), new DefaultMessage(peerConnection, badMessage));
 
-    assertThat(peerConnection.isDisconnected()).isFalse();
-    // ethPeer (mock) receives the disconnect call
-    verify(ethPeer).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    assertThat(peerConnection.isDisconnected()).isTrue();
+    verify(ethPeer, never())
+        .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+  }
+
+  @Test
+  void sendsResponseOnConnectionThatReceivedRequest() throws PeerConnection.PeerNotConnected {
+    final MockPeerConnection requestConnection = snapPeerConnection();
+    final MessageData request =
+        GetTrieNodesMessage.create(Hash.ZERO, List.of(List.of(Bytes.EMPTY)))
+            .wrapMessageData(BigInteger.ONE);
+    final MessageData response = new RawMessage(SnapV1.TRIE_NODES, Bytes.EMPTY);
+
+    when(ethPeers.peer(requestConnection)).thenReturn(ethPeer);
+    when(ethPeer.statusHasBeenReceived(requestConnection)).thenReturn(true);
+    when(ethPeer.validateReceivedMessage(any(EthMessage.class), eq(SnapProtocol.NAME)))
+        .thenReturn(true);
+    doAnswer(
+            invocation -> {
+              ((Runnable) invocation.getArgument(0)).run();
+              return CompletableFuture.<Void>completedFuture(null);
+            })
+        .when(ethScheduler)
+        .scheduleServiceTask(any(Runnable.class));
+    when(snapMessages.dispatch(any(EthMessage.class), eq(SnapProtocolVersion.V1.getCapability())))
+        .thenReturn(Optional.of(response));
+
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), new DefaultMessage(requestConnection, request));
+
+    verify(ethPeer).send(any(MessageData.class), eq(SnapProtocol.NAME), same(requestConnection));
+  }
+
+  @Test
+  void disconnectsConnectionThatSendsSnapMessageBeforeStatus() {
+    final PeerConnection selectedConnection = mock(PeerConnection.class);
+    final PeerConnection requestConnection = mock(PeerConnection.class);
+    final MessageData request = new RawMessage(SnapV1.GET_ACCOUNT_RANGE, Bytes.EMPTY);
+
+    when(ethPeers.peer(requestConnection)).thenReturn(ethPeer);
+    when(ethPeer.getConnection()).thenReturn(selectedConnection);
+    when(ethPeer.statusHasBeenReceived(requestConnection)).thenReturn(false);
+
+    snapProtocolManager.processMessage(
+        SnapProtocolVersion.V1.getCapability(), new DefaultMessage(requestConnection, request));
+
+    verify(requestConnection)
+        .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
+    verify(selectedConnection, never())
+        .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
   }
 
   @Test
@@ -378,7 +430,7 @@ class SnapProtocolManagerTest {
     // rather than left to time out.
     verify(ethScheduler, times(1)).scheduleServiceTask(any(Runnable.class));
     final ArgumentCaptor<MessageData> sent = ArgumentCaptor.forClass(MessageData.class);
-    verify(ethPeer).send(sent.capture(), eq(SnapProtocol.NAME));
+    verify(ethPeer).send(sent.capture(), eq(SnapProtocol.NAME), eq(peerConnection));
     assertThat(sent.getValue().getCode()).isEqualTo(SnapV1.TRIE_NODES);
     assertThat(TrieNodesMessage.readFrom(sent.getValue()).nodes(true)).isEmpty();
     assertThat(sent.getValue().unwrapMessageData().getKey()).isEqualTo(BigInteger.ONE);
@@ -404,9 +456,9 @@ class SnapProtocolManagerTest {
     // The global cap is already spent on peer A's request, so peer B's is rejected but answered.
     verify(ethScheduler, times(1)).scheduleServiceTask(any(Runnable.class));
     final ArgumentCaptor<MessageData> sent = ArgumentCaptor.forClass(MessageData.class);
-    verify(ethPeerB).send(sent.capture(), eq(SnapProtocol.NAME));
+    verify(ethPeerB).send(sent.capture(), eq(SnapProtocol.NAME), eq(peerConnectionB));
     assertThat(sent.getValue().unwrapMessageData().getKey()).isEqualTo(BigInteger.valueOf(7));
-    verify(ethPeer, never()).send(any(), any());
+    verify(ethPeer, never()).send(any(), any(), any());
   }
 
   @Test
@@ -428,13 +480,16 @@ class SnapProtocolManagerTest {
     snapProtocolManager.processMessage(
         SnapProtocolVersion.V1.getCapability(), new DefaultMessage(peerConnection, malformed));
 
-    verify(ethPeer).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
-    verify(ethPeer, never()).send(any(), any());
+    assertThat(peerConnection.isDisconnected()).isTrue();
+    verify(ethPeer, never())
+        .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verify(ethPeer, never()).send(any(), any(), any());
   }
 
   private void stubPeer(final EthPeer peer, final PeerConnection connection) {
     when(ethPeers.peer(connection)).thenReturn(peer);
     when(peer.getConnection()).thenReturn(connection);
+    when(peer.statusHasBeenReceived(connection)).thenReturn(true);
     when(peer.validateReceivedMessage(any(), any())).thenReturn(true);
   }
 
