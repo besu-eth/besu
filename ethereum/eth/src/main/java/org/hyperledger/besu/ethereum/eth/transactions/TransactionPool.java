@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationListLimit;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
@@ -46,6 +47,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -495,6 +497,34 @@ public class TransactionPool implements BlockAddedObserver {
         .log();
   }
 
+  /**
+   * The longest EIP-7702 authorization list a transaction received from a peer can carry and still
+   * be valid. Peer messages are decoded against this limit, so a list that can never be valid is
+   * refused, and the peer disconnected, before any of its entries is decoded.
+   *
+   * <p>The limit follows the gas rules of the fork at the chain head, the fork this pool validates
+   * against, so a repricing of authorizations moves it. The next scheduled fork is allowed too, so
+   * that around a fork transition a transaction valid under the new rules is never refused.
+   *
+   * @return the limit for transactions received now
+   */
+  public CodeDelegationListLimit codeDelegationListLimit() {
+    final BlockHeader chainHead = protocolContext.getBlockchain().getChainHeadHeader();
+    final long blockGasLimit = chainHead.getGasLimit();
+    final CodeDelegationListLimit current =
+        codeDelegationListLimit(protocolSchedule.getByBlockHeader(chainHead), blockGasLimit);
+    return protocolSchedule
+        .getNextProtocolSpec(chainHead.getTimestamp())
+        .map(next -> current.or(codeDelegationListLimit(next.spec(), blockGasLimit)))
+        .orElse(current);
+  }
+
+  private static CodeDelegationListLimit codeDelegationListLimit(
+      final ProtocolSpec protocolSpec, final long blockGasLimit) {
+    return CodeDelegationListLimit.forFork(
+        protocolSpec.getGasCalculator(), protocolSpec.getGasLimitCalculator(), blockGasLimit);
+  }
+
   private TransactionValidator getTransactionValidator() {
     return protocolSchedule
         .getByBlockHeader(protocolContext.getBlockchain().getChainHeadHeader())
@@ -621,8 +651,7 @@ public class TransactionPool implements BlockAddedObserver {
 
     if (isLocal) {
       // Local (RPC) fee cap
-      if (!configuration.getTxFeeCap().isZero()
-          && getMaxGasPrice(transaction).get().greaterThan(configuration.getTxFeeCap())) {
+      if (getMaxGasPrice(transaction).get().greaterThan(configuration.getTxFeeCap())) {
         return TransactionInvalidReason.TX_FEECAP_EXCEEDED;
       }
     } else {

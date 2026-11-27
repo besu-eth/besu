@@ -103,6 +103,11 @@ public interface TransactionTraceParams {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   StateOverrideMap stateOverrides();
 
+  @JsonProperty("blockOverrides")
+  @Nullable
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  Object blockOverrides();
+
   @Value.Check
   default void validate() {
     if (limit() != null && limit() < 0) {

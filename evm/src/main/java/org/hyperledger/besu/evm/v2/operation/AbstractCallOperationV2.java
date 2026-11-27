@@ -236,7 +236,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     // checks ensures OOG calls don't add the delegation target to the BAL.
     if (contract != null) {
       final Bytes contractCode = contract.getCode();
-      if (hasCodeDelegation(contractCode)) {
+      if (hasCodeDelegation(contractCode) && evm.followsCodeDelegation()) {
         frame
             .getEip7928AccessList()
             .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
@@ -292,7 +292,8 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       builder.eip7928AccessList(frame.getEip7928AccessList().get());
     }
 
-    builder.build();
+    // the callee reads its call data straight from this frame's memory, without copying it
+    builder.build().inputDataFromCallerMemoryV2(frame, inputDataOffset, inputDataLength);
     // see note in stack depth check about incrementing cost
     frame.incrementRemainingGas(cost);
 
@@ -405,7 +406,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       code = evm.getOrCreateCachedJumpDest(codeHash, account.getCode());
     }
 
-    if (!hasCodeDelegation(code.getBytes())) {
+    if (!hasCodeDelegation(code.getBytes()) || !evm.followsCodeDelegation()) {
       return code;
     }
 

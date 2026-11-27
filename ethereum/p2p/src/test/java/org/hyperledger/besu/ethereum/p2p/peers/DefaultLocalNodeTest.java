@@ -73,4 +73,41 @@ public class DefaultLocalNodeTest {
     Assertions.assertThat(localNode.getPeerInfo()).isEqualTo(peerInfo);
     assertThat(localNode.getPeer()).isEqualTo(peer);
   }
+
+  @Test
+  public void addCapabilityBeforeTheEnodeIsSet() {
+    final MutableLocalNode localNode = createLocalNode();
+    final Capability snap = Capability.create("snap", 2);
+
+    localNode.addCapability(snap);
+    localNode.setEnode(enode);
+
+    assertThat(localNode.getPeerInfo().getCapabilities())
+        .containsExactly(EthProtocolHelper.LATEST, snap);
+  }
+
+  @Test
+  public void addCapabilityAfterTheEnodeIsSet() {
+    final MutableLocalNode localNode = createLocalNode();
+    localNode.setEnode(enode);
+    final Capability snap = Capability.create("snap", 2);
+
+    localNode.addCapability(snap);
+
+    assertThat(localNode.getPeerInfo())
+        .isEqualTo(
+            new PeerInfo(
+                p2pVersion, clientId, List.of(EthProtocolHelper.LATEST, snap), port, nodeId));
+    assertThat(localNode.getPeer()).isEqualTo(peer);
+  }
+
+  @Test
+  public void addCapabilityKeepsOneOfEach() {
+    final MutableLocalNode localNode = createLocalNode();
+    localNode.setEnode(enode);
+
+    localNode.addCapability(EthProtocolHelper.LATEST);
+
+    validateReadyNode(localNode);
+  }
 }

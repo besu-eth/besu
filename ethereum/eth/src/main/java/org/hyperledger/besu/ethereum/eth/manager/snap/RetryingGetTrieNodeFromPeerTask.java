@@ -72,6 +72,6 @@ public class RetryingGetTrieNodeFromPeerTask
 
   @Override
   protected boolean isSuitablePeer(final EthPeerImmutableAttributes peer) {
-    return peer.isServingSnap();
+    return GetTrieNodeFromPeerTask.answersTrieNodeRequests(peer);
   }
 }

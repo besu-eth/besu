@@ -15,6 +15,9 @@
 package org.hyperledger.besu.ethereum.eth.messages;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.CodeDelegationListLimit;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
@@ -62,7 +65,27 @@ public class TransactionsMessage extends AbstractMessageData {
   }
 
   public List<Transaction> transactions(final int maxTransactions) {
-    return new BytesValueRLPInput(data, false).readList(Transaction::readFrom, maxTransactions);
+    return transactions(maxTransactions, CodeDelegationListLimit.UNLIMITED);
+  }
+
+  /**
+   * The transactions in this message, refusing any EIP-7702 authorization list longer than the
+   * limit allows.
+   *
+   * @param maxTransactions the most transactions this message may carry
+   * @param codeDelegationListLimit the longest authorization list a transaction may carry
+   * @return the decoded transactions
+   * @throws org.hyperledger.besu.ethereum.rlp.RLPException if the message is malformed or exceeds
+   *     either limit
+   */
+  public List<Transaction> transactions(
+      final int maxTransactions, final CodeDelegationListLimit codeDelegationListLimit) {
+    return new BytesValueRLPInput(data, false)
+        .readList(
+            input ->
+                TransactionDecoder.decodeRLP(
+                    input, EncodingContext.BLOCK_BODY, codeDelegationListLimit),
+            maxTransactions);
   }
 
   public static class SizeAndCountLimitedBuilder {

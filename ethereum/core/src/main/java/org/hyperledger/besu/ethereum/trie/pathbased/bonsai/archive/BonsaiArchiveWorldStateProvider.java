@@ -14,22 +14,27 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive;
 
+import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveCoverageTracker;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveHistoryReader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveNodeHistoryStore.ArchivedBlock;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.trienode.ArchiveTrieNodeWriter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.trienode.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -42,9 +47,13 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,34 +62,21 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveWorldStateProvider.class);
 
+  /** Blocks a block must be buried under before it is archived on chains without finality. */
+  static final long CONFIRMATION_DEPTH = 128;
+
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final BonsaiCodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
-  private final ArchiveCoverageTracker archiveCoverageTracker;
+  private final ArchiveNodeHistoryStore archiveHistoryStore;
   private final ArchiveHistoryReader archiveHistoryReader;
-
-  public BonsaiArchiveWorldStateProvider(
-      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final Blockchain blockchain,
-      final DataStorageConfiguration dataStorageConfiguration,
-      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final ServiceManager pluginContext,
-      final EvmConfiguration evmConfiguration,
-      final BonsaiCodeCache codeCache,
-      final MetricsSystem metricsSystem) {
-    this(
-        worldStateKeyValueStorage,
-        blockchain,
-        dataStorageConfiguration,
-        bonsaiCachedMerkleTrieLoader,
-        pluginContext,
-        evmConfiguration,
-        codeCache,
-        metricsSystem,
-        Optional.empty());
-  }
+  private final Optional<ArchiveTrieNodeStrategy> archiveTrieNodeStrategy;
+  private final boolean instantFinality;
+  private final LongSupplier networkHead;
+  // a moment without peers drops the network head to ours, which would end capture
+  private final AtomicLong highestNetworkHead = new AtomicLong();
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -91,7 +87,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final EvmConfiguration evmConfiguration,
       final BonsaiCodeCache codeCache,
       final MetricsSystem metricsSystem,
-      final Optional<Long> amsterdamMilestone) {
+      final Optional<Long> amsterdamMilestone,
+      final Supplier<ExecutorService> trieCapturePool,
+      final GenesisConfigOptions genesisConfigOptions,
+      final LongSupplier networkHead) {
     super(
         worldStateKeyValueStorage,
         blockchain,
@@ -102,6 +101,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         codeCache,
         amsterdamMilestone);
     this.codeCache = codeCache;
+    this.instantFinality = hasInstantFinality(genesisConfigOptions);
+    this.networkHead = networkHead;
     this.archiveWorldStateConfig =
         WorldStateConfig.newBuilder(worldStateConfig).trieDisabled(true).build();
     final BonsaiArchiveReadFlatDbStrategyProvider archiveProvider =
@@ -116,9 +117,86 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             worldStateKeyValueStorage.getCurrentVersion());
     final SegmentedKeyValueStorage liveStorage =
         worldStateKeyValueStorage.getComposedWorldStateStorage();
-    final ArchiveNodeHistoryStore archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
-    this.archiveCoverageTracker = new ArchiveCoverageTracker(liveStorage);
+    this.archiveHistoryStore = new ArchiveNodeHistoryStore(liveStorage);
     this.archiveHistoryReader = new ArchiveHistoryReader(archiveHistoryStore);
+    final ExtraStorageConfiguration.Unstable unstable =
+        dataStorageConfiguration.getExtraStorageConfiguration().getUnstable();
+    if (unstable.getBonsaiArchiveStateProofsEnabled()) {
+      requireCoverageFromGenesis();
+      archiveHistoryStore
+          .getArchivedBlock()
+          .ifPresent(
+              last ->
+                  LOG.info(
+                      "Archived proof history covers blocks 0 to {} ({})",
+                      last.number(),
+                      last.hash()));
+      this.archiveTrieNodeStrategy =
+          Optional.of(createInlineStrategy(liveStorage, unstable, trieCapturePool));
+    } else {
+      this.archiveTrieNodeStrategy = Optional.empty();
+    }
+    archiveTrieNodeStrategy.ifPresent(worldStateKeyValueStorage::setTrieNodeStrategy);
+  }
+
+  private void requireCoverageFromGenesis() {
+    // A persisted world state without proof history was synced without proofs; history starts at
+    // genesis.
+    final boolean statePersisted =
+        blockchain.getChainHeadBlockNumber() > 0
+            || worldStateKeyValueStorage.getWorldStateBlockHash().isPresent();
+    if (statePersisted && archiveHistoryStore.getArchivedBlock().isEmpty()) {
+      throw new IllegalStateException(
+          "Bonsai archive state proofs need trie-node history from genesis, but this database has"
+              + " no proof history. Proofs require a full sync from genesis with archive state"
+              + " proofs enabled.");
+    }
+  }
+
+  private ArchiveTrieNodeStrategy createInlineStrategy(
+      final SegmentedKeyValueStorage liveStorage,
+      final ExtraStorageConfiguration.Unstable unstable,
+      final Supplier<ExecutorService> trieCapturePool) {
+    return new ArchiveTrieNodeStrategy(
+        new BonsaiTrieNodeStrategy(),
+        new ArchiveTrieNodeWriter(
+            archiveHistoryStore,
+            trieCapturePool.get(),
+            unstable.getBonsaiArchiveShallowCheckpointInterval(),
+            unstable.getBonsaiArchiveDeepCheckpointInterval()),
+        archiveHistoryStore,
+        liveStorage,
+        this::isFinal);
+  }
+
+  // BFT blocks are final on import, unless the chain moves to PoS
+  private boolean hasInstantFinality(final GenesisConfigOptions genesisConfigOptions) {
+    return (genesisConfigOptions.isQbft() || genesisConfigOptions.isIbft2())
+        && genesisConfigOptions.getTerminalTotalDifficulty().isEmpty();
+  }
+
+  // Without a finalized block, a block counts as final once it is buried under the confirmation
+  // depth. Genesis can't be reorged.
+  @VisibleForTesting
+  boolean isFinal(final long block) {
+    if (instantFinality || block == 0L) {
+      return true;
+    }
+    return blockchain
+        .getFinalized()
+        .flatMap(blockchain::getBlockHeader)
+        .map(finalized -> block <= finalized.getNumber())
+        .orElseGet(() -> block <= highestNetworkHead() - CONFIRMATION_DEPTH);
+  }
+
+  private long highestNetworkHead() {
+    return highestNetworkHead.accumulateAndGet(networkHead.getAsLong(), Math::max);
+  }
+
+  @Override
+  public void close() {
+    archiveTrieNodeStrategy.ifPresent(ArchiveTrieNodeStrategy::close);
+    super.close();
   }
 
   @Override
@@ -170,7 +248,11 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final List<UInt256> accountStorageKeys,
       final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
     final long blockNumber = blockHeader.getNumber();
-    if (!archiveCoverageTracker.hasArchiveBlock(blockNumber)) {
+    final Optional<ArchivedBlock> last = archiveHistoryStore.getArchivedBlock();
+    // Archived nodes are the canonical chain's, so a fork block at an archived height isn't served.
+    // Nodes are hash checked on read, so a reorg past the archive fails rather than misleads.
+    if (last.filter(archived -> blockNumber <= archived.number()).isEmpty()
+        || !isCanonicalBlock(blockHeader)) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
     final WorldStateStorageCoordinator coordinator =
@@ -183,6 +265,13 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             blockHeader.getBlockHash(),
             accountAddress,
             accountStorageKeys));
+  }
+
+  private boolean isCanonicalBlock(final BlockHeader blockHeader) {
+    return blockchain
+        .getBlockHashByNumber(blockHeader.getNumber())
+        .filter(blockHeader.getBlockHash()::equals)
+        .isPresent();
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

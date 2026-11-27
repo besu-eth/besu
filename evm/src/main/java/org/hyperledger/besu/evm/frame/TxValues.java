@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.frame;
 import org.hyperledger.besu.collections.undo.UndoMap;
 import org.hyperledger.besu.collections.undo.UndoScalar;
 import org.hyperledger.besu.collections.undo.UndoSet;
-import org.hyperledger.besu.collections.undo.UndoTable;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -31,22 +30,21 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
-import com.google.common.collect.TreeBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * Transaction-lifetime values shared across all message frames of a transaction.
  *
  * <p>Holds the immutable per-transaction inputs (originator, gas price, block values, …) and the
- * mutable counters whose state must persist across frame boundaries: the {@link UndoScalar} /
- * {@link UndoSet} / {@link UndoTable} fields are rolled back on revert via {@link #undoChanges}.
+ * mutable counters whose state must persist across frame boundaries: the Undo collections stored as
+ * fields are rolled back on revert via {@link #undoChanges}.
  */
 public class TxValues {
 
   private final BlockHashLookup blockHashLookup;
   private final int maxStackSize;
   private final UndoSet<Address> warmedUpAddresses;
-  private final UndoTable<Address, Bytes32, Boolean> warmedUpStorage;
+  private final UndoSet<AddressStorageSlotKey> warmedUpStorage;
   private final Address originator;
   private final Wei gasPrice;
   private final Wei blobGasPrice;
@@ -65,7 +63,7 @@ public class TxValues {
       final BlockHashLookup blockHashLookup,
       final int maxStackSize,
       final UndoSet<Address> warmedUpAddresses,
-      final UndoTable<Address, Bytes32, Boolean> warmedUpStorage,
+      final UndoSet<AddressStorageSlotKey> warmedUpStorage,
       final Address originator,
       final Wei gasPrice,
       final Wei blobGasPrice,
@@ -130,7 +128,7 @@ public class TxValues {
         blockHashLookup,
         maxStackSize,
         warmedUpAddresses,
-        UndoTable.of(TreeBasedTable.create()),
+        UndoSet.of(new HashSet<>()),
         originator,
         gasPrice,
         blobGasPrice,
@@ -194,7 +192,7 @@ public class TxValues {
    *
    * @return the warmed-up storage slots
    */
-  public UndoTable<Address, Bytes32, Boolean> warmedUpStorage() {
+  public UndoSet<AddressStorageSlotKey> warmedUpStorage() {
     return warmedUpStorage;
   }
 

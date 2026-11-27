@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.TrieGenerator;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.UndoLog;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -173,7 +174,8 @@ public class RequestDataStepLocalFlatDataTest {
     final WorldStateStorageCoordinator coordinator = spy(worldStateStorageCoordinator);
     final WorldStateKeyValueStorage.Updater updater = spy(worldStateStorage.updater());
 
-    request.persist(coordinator, updater, downloadState, snapSyncState, snapSyncConfiguration);
+    request.persist(
+        coordinator, updater, downloadState, snapSyncState, snapSyncConfiguration, new UndoLog());
 
     verifyNoInteractions(coordinator, updater);
   }

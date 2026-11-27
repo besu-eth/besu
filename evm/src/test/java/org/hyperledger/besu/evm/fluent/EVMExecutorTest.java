@@ -33,11 +33,11 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-import com.google.common.collect.MultimapBuilder;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -138,7 +138,7 @@ class EVMExecutorTest {
             .code(Bytes.fromHexString("0x6001600255"))
             .prevRandao(Bytes32.ZERO)
             .accessListWarmAddresses(Set.of())
-            .accessListWarmStorage(MultimapBuilder.linkedHashKeys().arrayListValues().build())
+            .accessListWarmStorage(new HashSet<>())
             .execute();
     assertThat(result).isNotNull();
   }

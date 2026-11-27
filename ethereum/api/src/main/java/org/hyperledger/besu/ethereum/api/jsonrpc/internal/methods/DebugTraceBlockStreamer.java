@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -33,11 +34,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.vm.StreamingDebugOperationTracer;
-import org.hyperledger.besu.evm.ModificationNotAllowedException;
-import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
-import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -48,7 +46,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -106,7 +103,6 @@ public class DebugTraceBlockStreamer {
 
   private final byte[] numBuf = new byte[20];
   private final byte[] writeBuf = new byte[BUF_SIZE];
-  private final TreeMap<UInt256, UInt256> sortedStorage = new TreeMap<>();
   private final HashMap<String, byte[]> opcodeCache = new HashMap<>(256);
 
   private OutputStream rawOut;
@@ -166,8 +162,25 @@ public class DebugTraceBlockStreamer {
 
   // ── public API ────────────────────────────────────────────────────
 
-  public void streamTo(
+  public Optional<RpcErrorType> streamTo(
       final OutputStream out, final ObjectMapper mapper, final BooleanSupplier isAlive)
+      throws IOException {
+    return streamTo(out, mapper, isAlive, () -> {});
+  }
+
+  /**
+   * Streams the trace. {@code beforeFirstByte} runs only once the parent world state is open, and
+   * before any trace byte is flushed. {@link
+   * org.hyperledger.besu.ethereum.api.jsonrpc.JsonResponseStreamer} commits the HTTP response on
+   * the first write, so the caller uses that hook to emit the JSON-RPC prefix. When the parent
+   * state cannot be loaded this returns the error and writes nothing. The genesis block has nothing
+   * to trace and is written as {@code []}.
+   */
+  Optional<RpcErrorType> streamTo(
+      final OutputStream out,
+      final ObjectMapper mapper,
+      final BooleanSupplier isAlive,
+      final BeforeFirstByte beforeFirstByte)
       throws IOException {
     this.rawOut = out;
     this.writePos = 0;
@@ -175,125 +188,169 @@ public class DebugTraceBlockStreamer {
     this.logIndexOffset = 0;
 
     try {
-      writeByte('[');
+      if (block.getHeader().getNumber() == BlockHeader.GENESIS_BLOCK_NUMBER) {
+        beforeFirstByte.run();
+        writeByte('[');
+        writeByte(']');
+        flushBuf();
+        return Optional.empty();
+      }
 
-      Tracer.processTracing(
-          blockchainQueries,
-          Optional.of(block.getHeader()),
-          traceableState -> {
-            final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(block.getHeader());
-            final MainnetTransactionProcessor transactionProcessor =
-                protocolSpec.getTransactionProcessor();
-            final TraceBlock.ChainUpdater chainUpdater =
-                new TraceBlock.ChainUpdater(traceableState);
-
-            final BlockHeader header = block.getHeader();
-            final Optional<BlockHeader> maybeParentHeader =
-                blockchainQueries.getBlockchain().getBlockHeader(header.getParentHash());
-            final Wei blobGasPrice =
-                protocolSpec
-                    .getFeeMarket()
-                    .blobGasPricePerGas(
-                        maybeParentHeader
-                            .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
-                            .orElse(BlobGas.ZERO));
-            final BlockHashLookup blockHashLookup =
-                protocolSpec
-                    .getPreExecutionProcessor()
-                    .createBlockHashLookup(blockchainQueries.getBlockchain(), header);
-
-            final boolean isOpcodeTracer = traceOptions.tracerType() == TracerType.OPCODE_TRACER;
-
-            final List<Transaction> transactions = block.getBody().getTransactions();
-            for (int i = 0; i < transactions.size(); i++) {
-              if (!isAlive.getAsBoolean()) break;
-              final Transaction transaction = transactions.get(i);
-              if (isOpcodeTracer) {
-                streamOpcodeTransaction(
-                    transaction,
-                    chainUpdater,
-                    transactionProcessor,
-                    header,
-                    blobGasPrice,
-                    blockHashLookup);
-              } else {
+      final boolean[] started = {false};
+      final Optional<Boolean> traced =
+          Tracer.processTracing(
+              blockchainQueries,
+              Optional.of(block.getHeader()),
+              traceableState -> {
                 try {
-                  final byte[] json =
-                      mapper.writeValueAsBytes(
-                          buildTransactionResult(
-                              transaction,
-                              i,
-                              chainUpdater,
-                              transactionProcessor,
-                              protocolSpec,
-                              header,
-                              blobGasPrice,
-                              blockHashLookup));
-                  if (!firstTx) writeByte(COMMA);
-                  firstTx = false;
-                  writeBytes(json);
-                } catch (IOException e) {
+                  beforeFirstByte.run();
+                  started[0] = true;
+                  writeByte('[');
+                } catch (final IOException e) {
                   throw new UncheckedIOException(e);
                 }
-              }
-            }
+                return traceLoadedBlock(traceableState, mapper, isAlive);
+              });
 
-            return Optional.of(Boolean.TRUE);
-          });
+      if (traced.isEmpty() && !started[0]) {
+        return Optional.of(parentStateError());
+      }
 
       writeByte(']');
       flushBuf();
+      return Optional.empty();
     } finally {
       this.rawOut = null;
     }
   }
 
+  private Optional<Boolean> traceLoadedBlock(
+      final Tracer.TraceableState traceableState,
+      final ObjectMapper mapper,
+      final BooleanSupplier isAlive) {
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(block.getHeader());
+    final MainnetTransactionProcessor transactionProcessor = protocolSpec.getTransactionProcessor();
+    final TraceBlock.ChainUpdater chainUpdater = new TraceBlock.ChainUpdater(traceableState);
+
+    final BlockHeader header = block.getHeader();
+    final Optional<BlockHeader> maybeParentHeader =
+        blockchainQueries.getBlockchain().getBlockHeader(header.getParentHash());
+    final Wei blobGasPrice =
+        protocolSpec
+            .getFeeMarket()
+            .blobGasPricePerGas(
+                maybeParentHeader
+                    .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
+                    .orElse(BlobGas.ZERO));
+    final BlockHashLookup blockHashLookup =
+        protocolSpec
+            .getPreExecutionProcessor()
+            .createBlockHashLookup(blockchainQueries.getBlockchain(), header);
+
+    final boolean isOpcodeTracer = traceOptions.tracerType() == TracerType.OPCODE_TRACER;
+
+    final List<Transaction> transactions = block.getBody().getTransactions();
+    for (int i = 0; i < transactions.size(); i++) {
+      if (!isAlive.getAsBoolean()) break;
+      final Transaction transaction = transactions.get(i);
+      if (isOpcodeTracer) {
+        streamOpcodeTransaction(
+            transaction, chainUpdater, transactionProcessor, header, blobGasPrice, blockHashLookup);
+      } else {
+        try {
+          final byte[] json =
+              mapper.writeValueAsBytes(
+                  buildTransactionResult(
+                      transaction,
+                      i,
+                      chainUpdater,
+                      transactionProcessor,
+                      protocolSpec,
+                      header,
+                      blobGasPrice,
+                      blockHashLookup));
+          if (!firstTx) writeByte(COMMA);
+          firstTx = false;
+          writeBytes(json);
+        } catch (IOException e) {
+          throw new UncheckedIOException(e);
+        }
+      }
+    }
+
+    return Optional.of(Boolean.TRUE);
+  }
+
   public List<Object> accumulateAll(final BooleanSupplier isAlive) {
+    if (block.getHeader().getNumber() == BlockHeader.GENESIS_BLOCK_NUMBER) {
+      return List.of();
+    }
     final List<Object> results = new ArrayList<>();
     this.logIndexOffset = 0;
-    Tracer.processTracing(
-        blockchainQueries,
-        Optional.of(block.getHeader()),
-        traceableState -> {
-          final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(block.getHeader());
-          final MainnetTransactionProcessor transactionProcessor =
-              protocolSpec.getTransactionProcessor();
-          final TraceBlock.ChainUpdater chainUpdater = new TraceBlock.ChainUpdater(traceableState);
+    // getAndMapWorldState returns empty both when the parent state is missing and when the tracer
+    // throws. The flag keeps a trace that started from being reported as pruned history.
+    final boolean[] started = {false};
+    final Optional<Boolean> traced =
+        Tracer.processTracing(
+            blockchainQueries,
+            Optional.of(block.getHeader()),
+            traceableState -> {
+              started[0] = true;
+              final ProtocolSpec protocolSpec =
+                  protocolSchedule.getByBlockHeader(block.getHeader());
+              final MainnetTransactionProcessor transactionProcessor =
+                  protocolSpec.getTransactionProcessor();
+              final TraceBlock.ChainUpdater chainUpdater =
+                  new TraceBlock.ChainUpdater(traceableState);
 
-          final BlockHeader header = block.getHeader();
-          final Optional<BlockHeader> maybeParentHeader =
-              blockchainQueries.getBlockchain().getBlockHeader(header.getParentHash());
-          final Wei blobGasPrice =
-              protocolSpec
-                  .getFeeMarket()
-                  .blobGasPricePerGas(
-                      maybeParentHeader
-                          .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
-                          .orElse(BlobGas.ZERO));
-          final BlockHashLookup blockHashLookup =
-              protocolSpec
-                  .getPreExecutionProcessor()
-                  .createBlockHashLookup(blockchainQueries.getBlockchain(), header);
+              final BlockHeader header = block.getHeader();
+              final Optional<BlockHeader> maybeParentHeader =
+                  blockchainQueries.getBlockchain().getBlockHeader(header.getParentHash());
+              final Wei blobGasPrice =
+                  protocolSpec
+                      .getFeeMarket()
+                      .blobGasPricePerGas(
+                          maybeParentHeader
+                              .map(parent -> calculateExcessBlobGasForParent(protocolSpec, parent))
+                              .orElse(BlobGas.ZERO));
+              final BlockHashLookup blockHashLookup =
+                  protocolSpec
+                      .getPreExecutionProcessor()
+                      .createBlockHashLookup(blockchainQueries.getBlockchain(), header);
 
-          final List<Transaction> transactions = block.getBody().getTransactions();
-          for (int i = 0; i < transactions.size(); i++) {
-            if (!isAlive.getAsBoolean()) break;
-            final Transaction transaction = transactions.get(i);
-            results.add(
-                buildTransactionResult(
-                    transaction,
-                    i,
-                    chainUpdater,
-                    transactionProcessor,
-                    protocolSpec,
-                    header,
-                    blobGasPrice,
-                    blockHashLookup));
-          }
+              final List<Transaction> transactions = block.getBody().getTransactions();
+              for (int i = 0; i < transactions.size(); i++) {
+                if (!isAlive.getAsBoolean()) break;
+                final Transaction transaction = transactions.get(i);
+                results.add(
+                    buildTransactionResult(
+                        transaction,
+                        i,
+                        chainUpdater,
+                        transactionProcessor,
+                        protocolSpec,
+                        header,
+                        blobGasPrice,
+                        blockHashLookup));
+              }
 
-          return Optional.of(Boolean.TRUE);
-        });
+              return Optional.of(Boolean.TRUE);
+            });
+    if (traced.isEmpty()) {
+      throw new UnavailableParentStateException(
+          started[0] ? RpcErrorType.INTERNAL_ERROR : parentStateError());
+    }
     return results;
+  }
+
+  private RpcErrorType parentStateError() {
+    return WorldStateUnavailable.error(
+        blockchainQueries.getBlockchain(), blockchainQueries.getWorldStateArchive());
+  }
+
+  @FunctionalInterface
+  interface BeforeFirstByte {
+    void run() throws IOException;
   }
 
   // ── streaming opcode transaction ──────────────────────────────────
@@ -308,11 +365,7 @@ public class DebugTraceBlockStreamer {
 
     final StreamingDebugOperationTracer tracer =
         new StreamingDebugOperationTracer(
-            traceOptions.opCodeTracerConfig(),
-            true,
-            (pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert) ->
-                writeStructLog(
-                    pc, opcode, gasRemaining, gasCost, depth, stack, frame, halt, revert));
+            traceOptions.opCodeTracerConfig(), true, this::writeStructLog);
 
     try {
       if (!firstTx) writeByte(COMMA);
@@ -393,7 +446,10 @@ public class DebugTraceBlockStreamer {
       final long gasCost,
       final int depth,
       final Bytes[] stack,
-      final MessageFrame frame,
+      final Bytes memory,
+      final long refund,
+      final Bytes returnData,
+      final Map<UInt256, UInt256> storage,
       final ExceptionalHaltReason haltReason,
       final Bytes revertReason) {
     try {
@@ -415,7 +471,6 @@ public class DebugTraceBlockStreamer {
       writeBytes(SL_DEPTH);
       writeInt(depth + 1);
 
-      final long refund = frame.getGasRefund();
       if (refund > 0) {
         writeBytes(SL_REFUND);
         writeLong(refund);
@@ -432,20 +487,19 @@ public class DebugTraceBlockStreamer {
         writeByte(ARR_CLOSE);
       }
 
-      if (traceOptions.opCodeTracerConfig().traceMemory() && frame.memoryWordSize() > 0) {
+      if (memory != null) {
         writeBytes(SL_MEMORY);
-        final int wordCount = frame.memoryWordSize();
+        final int wordCount = memory.size() / 32;
         for (int i = 0; i < wordCount; i++) {
           if (i > 0) writeByte(COMMA);
           writeByte(QUOTE);
-          writeHex(frame.readMutableMemory(i * 32L, 32).toArrayUnsafe(), false);
+          writeHex(memory.slice(i * 32, 32).toArrayUnsafe(), false);
           writeByte(QUOTE);
         }
         writeByte(ARR_CLOSE);
       }
 
       if (traceOptions.opCodeTracerConfig().traceReturnData()) {
-        final Bytes returnData = frame.getReturnData();
         if (returnData != null && !returnData.isEmpty()) {
           writeBytes(SL_RETURN_DATA);
           writeHex(returnData.toArrayUnsafe(), false);
@@ -453,34 +507,21 @@ public class DebugTraceBlockStreamer {
         }
       }
 
-      if (traceOptions.opCodeTracerConfig().traceStorage()) {
-        try {
-          final MutableAccount account =
-              frame.getWorldUpdater().getAccount(frame.getRecipientAddress());
-          if (account != null) {
-            final Map<UInt256, UInt256> updatedStorage = account.getUpdatedStorage();
-            if (!updatedStorage.isEmpty()) {
-              writeBytes(SL_STORAGE);
-              sortedStorage.clear();
-              sortedStorage.putAll(updatedStorage);
-              boolean firstEntry = true;
-              for (final Map.Entry<UInt256, UInt256> entry : sortedStorage.entrySet()) {
-                if (!firstEntry) writeByte(COMMA);
-                firstEntry = false;
-                writeByte(QUOTE);
-                writeHex(entry.getKey().toArrayUnsafe(), false);
-                writeByte(QUOTE);
-                writeByte(COLON);
-                writeByte(QUOTE);
-                writeHex(entry.getValue().toArrayUnsafe(), false);
-                writeByte(QUOTE);
-              }
-              writeByte(OBJ_CLOSE);
-            }
-          }
-        } catch (final ModificationNotAllowedException e) {
-          // no storage to write
+      if (storage != null) {
+        writeBytes(SL_STORAGE);
+        boolean firstEntry = true;
+        for (final Map.Entry<UInt256, UInt256> entry : storage.entrySet()) {
+          if (!firstEntry) writeByte(COMMA);
+          firstEntry = false;
+          writeByte(QUOTE);
+          writeHex(entry.getKey().toArrayUnsafe(), false);
+          writeByte(QUOTE);
+          writeByte(COLON);
+          writeByte(QUOTE);
+          writeHex(entry.getValue().toArrayUnsafe(), false);
+          writeByte(QUOTE);
         }
+        writeByte(OBJ_CLOSE);
       }
 
       if (revertReason != null) {

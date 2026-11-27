@@ -92,7 +92,7 @@ public class LegacyFeeMarketBlockTransactionSelectorTest
             metricsSystem,
             blockchain::getChainHeadHeader,
             transactionEventNotifier.newEmitter(),
-            new DeterministicEthScheduler());
+            createTxPoolScheduler());
 
     final EthContext ethContext = mock(EthContext.class, RETURNS_DEEP_STUBS);
     when(ethContext.getEthPeers().subscribeConnect(any())).thenReturn(1L);

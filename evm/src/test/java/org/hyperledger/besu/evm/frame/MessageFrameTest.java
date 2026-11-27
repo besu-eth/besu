@@ -28,6 +28,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -89,18 +91,14 @@ class MessageFrameTest {
     assertThat(messageFrame.memoryWordSize()).isEqualTo(initialActiveWords);
   }
 
-  @Test
-  void releasedV2StackGoesBackToTheFrameDepthOnce() {
-    final MessageFrame messageFrame = messageFrameBuilder.enableEvmV2(true).build();
-    final long[] stack = messageFrame.stackDataV2();
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void childFrameRunsOnTheEvmOfItsParent(final boolean parentOnEvmV2) {
+    final MessageFrame parent = messageFrameBuilder.enableEvmV2(parentOnEvmV2).build();
 
-    // released while the frame is still on the frame stack, which is one deeper than its depth
-    messageFrame.releaseStackV2();
-    messageFrame.releaseStackV2();
+    final MessageFrame child =
+        messageFrameBuilder.parentMessageFrame(parent).enableEvmV2(!parentOnEvmV2).build();
 
-    assertThat(messageFrame.stackDataV2()).isNull();
-    assertThat(messageFrame.runsOnEvmV2()).isTrue();
-    assertThat(StacksV2.take(0, stack.length)).isSameAs(stack);
-    assertThat(StacksV2.take(0, stack.length)).isNotSameAs(stack);
+    assertThat(child.runsOnEvmV2()).isEqualTo(parentOnEvmV2);
   }
 }

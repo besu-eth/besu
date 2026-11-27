@@ -139,6 +139,12 @@ public class CallTracer implements OperationTracer {
   }
 
   @Override
+  public boolean allowsJournal() {
+    // reads the frames only, never the world state
+    return true;
+  }
+
+  @Override
   public void traceStartTransaction(final WorldView worldView, final Transaction transaction) {
     this.rootType = transaction.isContractCreation() ? CREATE : CALL;
     this.rootGas = transaction.getGasLimit();
