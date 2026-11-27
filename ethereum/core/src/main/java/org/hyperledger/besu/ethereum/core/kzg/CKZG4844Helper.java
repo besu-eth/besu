@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import ethereum.ckzg4844.CKZG4844JNI;
+import ethereum.ckzg4844.CKZGException;
 import ethereum.ckzg4844.CellsAndProofs;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes48;
@@ -253,11 +254,22 @@ public class CKZG4844Helper {
           // hashes; each cell is verified as it is sampled.
           yield true;
         }
-        yield CKZG4844JNI.verifyCellKzgProofBatch(
-            blobsWithCommitments.getKzgCommitmentsByteArray(),
-            blobsWithCommitments.getCellIndexes(),
-            blobsWithCommitments.getBlobCellsByteArray(),
-            blobsWithCommitments.getKzgProofsByteArray());
+        try {
+          yield CKZG4844JNI.verifyCellKzgProofBatch(
+              blobsWithCommitments.getKzgCommitmentsByteArray(),
+              blobsWithCommitments.getCellIndexes(),
+              blobsWithCommitments.getBlobCellsByteArray(),
+              blobsWithCommitments.getKzgProofsByteArray());
+        } catch (final CKZGException e) {
+          if (e.getError() != CKZGException.CKZGError.C_KZG_BADARGS) {
+            throw e;
+          }
+          // The native verifier reports a cell whose bytes do not deserialize into field elements
+          // as a bad argument rather than answering false. Cells arrive from sampling untrusted
+          // peers, and for a verifier the distinction carries nothing: content that does not
+          // decode does not open its commitment either. Internal errors still propagate.
+          yield false;
+        }
       }
     };
   }
