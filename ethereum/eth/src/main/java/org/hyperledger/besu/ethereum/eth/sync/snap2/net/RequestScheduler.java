@@ -543,9 +543,8 @@ public final class RequestScheduler implements RequestSender {
     final String name = pending.request.name();
     final long minimumHeight = pending.request.minimumPeerHeight();
     for (final PeerState state : candidates) {
-      final Protocol protocol = pending.request.protocolFor(state.peer);
-      final Lane lane = state.lane(protocol);
-      if (!canTake(state, lane, protocol, pending, now)) {
+      final Lane lane = state.lane(pending.request.protocolFor(state.peer));
+      if (!canTake(state, lane, pending, now)) {
         continue;
       }
       final double score =
@@ -561,26 +560,19 @@ public final class RequestScheduler implements RequestSender {
   }
 
   private static boolean canTake(
-      final PeerState state,
-      final Lane lane,
-      final Protocol protocol,
-      final Pending<?> pending,
-      final long now) {
+      final PeerState state, final Lane lane, final Pending<?> pending, final long now) {
     return state.room > 0
         && !state.peer.isDisconnected()
         && lane.isOpen(now)
         && !pending.excluded.contains(state.peer)
-        && speaks(state.peer, protocol)
-        && pending.request.canServe(state.peer);
+        && serves(state.peer, pending.request);
   }
 
   private static Servers servers(final Pending<?> pending, final List<PeerState> candidates) {
     boolean excluded = false;
     for (final PeerState state : candidates) {
       final EthPeer peer = state.peer;
-      if (peer.isDisconnected()
-          || !speaks(peer, pending.request.protocolFor(peer))
-          || !pending.request.canServe(peer)) {
+      if (peer.isDisconnected() || !serves(peer, pending.request)) {
         continue;
       }
       if (!pending.excluded.contains(peer)) {
@@ -833,13 +825,17 @@ public final class RequestScheduler implements RequestSender {
     requestCounter.labels(request, outcome.label).inc();
   }
 
+  // a peer's head is fetched on connect: one at genesis, as a syncing node, holds no block
+  private static boolean serves(final EthPeer peer, final SyncRequest<?> request) {
+    final boolean atGenesis = peer.chainState().getEstimatedHeight() == 0;
+    return speaks(peer, request.protocolFor(peer))
+        && request.canServe(peer)
+        && !(atGenesis && request.minimumPeerHeight() > 0);
+  }
+
   // a peer that announced a lower head may be syncing, or may just not have announced more
   private static boolean behind(final EthPeer peer, final long minimumHeight) {
-    if (minimumHeight <= 0) {
-      return false;
-    }
-    final long height = peer.chainState().getEstimatedHeight();
-    return height > 0 && height < minimumHeight;
+    return peer.chainState().getEstimatedHeight() < minimumHeight;
   }
 
   private static boolean speaks(final EthPeer peer, final Protocol protocol) {
