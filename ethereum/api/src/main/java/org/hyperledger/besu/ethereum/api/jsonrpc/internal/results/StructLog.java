@@ -51,7 +51,6 @@ public class StructLog {
   private final int pc;
   private final String[] stack;
   private final Object storage;
-  private final String reason;
   private final String returnData;
 
   public StructLog(final TraceFrame traceFrame) {
@@ -75,7 +74,6 @@ public class StructLog {
             .orElse(null);
 
     storage = traceFrame.getStorage().map(StructLog::formatStorage).orElse(null);
-    reason = traceFrame.getRevertReason().map(bytes -> toCompactHex(bytes, true)).orElse(null);
     returnData = traceFrame.getReturnData().map(Bytes::toHexString).orElse(null);
   }
 
@@ -150,12 +148,6 @@ public class StructLog {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public Object storage() {
     return storage;
-  }
-
-  @JsonGetter("reason")
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  public String reason() {
-    return reason;
   }
 
   @JsonGetter("returnData")

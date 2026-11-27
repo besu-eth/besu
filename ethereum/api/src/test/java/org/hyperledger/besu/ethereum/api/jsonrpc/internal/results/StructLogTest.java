@@ -66,7 +66,6 @@ public class StructLogTest {
         Map.of(
             "0x01", "0x2233333",
             "0x02", "0x4455667");
-    final String reason = "0x0001";
 
     // Mock TraceFrame behaviors
     when(traceFrame.getDepth()).thenReturn(depth);
@@ -92,7 +91,6 @@ public class StructLogTest {
           UInt256.fromHexString(entry.getKey()), UInt256.fromHexString(entry.getValue()));
     }
     when(traceFrame.getStorage()).thenReturn(Optional.of(storageMap));
-    when(traceFrame.getRevertReason()).thenReturn(Optional.of(Bytes.fromHexString(reason)));
 
     // When
     structLog = new StructLog(traceFrame);
@@ -121,7 +119,6 @@ public class StructLogTest {
                 "0x0000000000000000000000000000000000000000000000000000000002233333",
                 "0x0000000000000000000000000000000000000000000000000000000000000002",
                 "0x0000000000000000000000000000000000000000000000000000000004455667"));
-    assertThat(structLog.reason()).isEqualTo("0x1");
   }
 
   @Test
@@ -137,7 +134,6 @@ public class StructLogTest {
         Map.of(
             "0x01", "0x2233333",
             "0x02", "0x4455667");
-    final String reason = "0x53756e696665642066756e6473";
 
     // Mock TraceFrame behaviors
     when(traceFrame.getDepth()).thenReturn(depth);
@@ -163,7 +159,6 @@ public class StructLogTest {
           UInt256.fromHexString(entry.getKey()), UInt256.fromHexString(entry.getValue()));
     }
     when(traceFrame.getStorage()).thenReturn(Optional.of(storageMap));
-    when(traceFrame.getRevertReason()).thenReturn(Optional.of(Bytes.fromHexString(reason)));
 
     // When
     structLog = new StructLog(traceFrame);
@@ -181,8 +176,7 @@ public class StructLogTest {
             + "\"depth\":1,"
             + "\"stack\":[\"0x0\",\"0x1\",\"0x2\",\"0x3\"],"
             + "\"memory\":[\"0x0000000000000000000000000000000000000000000000000000000000000001\",\"0x0000000000000000000000000000000000000000000000000000000000000002\",\"0x0000000000000000000000000000000000000000000000000000000000000023\",\"0x0000000000000000000000000000000000000000000000000000000000000004\",\"0x00000000000000000000000000000000000000000000000000000000000000e5\",\"0x0000000000000000000000000000000000000000000000000000000000000000\"],"
-            + "\"storage\":{\"0x0000000000000000000000000000000000000000000000000000000000000001\":\"0x0000000000000000000000000000000000000000000000000000000002233333\",\"0x0000000000000000000000000000000000000000000000000000000000000002\":\"0x0000000000000000000000000000000000000000000000000000000004455667\"},"
-            + "\"reason\":\"0x53756e696665642066756e6473\""
+            + "\"storage\":{\"0x0000000000000000000000000000000000000000000000000000000000000001\":\"0x0000000000000000000000000000000000000000000000000000000002233333\",\"0x0000000000000000000000000000000000000000000000000000000000000002\":\"0x0000000000000000000000000000000000000000000000000000000004455667\"}"
             + "}";
 
     // Then
@@ -304,6 +298,5 @@ public class StructLogTest {
     when(traceFrame.getPc()).thenReturn(0);
     when(traceFrame.getStack()).thenReturn(Optional.empty());
     when(traceFrame.getStorage()).thenReturn(Optional.empty());
-    when(traceFrame.getRevertReason()).thenReturn(Optional.empty());
   }
 }

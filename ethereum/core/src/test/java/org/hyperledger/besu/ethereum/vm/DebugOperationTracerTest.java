@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.evm.frame.SoftFailureReason.LEGACY_INSUFFICIENT_BALANCE;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.spy;
@@ -435,17 +436,67 @@ class DebugOperationTracerTest {
   }
 
   @Test
-  void shouldAddGasWhenEnabled() {
-    final TraceFrame traceFrame =
-        traceFrame(
-            validCallFrame(),
-            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                .traceStorage(false)
-                .traceMemory(false)
-                .traceStack(false)
-                .build(),
-            true);
-    assertThat(traceFrame.getGasCost()).isEqualTo(OptionalLong.of(1020L));
+  void shouldAddForwardedGasWithoutStipendWhenCallEntersChild() {
+    final MessageFrame frame = validCallFrameWithValue(1L);
+    final MessageFrame child = validMessageFrameBuilder().initialGas(62_300L).build();
+    final Operation enterChild =
+        new CallOperation(new CancunGasCalculator()) {
+          @Override
+          public OperationResult execute(final MessageFrame f, final EVM evm) {
+            f.getMessageFrameStack().addFirst(child);
+            f.setState(MessageFrame.State.CODE_SUSPENDED);
+            return new OperationResult(11_624L, null);
+          }
+        };
+
+    assertThat(traceCall(frame, enterChild, true).getGasCost()).isEqualTo(OptionalLong.of(71_624L));
+  }
+
+  @Test
+  void shouldAddForwardedGasWithoutStipendWhenCallDoesNotEnterChild() {
+    final MessageFrame frame = validCallFrameWithValue(1L);
+    final Operation insufficientBalance =
+        new CallOperation(new CancunGasCalculator()) {
+          @Override
+          public OperationResult execute(final MessageFrame f, final EVM evm) {
+            return new OperationResult(11_624L, 1, LEGACY_INSUFFICIENT_BALANCE, 62_300L);
+          }
+        };
+
+    assertThat(traceCall(frame, insufficientBalance, true).getGasCost())
+        .isEqualTo(OptionalLong.of(71_624L));
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void shouldReportNoCostForExceptionalHaltOnlyWithChildCallGas(final boolean childCallGas) {
+    final MessageFrame frame = validCallFrameWithValue(0L);
+    final Operation outOfGas =
+        new CallOperation(new CancunGasCalculator()) {
+          @Override
+          public OperationResult execute(final MessageFrame f, final EVM evm) {
+            return new OperationResult(2_600L, ExceptionalHaltReason.INSUFFICIENT_GAS);
+          }
+        };
+
+    assertThat(traceCall(frame, outOfGas, childCallGas).getGasCost())
+        .isEqualTo(childCallGas ? OptionalLong.empty() : OptionalLong.of(2_600L));
+  }
+
+  @Test
+  void shouldReportNoCostWhenTheEvmLoopHaltsTheFrame() {
+    final MessageFrame frame = validMessageFrame();
+    final Operation costAboveRemainingGas =
+        new AbstractOperation(0x02, "MUL", 2, 1, null) {
+          @Override
+          public OperationResult execute(final MessageFrame f, final EVM evm) {
+            f.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+            f.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+            return new OperationResult(INITIAL_GAS + 1, null);
+          }
+        };
+
+    assertThat(traceCall(frame, costAboveRemainingGas, true).getGasCost()).isEmpty();
   }
 
   @Test
@@ -875,6 +926,29 @@ class DebugOperationTracerTest {
     frame.setCurrentOperation(callOperation);
     frame.setPC(10);
     return frame;
+  }
+
+  private MessageFrame validCallFrameWithValue(final long value) {
+    final MessageFrame frame = validMessageFrameBuilder().build();
+    frame.pushStackItem(Bytes.ofUnsignedLong(value));
+    frame.pushStackItem(Bytes.fromHexString("0xc2"));
+    frame.pushStackItem(Bytes.ofUnsignedLong(60_000L));
+    frame.setPC(10);
+    return frame;
+  }
+
+  private TraceFrame traceCall(
+      final MessageFrame frame, final Operation operation, final boolean childCallGas) {
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceStorage(false)
+                .traceMemory(false)
+                .traceStack(false)
+                .build(),
+            childCallGas);
+    traceFrame(frame, tracer, operation);
+    return getOnlyTraceFrame(tracer);
   }
 
   private TraceFrame getOnlyTraceFrame(final DebugOperationTracer tracer) {
