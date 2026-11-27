@@ -14,7 +14,9 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
@@ -59,7 +61,11 @@ public class EarlyInProcessCallPluginTest extends AcceptanceTestBase {
 
   @Test
   public void aCallFromAnEarlierPluginsStartIsRefusedUntilTheTargetHasStarted() throws IOException {
-    final JsonNode outcomes = call("tests_earlyCallOutcome").get("result");
+    // the RPC port opens before afterMainLoop() runs, so wait until that call has been recorded
+    await()
+        .atMost(30, SECONDS)
+        .untilAsserted(() -> assertThat(outcomes().get(1).asText()).isNotEqualTo("not called"));
+    final JsonNode outcomes = outcomes();
 
     assertThat(outcomes.get(0).asText()).startsWith("ERROR").contains("Plugin is not running");
     assertThat(outcomes.get(1).asText()).isEqualTo("SUCCESS: ok");
@@ -80,6 +86,10 @@ public class EarlyInProcessCallPluginTest extends AcceptanceTestBase {
     assertThat(Files.readAllLines(signal("earlyInProcessCall.stop")).get(0))
         .startsWith("ERROR")
         .contains("Plugin is not running");
+  }
+
+  private JsonNode outcomes() throws IOException {
+    return call("tests_earlyCallOutcome").get("result");
   }
 
   private Path signal(final String name) {
