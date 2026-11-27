@@ -730,12 +730,23 @@ public class JsonUtilTest {
   }
 
   @Test
-  public void objectNodeFromURL_closesSourceWithoutExcludedFields() throws IOException {
+  public void objectNodeFromURL_withoutExcludedFieldsOverload_closesSource() throws IOException {
     final TrackingInputStream source = new TrackingInputStream("{\"a\":1,\"b\":2}");
 
     final ObjectNode result = JsonUtil.objectNodeFromURL(urlFor(source), false);
 
     assertThat(result.get("a").asInt()).isEqualTo(1);
+    assertThat(source.isClosed()).isTrue();
+  }
+
+  @Test
+  public void objectNodeFromURL_closesSourceWithEmptyExcludedFields() throws IOException {
+    final TrackingInputStream source = new TrackingInputStream("{\"a\":1,\"b\":2}");
+
+    final ObjectNode result = JsonUtil.objectNodeFromURL(urlFor(source), false, new String[0]);
+
+    assertThat(result.get("a").asInt()).isEqualTo(1);
+    assertThat(result.get("b").asInt()).isEqualTo(2);
     assertThat(source.isClosed()).isTrue();
   }
 
