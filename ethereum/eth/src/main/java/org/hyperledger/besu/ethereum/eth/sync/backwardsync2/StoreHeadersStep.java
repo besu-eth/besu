@@ -1,0 +1,76 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.eth.sync.backwardsync2;
+
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+
+import java.util.List;
+import java.util.function.Consumer;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Last stage of the headers pipeline: checks that each batch, highest header first, is the parent
+ * chain of the headers already stored, then stores it.
+ */
+class StoreHeadersStep implements Consumer<List<BlockHeader>> {
+
+  private static final Logger LOG = LoggerFactory.getLogger(StoreHeadersStep.class);
+  private static final long LOG_INTERVAL_MILLIS = 10_000;
+
+  private final HeaderStore headerStore;
+  private final long targetNumber;
+  private BlockHeader lowest;
+  private long lastLogMillis;
+
+  /**
+   * @param target the header of the head to sync to, already stored
+   */
+  StoreHeadersStep(final HeaderStore headerStore, final BlockHeader target) {
+    this.headerStore = headerStore;
+    this.targetNumber = target.getNumber();
+    this.lowest = target;
+  }
+
+  @Override
+  public void accept(final List<BlockHeader> headers) {
+    for (final BlockHeader header : headers) {
+      if (!header.getHash().equals(lowest.getParentHash())) {
+        throw new IllegalStateException(
+            "Header #" + header.getNumber() + " is not the parent of " + lowest.toLogString());
+      }
+      lowest = header;
+    }
+    headerStore.putAll(headers);
+    logProgress();
+  }
+
+  /** The lowest stored header, the next batch to store being its parent chain. */
+  BlockHeader lowest() {
+    return lowest;
+  }
+
+  private void logProgress() {
+    final long now = System.currentTimeMillis();
+    if (now - lastLogMillis >= LOG_INTERVAL_MILLIS) {
+      lastLogMillis = now;
+      LOG.info(
+          String.format(
+              "Backward sync downloaded %,d headers, down to #%,d",
+              targetNumber - lowest.getNumber() + 1, lowest.getNumber()));
+    }
+  }
+}
