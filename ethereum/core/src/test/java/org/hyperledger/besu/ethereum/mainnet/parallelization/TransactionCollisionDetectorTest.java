@@ -1125,6 +1125,28 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
+  void spendingExactlyWhatTheBlockLeftIsCarriedOver() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address spent = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block took 30 of the 50
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 20)));
+    // the run spent 20 of the 50
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 30)));
+    trxUpdater.observeSufficientBalance(spent, Wei.of(30));
+
+    // the run's spending of 20 on the block's balance of 20
+    assertThat(carryOver(createTransaction(sender, spent)))
+        .contains(Map.of(spent, new CarriedAccount(Wei.ZERO, 1)));
+  }
+
+  @Test
   void spendingBeyondItsMarginFromAnAccountWhoseBalanceChangedIsACollision() {
     final Address sender = Address.fromHexString("0x1");
     final Address spent = Address.fromHexString("0x2");
