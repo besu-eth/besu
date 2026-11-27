@@ -28,6 +28,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -87,5 +89,16 @@ class MessageFrameTest {
 
     assertThat(messageFrame.shadowReadMemory(32, Bytes32.SIZE)).isEqualTo(WORD2);
     assertThat(messageFrame.memoryWordSize()).isEqualTo(initialActiveWords);
+  }
+
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void childFrameRunsOnTheEvmOfItsParent(final boolean parentOnEvmV2) {
+    final MessageFrame parent = messageFrameBuilder.enableEvmV2(parentOnEvmV2).build();
+
+    final MessageFrame child =
+        messageFrameBuilder.parentMessageFrame(parent).enableEvmV2(!parentOnEvmV2).build();
+
+    assertThat(child.runsOnEvmV2()).isEqualTo(parentOnEvmV2);
   }
 }
