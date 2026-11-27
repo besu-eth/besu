@@ -85,8 +85,14 @@ public class BlockSimulationResult {
   public List<LogWithMetadata> getLogsWithMetadata() {
     final List<LogWithMetadata> allLogs = new java.util.ArrayList<>();
     int logIndexOffset = 0;
-    for (var transactionSimulation :
-        blockStateCallSimulationResult.getTransactionSimulatorResults()) {
+    final var transactionSimulations =
+        blockStateCallSimulationResult.getTransactionSimulatorResults();
+    // The calls are the transactions of the block, in order. Their position is used as the
+    // transaction index because equal unsigned calls cannot be told apart by an indexOf lookup.
+    for (int transactionIndex = 0;
+        transactionIndex < transactionSimulations.size();
+        transactionIndex++) {
+      final var transactionSimulation = transactionSimulations.get(transactionIndex);
       final List<LogWithMetadata> txLogs =
           LogWithMetadata.generate(
               logIndexOffset,
@@ -95,10 +101,7 @@ public class BlockSimulationResult {
               block.getHash(),
               block.getHeader().getTimestamp(),
               transactionSimulation.result().transaction().getHash(),
-              block
-                  .getBody()
-                  .getTransactions()
-                  .indexOf(transactionSimulation.result().transaction()),
+              transactionIndex,
               false);
       allLogs.addAll(txLogs);
       logIndexOffset += txLogs.size();

@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -78,9 +77,10 @@ public class BlockStateCallResult extends BlockResult {
 
     List<LogWithMetadata> logs = simulationResult.getLogsWithMetadata();
 
+    List<TransactionSimulatorResult> simulations = simulationResult.getTransactionSimulations();
     var callProcessingResults =
-        simulationResult.getTransactionSimulations().stream()
-            .map(simulatorResult -> createTransactionProcessingResult(simulatorResult, logs))
+        IntStream.range(0, simulations.size())
+            .mapToObj(i -> createTransactionProcessingResult(simulations.get(i), i, logs))
             .collect(Collectors.toList());
 
     return new BlockStateCallResult(
@@ -127,16 +127,21 @@ public class BlockStateCallResult extends BlockResult {
    * Constructs a {@link CallProcessingResult} from a transaction simulation result and associated
    * logs.
    *
+   * <p>Logs are matched to the call by transaction index rather than hash: simulated calls are not
+   * signed, so two calls in a block can have the same hash.
+   *
    * @param simulatorResult the result of simulating a single transaction
-   * @param logs a list of logs associated with the transaction
+   * @param transactionIndex the index of the transaction in the block
+   * @param logs the logs of all the transactions in the block
    * @return a {@link CallProcessingResult} representing the outcome of the transaction simulation
    */
   private static CallProcessingResult createTransactionProcessingResult(
-      final TransactionSimulatorResult simulatorResult, final List<LogWithMetadata> logs) {
-    Hash transactionHash = simulatorResult.transaction().getHash();
+      final TransactionSimulatorResult simulatorResult,
+      final int transactionIndex,
+      final List<LogWithMetadata> logs) {
     List<LogWithMetadata> transactionLogs =
         logs.stream()
-            .filter(log -> log.getTransactionHash().equals(transactionHash))
+            .filter(log -> log.getTransactionIndex() == transactionIndex)
             .collect(Collectors.toList());
     TransactionProcessingResult result = simulatorResult.result();
     return new CallProcessingResult(
