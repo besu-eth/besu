@@ -52,7 +52,7 @@ import org.junit.jupiter.api.Test;
 class SnapServerBlockAccessListsTest {
 
   private static final int SNAP_MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
-  private static final int SNAP_MAX_ENTRIES_PER_REQUEST = 100_000;
+  private static final int SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST = 1024;
   private static final int SNAP_TEST_MAX_MILLIS_PER_REQUEST = 60_000;
 
   private final BlockDataGenerator dataGenerator = new BlockDataGenerator();
@@ -135,24 +135,47 @@ class SnapServerBlockAccessListsTest {
   }
 
   @Test
-  void shouldSoftLimitBlockAccessListsByEntryCount() {
+  void shouldLimitBlockAccessListLookupsPerRequest() {
     when(blockchain.getBlockAccessListRlp(any())).thenReturn(Optional.empty());
 
-    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 2);
-    for (int i = 0; i < SNAP_MAX_ENTRIES_PER_REQUEST + 2; i++) {
+    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST + 1);
+    for (int i = 0; i < SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST + 1; i++) {
       hashes.add(dataGenerator.hash());
     }
+    final Hash hashPastCap = hashes.get(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST);
 
     final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
-    final Hash hashPastLimit = hashes.get(SNAP_MAX_ENTRIES_PER_REQUEST);
 
     final BlockAccessListsMessage response =
         (BlockAccessListsMessage)
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false)).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
-    verify(blockchain).getBlockAccessListRlp(hashPastLimit);
+    assertThat(response.blockAccessLists(false))
+        .hasSize(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST);
+    verify(blockchain, never()).getBlockAccessListRlp(hashPastCap);
+  }
+
+  @Test
+  void shouldServeAllBlockAccessListsWhenRequestIsExactlyAtLookupCap() {
+    when(blockchain.getBlockAccessListRlp(any())).thenReturn(Optional.empty());
+
+    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST);
+    for (int i = 0; i < SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST; i++) {
+      hashes.add(dataGenerator.hash());
+    }
+    final Hash lastHash = hashes.get(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST - 1);
+
+    final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
+
+    final BlockAccessListsMessage response =
+        (BlockAccessListsMessage)
+            snapServer.constructGetBlockAccessListsResponse(
+                request.wrapMessageData(BigInteger.ONE));
+
+    assertThat(response.blockAccessLists(false))
+        .hasSize(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST);
+    verify(blockchain).getBlockAccessListRlp(lastHash);
   }
 
   @Test
@@ -189,24 +212,22 @@ class SnapServerBlockAccessListsTest {
   }
 
   @Test
-  void shouldCountUnavailableBlockAccessListsTowardEntryLimit() {
+  void shouldCountUnavailableBlockAccessListsTowardLookupCap() {
     when(blockchain.getBlockAccessListRlp(any())).thenReturn(Optional.empty());
 
     final Hash firstAvailableHash = dataGenerator.hash();
-    final Hash hashPastLimit = dataGenerator.hash();
+    final Hash hashPastCap = dataGenerator.hash();
     final BlockAccessList firstAvailable = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessListRlp(firstAvailableHash))
         .thenReturn(Optional.of(firstAvailable.encode()));
 
-    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
+    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST + 1);
     hashes.add(firstAvailableHash);
-
-    for (int i = 1; i < SNAP_MAX_ENTRIES_PER_REQUEST + 1; i++) {
+    for (int i = 1; i < SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST; i++) {
       hashes.add(dataGenerator.hash());
     }
-
-    hashes.add(hashPastLimit);
+    hashes.add(hashPastCap);
 
     final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
 
@@ -217,9 +238,9 @@ class SnapServerBlockAccessListsTest {
 
     final List<Optional<BlockAccessList>> responseBlockAccessLists = new ArrayList<>();
     response.blockAccessLists(false).forEach(responseBlockAccessLists::add);
-    assertThat(responseBlockAccessLists).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
+    assertThat(responseBlockAccessLists).hasSize(SNAP_MAX_BLOCK_ACCESS_LIST_LOOKUPS_PER_REQUEST);
     assertThat(responseBlockAccessLists.getFirst()).isEqualTo(Optional.of(firstAvailable));
-    verify(blockchain, never()).getBlockAccessListRlp(hashPastLimit);
+    verify(blockchain, never()).getBlockAccessListRlp(hashPastCap);
   }
 
   @Test
