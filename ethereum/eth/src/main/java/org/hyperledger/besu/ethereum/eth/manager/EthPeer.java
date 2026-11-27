@@ -86,7 +86,7 @@ public class EthPeer implements Comparable<EthPeer> {
   private final List<NodeMessagePermissioningProvider> permissioningProviders;
   private final ChainState chainHeadState = new ChainState();
   private final AtomicBoolean readyForRequests = new AtomicBoolean(false);
-  private final AtomicBoolean statusHasBeenReceivedFromPeer = new AtomicBoolean(false);
+  private final Set<PeerConnection> connectionsWithStatusReceived = ConcurrentHashMap.newKeySet();
   private final AtomicBoolean fullyValidated = new AtomicBoolean(false);
   private final AtomicInteger lastProtocolVersion = new AtomicInteger(0);
 
@@ -500,9 +500,9 @@ public class EthPeer implements Comparable<EthPeer> {
       final StatusMessage statusMessage, final PeerConnection connection) {
     chainHeadState.statusReceived(statusMessage);
     lastProtocolVersion.set(statusMessage.protocolVersion());
-    statusHasBeenReceivedFromPeer.set(true);
     synchronized (this) {
       connection.setStatusReceived();
+      connectionsWithStatusReceived.add(connection);
       maybeExecuteStatusesExchangedCallback(connection);
     }
   }
@@ -544,12 +544,17 @@ public class EthPeer implements Comparable<EthPeer> {
   }
 
   /**
-   * True if the peer has sent its initial status message to us.
+   * True if this connection has sent its initial status message to us.
    *
-   * @return true if the peer has sent its initial status message to us.
+   * @param connection the connection to check
+   * @return true if this connection has sent its initial status message to us.
    */
-  boolean statusHasBeenReceived() {
-    return statusHasBeenReceivedFromPeer.get();
+  public boolean statusHasBeenReceived(final PeerConnection connection) {
+    return connectionsWithStatusReceived.contains(connection);
+  }
+
+  void unregisterConnection(final PeerConnection connection) {
+    connectionsWithStatusReceived.remove(connection);
   }
 
   public boolean hasSeenBlock(final Hash hash) {

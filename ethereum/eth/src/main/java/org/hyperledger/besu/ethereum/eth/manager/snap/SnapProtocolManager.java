@@ -135,17 +135,24 @@ public class SnapProtocolManager implements ProtocolManager {
   public void processMessage(final Capability cap, final Message message) {
     final int code = message.getData().getCode();
     LOG.trace("Process snap message {}, {}", cap, code);
-    final EthPeer ethPeer = ethPeers.peer(message.getConnection());
+    final PeerConnection connection = message.getConnection();
+    final EthPeer ethPeer = ethPeers.peer(connection);
     if (ethPeer == null) {
-      LOG.debug(
-          "Ignoring message received from unknown peer connection: {}", message.getConnection());
+      LOG.debug("Ignoring message received from unknown peer connection: {}", connection);
+      return;
+    }
+
+    if (!ethPeer.statusHasBeenReceived(connection)) {
+      LOG.debug("Received snap message before status from {}, disconnection", ethPeer);
+      connection.disconnect(
+          DisconnectReason.BREACH_OF_PROTOCOL_RECEIVED_OTHER_MESSAGE_BEFORE_STATUS);
       return;
     }
 
     final EthMessage ethMessage = new EthMessage(ethPeer, message.getData());
     if (!ethPeer.validateReceivedMessage(ethMessage, getSupportedProtocol())) {
       LOG.debug("Unsolicited message {} received from, disconnecting: {}", code, ethPeer);
-      ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_UNSOLICITED_MESSAGE_RECEIVED);
+      connection.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_UNSOLICITED_MESSAGE_RECEIVED);
       return;
     }
 
@@ -160,7 +167,7 @@ public class SnapProtocolManager implements ProtocolManager {
           .addArgument(code)
           .setCause(e)
           .log();
-      ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      connection.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
       return;
     }
     final EthMessage decodedEthMessage = new EthMessage(ethPeer, messageData);
@@ -170,7 +177,7 @@ public class SnapProtocolManager implements ProtocolManager {
 
     // GET_* requests are handled off the Netty event loop to avoid blocking ETH protocol traffic.
     if (SnapV1.REQUEST_CODES.contains(code) || SnapV2.REQUEST_CODES.contains(code)) {
-      scheduleSnapRequest(ethPeer, decodedEthMessage, cap, code);
+      scheduleSnapRequest(ethPeer, decodedEthMessage, cap, code, connection);
     }
   }
 
@@ -178,24 +185,28 @@ public class SnapProtocolManager implements ProtocolManager {
       final EthPeer ethPeer,
       final EthMessage decodedEthMessage,
       final Capability cap,
-      final int code) {
-    if (!reserveSnapRequestSlot(ethPeer)) {
-      respondEmptyDueToOverload(ethPeer, decodedEthMessage, code);
+      final int code,
+      final PeerConnection connection) {
+    if (!reserveSnapRequestSlot(ethPeer, connection)) {
+      respondEmptyDueToOverload(ethPeer, decodedEthMessage, code, connection);
       return;
     }
     try {
-      scheduleReservedSnapRequest(ethPeer, decodedEthMessage, cap, code);
+      scheduleReservedSnapRequest(ethPeer, decodedEthMessage, cap, code, connection);
     } catch (final RuntimeException e) {
       // Only reachable during shutdown: the services executor rejects synchronously once shut
       // down. Release the slot so it isn't leaked.
-      releaseSnapRequestSlot(ethPeer);
+      releaseSnapRequestSlot(connection);
       throw e;
     }
   }
 
   /** Cap was hit; reply empty instead of leaving the peer to time out. */
   private void respondEmptyDueToOverload(
-      final EthPeer ethPeer, final EthMessage decodedEthMessage, final int code) {
+      final EthPeer ethPeer,
+      final EthMessage decodedEthMessage,
+      final int code,
+      final PeerConnection connection) {
     final BigInteger requestId;
     try {
       requestId = decodedEthMessage.getData().unwrapMessageData().getKey();
@@ -205,10 +216,10 @@ public class SnapProtocolManager implements ProtocolManager {
           code,
           ethPeer,
           e);
-      ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      connection.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
       return;
     }
-    sendSnapResponse(ethPeer, emptyResponseFor(code).wrapMessageData(requestId));
+    sendSnapResponse(ethPeer, emptyResponseFor(code).wrapMessageData(requestId), connection);
   }
 
   private static MessageData emptyResponseFor(final int code) {
@@ -226,7 +237,8 @@ public class SnapProtocolManager implements ProtocolManager {
       final EthPeer ethPeer,
       final EthMessage decodedEthMessage,
       final Capability cap,
-      final int code) {
+      final int code,
+      final PeerConnection connection) {
     ethScheduler
         .scheduleServiceTask(
             () -> {
@@ -246,9 +258,11 @@ public class SnapProtocolManager implements ProtocolManager {
                     code,
                     ethPeer,
                     e);
-                ethPeer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+                connection.disconnect(
+                    DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
               }
-              maybeResponseData.ifPresent(responseData -> sendSnapResponse(ethPeer, responseData));
+              maybeResponseData.ifPresent(
+                  responseData -> sendSnapResponse(ethPeer, responseData, connection));
             })
         .exceptionally(
             e -> {
@@ -262,7 +276,7 @@ public class SnapProtocolManager implements ProtocolManager {
               }
               return null;
             })
-        .whenComplete((result, error) -> releaseSnapRequestSlot(ethPeer));
+        .whenComplete((result, error) -> releaseSnapRequestSlot(ethPeer, connection));
   }
 
   /**
@@ -271,7 +285,7 @@ public class SnapProtocolManager implements ProtocolManager {
    *
    * @return true if reserved; false if a cap was hit (request answered empty instead).
    */
-  private boolean reserveSnapRequestSlot(final EthPeer ethPeer) {
+  private boolean reserveSnapRequestSlot(final EthPeer ethPeer, final PeerConnection connection) {
     final int reservedGlobal = globalInFlightRequests.incrementAndGet();
     if (maxConcurrentRequestsGlobal > 0 && reservedGlobal > maxConcurrentRequestsGlobal) {
       globalInFlightRequests.decrementAndGet();
@@ -280,8 +294,7 @@ public class SnapProtocolManager implements ProtocolManager {
     }
     if (maxConcurrentRequestsPerPeer > 0) {
       final AtomicInteger perPeerCount =
-          perPeerInFlightRequests.computeIfAbsent(
-              ethPeer.getConnection(), unused -> new AtomicInteger(0));
+          perPeerInFlightRequests.computeIfAbsent(connection, unused -> new AtomicInteger(0));
       final int reservedPerPeer = perPeerCount.incrementAndGet();
       if (reservedPerPeer > maxConcurrentRequestsPerPeer) {
         perPeerCount.decrementAndGet();
@@ -293,10 +306,10 @@ public class SnapProtocolManager implements ProtocolManager {
     return true;
   }
 
-  private void releaseSnapRequestSlot(final EthPeer ethPeer) {
+  private void releaseSnapRequestSlot(final EthPeer ethPeer, final PeerConnection connection) {
     globalInFlightRequests.decrementAndGet();
     if (maxConcurrentRequestsPerPeer > 0) {
-      final AtomicInteger perPeerCount = perPeerInFlightRequests.get(ethPeer.getConnection());
+      final AtomicInteger perPeerCount = perPeerInFlightRequests.get(connection);
       if (perPeerCount != null) {
         perPeerCount.decrementAndGet();
       }
@@ -312,9 +325,10 @@ public class SnapProtocolManager implements ProtocolManager {
         .log();
   }
 
-  private void sendSnapResponse(final EthPeer ethPeer, final MessageData responseData) {
+  private void sendSnapResponse(
+      final EthPeer ethPeer, final MessageData responseData, final PeerConnection connection) {
     try {
-      ethPeer.send(responseData, getSupportedProtocol());
+      ethPeer.send(responseData, getSupportedProtocol(), connection);
     } catch (final PeerConnection.PeerNotConnected e) {
       LOG.atTrace()
           .setMessage("Peer disconnected before we could respond - nothing to do {}")
