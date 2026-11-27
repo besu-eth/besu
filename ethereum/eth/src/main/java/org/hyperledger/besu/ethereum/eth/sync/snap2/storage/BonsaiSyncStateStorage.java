@@ -229,7 +229,7 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
     // the files hold the nodes under the keys of the default strategy only
     return sortedFlatState
             && bonsai.getTrieNodeStrategy().getClass() == BonsaiTrieNodeStrategy.class
-        ? new SortedTrieWriter(trieWriter())
+        ? new SortedTrieWriter()
         : trieWriter();
   }
 
@@ -248,7 +248,6 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
     // the account nodes of a partition are held for as many bytes as this many storage chunks
     private static final int ACCOUNT_NODE_CHUNKS = 8;
 
-    private final TrieWriter usual;
     private final List<SortedNode> nodes = new ArrayList<>();
     private final List<SortedNode> accountNodes = new ArrayList<>();
     private Bytes32 accountHash;
@@ -260,8 +259,7 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
 
     private record SortedNode(byte[] key, byte[] rlp) {}
 
-    private SortedTrieWriter(final TrieWriter usual) {
-      this.usual = usual;
+    private SortedTrieWriter() {
       openTrieWriters.incrementAndGet();
     }
 
@@ -318,7 +316,6 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
       closeFile();
       writeSorted(accountNodes);
       accountBytes = 0;
-      usual.commit();
       release();
     }
 
@@ -334,7 +331,6 @@ public final class BonsaiSyncStateStorage extends AbstractSyncStateStorage {
         file.rollback();
         file = null;
       }
-      usual.abort();
       release();
     }
 
