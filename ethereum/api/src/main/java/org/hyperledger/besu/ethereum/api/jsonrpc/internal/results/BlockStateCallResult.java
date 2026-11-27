@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -76,11 +75,15 @@ public class BlockStateCallResult extends BlockResult {
             ? createFullTransactionResults(block)
             : createHashTransactionResults(block);
 
-    List<LogWithMetadata> logs = simulationResult.getLogsWithMetadata();
+    final var transactionSimulations = simulationResult.getTransactionSimulations();
+    final var logsPerCall = simulationResult.getLogsWithMetadataPerCall();
 
     var callProcessingResults =
-        simulationResult.getTransactionSimulations().stream()
-            .map(simulatorResult -> createTransactionProcessingResult(simulatorResult, logs))
+        IntStream.range(0, transactionSimulations.size())
+            .mapToObj(
+                i ->
+                    createTransactionProcessingResult(
+                        transactionSimulations.get(i), logsPerCall.get(i)))
             .collect(Collectors.toList());
 
     return new BlockStateCallResult(
@@ -133,11 +136,6 @@ public class BlockStateCallResult extends BlockResult {
    */
   private static CallProcessingResult createTransactionProcessingResult(
       final TransactionSimulatorResult simulatorResult, final List<LogWithMetadata> logs) {
-    Hash transactionHash = simulatorResult.transaction().getHash();
-    List<LogWithMetadata> transactionLogs =
-        logs.stream()
-            .filter(log -> log.getTransactionHash().equals(transactionHash))
-            .collect(Collectors.toList());
     TransactionProcessingResult result = simulatorResult.result();
     return new CallProcessingResult(
         result.isSuccessful() ? 1 : 0,
@@ -145,7 +143,7 @@ public class BlockStateCallResult extends BlockResult {
         result.getGasSpent(),
         result.getEstimateGasUsedByTransaction(),
         getError(result),
-        new LogsResult(transactionLogs));
+        new LogsResult(logs));
   }
 
   /**

@@ -161,7 +161,7 @@ public class BlockStateCallResultTest {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final BlockSimulationResult simulationResult = mock(BlockSimulationResult.class);
     when(simulationResult.getBlock()).thenReturn(gen.block());
-    when(simulationResult.getLogsWithMetadata()).thenReturn(List.of());
+    when(simulationResult.getLogsWithMetadataPerCall()).thenReturn(List.of(List.of()));
     when(simulationResult.getSerializedTrieLog()).thenReturn(Optional.empty());
     when(simulationResult.getTransactionSimulations())
         .thenReturn(List.of(new TransactionSimulatorResult(gen.transaction(), result)));

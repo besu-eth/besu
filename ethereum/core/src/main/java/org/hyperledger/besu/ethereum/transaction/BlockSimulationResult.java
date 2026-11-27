@@ -82,11 +82,20 @@ public class BlockSimulationResult {
     return block;
   }
 
-  public List<LogWithMetadata> getLogsWithMetadata() {
-    final List<LogWithMetadata> allLogs = new java.util.ArrayList<>();
+  /**
+   * Returns the logs with metadata grouped by simulated call in execution order.
+   *
+   * @return a list of log lists, one per simulated transaction (empty if a call emitted no logs)
+   */
+  public List<List<LogWithMetadata>> getLogsWithMetadataPerCall() {
+    final var simulationResults = blockStateCallSimulationResult.getTransactionSimulatorResults();
+    final List<List<LogWithMetadata>> logsPerCall =
+        new java.util.ArrayList<>(simulationResults.size());
     int logIndexOffset = 0;
-    for (var transactionSimulation :
-        blockStateCallSimulationResult.getTransactionSimulatorResults()) {
+    for (int transactionIndex = 0;
+        transactionIndex < simulationResults.size();
+        transactionIndex++) {
+      final var transactionSimulation = simulationResults.get(transactionIndex);
       final List<LogWithMetadata> txLogs =
           LogWithMetadata.generate(
               logIndexOffset,
@@ -95,14 +104,17 @@ public class BlockSimulationResult {
               block.getHash(),
               block.getHeader().getTimestamp(),
               transactionSimulation.result().transaction().getHash(),
-              block
-                  .getBody()
-                  .getTransactions()
-                  .indexOf(transactionSimulation.result().transaction()),
+              transactionIndex,
               false);
-      allLogs.addAll(txLogs);
+      logsPerCall.add(txLogs);
       logIndexOffset += txLogs.size();
     }
+    return logsPerCall;
+  }
+
+  public List<LogWithMetadata> getLogsWithMetadata() {
+    final List<LogWithMetadata> allLogs = new java.util.ArrayList<>();
+    getLogsWithMetadataPerCall().forEach(allLogs::addAll);
     return allLogs;
   }
 
