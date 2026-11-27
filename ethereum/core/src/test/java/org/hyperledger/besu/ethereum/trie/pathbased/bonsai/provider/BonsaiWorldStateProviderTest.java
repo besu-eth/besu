@@ -151,17 +151,47 @@ class BonsaiWorldStateProviderTest {
             new BonsaiCodeCache());
 
     final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    // depth 513 from head is beyond the 512 retained layers (the bound is inclusive), so no trie
+    // log can roll head's state back this far.
+    final BlockHeader blockHeader513 =
+        blockBuilder.number(513).parentHash(genesis.getHash()).buildHeader();
+
+    when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
+    when(blockchain.getBlockHeader(blockHeader513.getHash()))
+        .thenReturn(Optional.of(blockHeader513));
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader513);
+
+    assertThat(bonsaiWorldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(genesis)))
+        .isEmpty();
+    verify(worldStateCacheManager, never()).getWorldState(any(Hash.class));
+  }
+
+  @Test
+  void shouldReturnWorldStateWhenLoadingExactlyMaxLayersBack() {
+    bonsaiWorldStateArchive = createBonsaiWorldStateProvider();
+
+    final BlockHeader genesis = blockBuilder.number(0).buildHeader();
+    // depth 512 from head equals the retained layer count: EIP-8252 requires head -
+    // REORG_RETENTION_WINDOW to be reconstructible, so the bound is inclusive and this block loads.
     final BlockHeader blockHeader512 =
         blockBuilder.number(512).parentHash(genesis.getHash()).buildHeader();
 
     when(blockchain.getBlockHeader(genesis.getHash())).thenReturn(Optional.of(genesis));
     when(blockchain.getBlockHeader(blockHeader512.getHash()))
         .thenReturn(Optional.of(blockHeader512));
+
+    bonsaiWorldStateArchive.getWorldState().persist(blockHeader512);
+
+    final BonsaiWorldState mockWorldState = createMockWorldState(genesis.getHash());
+    when(worldStateCacheManager.getWorldState(genesis.getHash()))
+        .thenReturn(Optional.of(mockWorldState));
+
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(512L);
     when(blockchain.getChainHeadHeader()).thenReturn(blockHeader512);
 
     assertThat(bonsaiWorldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(genesis)))
-        .isEmpty();
-    verify(worldStateCacheManager, never()).getWorldState(any(Hash.class));
+        .isPresent()
+        .containsInstanceOf(BonsaiWorldState.class);
   }
 
   @Test
@@ -410,10 +440,11 @@ class BonsaiWorldStateProviderTest {
     when(worldStateCacheManager.getNearestWorldState(genesis)).thenReturn(Optional.of(worldState1));
     when(trieLogManager.getTrieLogLayer(blockHeader1.getHash())).thenReturn(Optional.empty());
 
-    assertThatThrownBy(
-            () ->
-                bonsaiWorldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(genesis)))
-        .isInstanceOf(MerkleTrieException.class);
+    // A missing trie log means the state cannot be reconstructed, not that stored state is corrupt:
+    // the world state is reported unavailable (so the engine API answers SYNCING) rather than
+    // raising a trie fault that would surface as an internal error.
+    assertThat(bonsaiWorldStateArchive.getWorldState(withBlockHeaderAndNoUpdateNodeHead(genesis)))
+        .isEmpty();
 
     final AtomicBoolean mapperCalled = new AtomicBoolean();
     assertThat(

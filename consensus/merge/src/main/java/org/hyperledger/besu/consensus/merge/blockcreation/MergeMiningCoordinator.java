@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.inclusionlist.InclusionListTransactions;
+import org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,8 +41,15 @@ import org.immutables.value.Value;
 
 /** The interface Merge mining coordinator. */
 public interface MergeMiningCoordinator extends MiningCoordinator {
-  /** The maximum number of blocks that we can reorg back to */
-  long MAX_REORG_DEPTH = 90_000L;
+  /**
+   * The maximum reorg depth {@code engine_forkchoiceUpdated} accepts before returning {@code
+   * -38006: Too deep reorg}. Set to the EIP-8252 reorg retention window so forkchoice does not
+   * refuse a reorg whose common ancestor the retained Bonsai trie logs can still roll state back
+   * to; the two must move together, so this reuses {@link
+   * ExtraStorageConfiguration#EIP_8252_REORG_RETENTION_WINDOW}. Consensus-adjacent: it widens the
+   * depth of reorg a node will follow (raised from the historical 90,000).
+   */
+  long MAX_REORG_DEPTH = ExtraStorageConfiguration.EIP_8252_REORG_RETENTION_WINDOW;
 
   /**
    * Arguments passed to {@link MergeMiningCoordinator#preparePayload(PreparePayloadArgs)}.

@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.DEFAULT_PARALLEL_TX_PROCESSING;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT;
+import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.TRIE_LOG_PRUNING_WINDOW_MARGIN;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_DEEP_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_SHALLOW_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.Unstable.DEFAULT_BONSAI_ARCHIVE_STATE_PROOFS_ENABLED;
@@ -38,11 +39,15 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
 /** The Data storage CLI options. */
 public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration> {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ExtraStorageOptions.class);
 
   /** The maximum number of historical layers to load. */
   public static final String MAX_LAYERS_TO_LOAD = "--bonsai-historical-block-limit";
@@ -228,15 +233,35 @@ public class ExtraStorageOptions implements CLIOptions<ExtraStorageConfiguration
                   trieLogPruningWindowSize));
         }
         if (trieLogPruningWindowSize <= maxLayersToLoad) {
-          throw new CommandLine.ParameterException(
-              commandLine,
-              String.format(
-                  TRIE_LOG_PRUNING_WINDOW_SIZE
-                      + "=%d must be greater than "
-                      + MAX_LAYERS_TO_LOAD
-                      + "=%d",
-                  trieLogPruningWindowSize,
-                  maxLayersToLoad));
+          // When the operator pinned the retention, honour their explicit values and reject a
+          // contradictory pair. When they did not, the retention is the EIP-8252 default (262,144,
+          // raised from the historical 512): a config that only set a smaller pruning window would
+          // now fail to start, so raise the effective window above the retention instead of
+          // breaking the node, and tell them.
+          if (commandLine.getParseResult().hasMatchedOption(MAX_LAYERS_TO_LOAD)) {
+            throw new CommandLine.ParameterException(
+                commandLine,
+                String.format(
+                    TRIE_LOG_PRUNING_WINDOW_SIZE
+                        + "=%d must be greater than "
+                        + MAX_LAYERS_TO_LOAD
+                        + "=%d",
+                    trieLogPruningWindowSize,
+                    maxLayersToLoad));
+          }
+          final int raisedWindow = (int) (maxLayersToLoad + TRIE_LOG_PRUNING_WINDOW_MARGIN);
+          LOG.warn(
+              "{}={} is not greater than the default {}={} (EIP-8252 reorg retention window); "
+                  + "raising it to {} so trie-log pruning can make progress. Set {} above {} to "
+                  + "silence this.",
+              TRIE_LOG_PRUNING_WINDOW_SIZE,
+              trieLogPruningWindowSize,
+              MAX_LAYERS_TO_LOAD,
+              maxLayersToLoad,
+              raisedWindow,
+              TRIE_LOG_PRUNING_WINDOW_SIZE,
+              maxLayersToLoad);
+          trieLogPruningWindowSize = raisedWindow;
         }
       }
     }

@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.MissingTrieLogException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -251,8 +252,12 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final BlockHeader blockHeader,
       final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
+    // The bound is inclusive: the retained trie logs are those of blocks (head - maxLayersToLoad,
+    // head], exactly enough to roll head's state back to the post-state of block
+    // head - maxLayersToLoad, so that block is still reconstructible (EIP-8252 requires head -
+    // REORG_RETENTION_WINDOW inclusive). Only a greater depth has no trie log to roll through.
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
-        >= trieLogManager.getMaxLayersToLoad()) {
+        > trieLogManager.getMaxLayersToLoad()) {
       LOG.warn(
           "Exceeded the limit of historical blocks that can be loaded ({}). If you need to make older historical queries, configure your `--bonsai-historical-block-limit`.",
           trieLogManager.getMaxLayersToLoad());
@@ -289,8 +294,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   private TrieLog trieLogOrThrow(final Hash blockHash) {
     return trieLogManager
         .getTrieLogLayer(blockHash)
-        .orElseThrow(
-            () -> new IllegalStateException("Missing trie log for block hash " + blockHash));
+        .orElseThrow(() -> new MissingTrieLogException(blockHash));
   }
 
   protected Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
@@ -382,6 +386,18 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
           return Optional.empty();
         }
+      } catch (final MissingTrieLogException e) {
+        // A trie log needed to roll to the target was pruned or never stored (e.g. a node upgraded
+        // or snap-synced without the historical trie logs). The state is unavailable to
+        // reconstruct, not corrupt, so report it as missing - the engine API answers SYNCING rather
+        // than an internal error - instead of raising a trie fault that would trigger a heal.
+        LOG.atLevel(rollingFailureLogLevel)
+            .setMessage("Cannot roll {} to block hash {}: {}")
+            .addArgument(() -> mutableState.getWorldStateStorage().getClass().getSimpleName())
+            .addArgument(blockHash)
+            .addArgument(e::getMessage)
+            .log();
+        return Optional.empty();
       } catch (final RuntimeException re) {
         LOG.warn("Archive rolling failed for block hash " + blockHash, re);
         if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {

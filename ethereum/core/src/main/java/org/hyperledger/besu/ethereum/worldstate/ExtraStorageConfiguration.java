@@ -60,12 +60,21 @@ public interface ExtraStorageConfiguration {
   long MINIMUM_TRIE_LOG_RETENTION_LIMIT = 512;
 
   /**
+   * Headroom kept between the trie-log retention and the startup pruning window. The window must be
+   * strictly greater than the retention (see {@link #DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE}); this
+   * is how far above it the default sits, and how far the effective window is raised when an
+   * operator leaves the retention at its default but sets a smaller window.
+   */
+  long TRIE_LOG_PRUNING_WINDOW_MARGIN = 30_000;
+
+  /**
    * Startup trie-log pruning batch size. Must be strictly greater than the configured retention
    * ({@link #getMaxLayersToLoad()}) or the pruner only loads still-retained layers and makes no
    * progress; the CLI enforces this. Sized above the EIP-8252 default retention with headroom so
    * the default configuration validates and catch-up pruning can reach beyond the window.
    */
-  int DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE = (int) (EIP_8252_REORG_RETENTION_WINDOW + 30_000L);
+  int DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE =
+      (int) (EIP_8252_REORG_RETENTION_WINDOW + TRIE_LOG_PRUNING_WINDOW_MARGIN);
 
   boolean DEFAULT_PARALLEL_TX_PROCESSING = true;
   boolean DEFAULT_PARALLEL_STATE_ROOT_COMPUTATION = true;

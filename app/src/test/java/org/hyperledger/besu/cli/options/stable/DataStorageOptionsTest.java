@@ -116,6 +116,26 @@ public class DataStorageOptionsTest
   }
 
   @Test
+  public void pruningWindowBelowDefaultRetentionStartsWithRaisedWindow() {
+    // Regression: raising the default retention to the EIP-8252 window must not break a node that
+    // only set --bonsai-trie-logs-pruning-window-size (relying on the old 512 default retention).
+    // With the retention left at its default, the effective window is raised above the retention so
+    // the node starts instead of failing validation, and still ends up greater than the retention.
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(
+                    (long)
+                        dataStorageConfiguration
+                            .getExtraStorageConfiguration()
+                            .getTrieLogPruningWindowSize())
+                .isGreaterThan(
+                    dataStorageConfiguration.getExtraStorageConfiguration().getMaxLayersToLoad()),
+        "--bonsai-limit-trie-logs-enabled",
+        "--bonsai-trie-logs-pruning-window-size",
+        "5000");
+  }
+
+  @Test
   public void bonsaiTrieLogRetentionLimitShouldBeAboveMinimum() {
     internalTestFailure(
         "--bonsai-historical-block-limit minimum value is 512",
