@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -65,5 +66,24 @@ class BalanceObservationForwardingTest {
     assertThat(observations.isObserved(READ)).isTrue();
     assertThat(observations.isObserved(SPENT_FROM)).isFalse();
     assertThat(observations.margin(SPENT_FROM)).contains(Wei.of(7));
+  }
+
+  @Test
+  void theSmallestMarginOfSeveralSpendingsIsKept() {
+    final BonsaiWorldStateUpdateAccumulator accumulator =
+        new BonsaiWorldStateUpdateAccumulator(
+            worldState,
+            (__, ___) -> {},
+            (__, ___) -> {},
+            EvmConfiguration.DEFAULT,
+            new BonsaiCodeCache());
+    accumulator.recordBalanceObservations();
+
+    accumulator.observeSufficientBalance(SPENT_FROM, Wei.of(7));
+    accumulator.observeSufficientBalance(SPENT_FROM, Wei.of(3));
+    accumulator.observeSufficientBalance(SPENT_FROM, Wei.of(5));
+
+    assertThat(accumulator.getBalanceObservations().orElseThrow().margin(SPENT_FROM))
+        .contains(Wei.of(3));
   }
 }
