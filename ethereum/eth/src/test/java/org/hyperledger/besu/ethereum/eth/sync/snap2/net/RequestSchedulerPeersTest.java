@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.MockPeerConnection;
 import org.hyperledger.besu.ethereum.eth.manager.RequestManager.ResponseStream;
+import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
@@ -206,6 +207,22 @@ class RequestSchedulerPeersTest {
     assertThat(sent(outlier)).hasSize(1);
   }
 
+  @Test
+  void neverSendsABackfillRequestToAPeerAtGenesis() {
+    runTheLoopOnTheTestThread();
+    // a syncing peer announced the genesis block as its head
+    final EthPeer syncing = connect(List.of(), EthProtocol.LATEST);
+    final EthPeer synced = connectAt(1_000);
+
+    // more requests than the synced peer has slots: the last one waits for it
+    for (int i = 0; i < 3; i++) {
+      scheduler.submit(bodies(900));
+    }
+
+    assertThat(sent(synced)).hasSize(2);
+    assertThat(sent(syncing)).isEmpty();
+  }
+
   // replaces the scheduler with one whose loop runs on the test thread and skips delayed tasks
   private void runTheLoopOnTheTestThread() {
     final ScheduledExecutorService loop = mock(ScheduledExecutorService.class);
@@ -286,6 +303,15 @@ class RequestSchedulerPeersTest {
         Priority.PIVOT,
         GetBlockHeadersMessage.create(1, 1, 0, false),
         minimumPeerHeight);
+  }
+
+  // the bodies of blocks up to the given one, as the back-fill asks them
+  private static SyncRequest<Void> bodies(final long highestBlock) {
+    return new TestRequest(
+        Protocol.ETH,
+        Priority.BODIES,
+        GetBlockBodiesMessage.create(List.of(Hash.ZERO)),
+        highestBlock);
   }
 
   /** A request whose answers do not matter. */

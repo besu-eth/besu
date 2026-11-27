@@ -261,6 +261,28 @@ public class GetSyncReceiptsFromPeerTaskTest {
     assertThat(response.completeReceiptsByBlock()).containsOnlyKeys(block1.block, block2.block);
   }
 
+  // a peer without the blocks, as a syncing one, answers an empty list: no result, not a wrong one
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void validatesAnEmptyEth70ResponseAsNoResult(final boolean hasFirstBlockPartialReceipts)
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
+    final MockedBlock block = mockBlock(1, 2);
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(
+            new Request(
+                List.of(block.block),
+                hasFirstBlockPartialReceipts
+                    ? toResponseReceipts(block.receipts.subList(0, 1))
+                    : emptyList()),
+            protocolSchedule);
+
+    final Response response =
+        task.processResponse(
+            buildEth70ReceiptsMessage(List.of(), false), AGREED_CAPABILITIES_LATEST);
+
+    assertEquals(PeerTaskValidationResponse.NO_RESULTS_RETURNED, task.validateResult(response));
+  }
+
   @Test
   public void testParseResponseCombinesPartialReceiptsFromPreviousRequest()
       throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
