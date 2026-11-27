@@ -16,6 +16,7 @@ package org.hyperledger.besu.chainimport;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
@@ -24,7 +25,10 @@ import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
@@ -53,6 +57,16 @@ import org.mockito.junit.jupiter.MockitoExtension;
 /** Tests for {@link RlpBlockImporter}. */
 @ExtendWith(MockitoExtension.class)
 public final class RlpBlockImporterTest {
+
+  // Block hashes of the pos-side-chain resources
+  private static final Hash POS_GENESIS =
+      Hash.fromHexString("0xfc96de622c494ad156bddd8953449830246ebf75564ef37aaf9142db066497c0");
+  private static final Hash POS_A1 =
+      Hash.fromHexString("0xc5a489e9fa5b946aed40f09ed0074d3cfef7e28bddcc9f3996e2934155e79639");
+  private static final Hash POS_A3 =
+      Hash.fromHexString("0x3339fd43c6afc5d4ff580df7fe698f6575560b6611421f9656b1e6f1c8b223be");
+  private static final Hash POS_B4 =
+      Hash.fromHexString("0xd73a4a15d2b9f759009538aafd443198d1e8cd0b2509556f596b7f3a4b345343");
 
   @TempDir Path dataDir;
 
@@ -127,5 +141,151 @@ public final class RlpBlockImporterTest {
 
     // Don't count the Genesis block
     assertThat(result.count).isEqualTo(100);
+  }
+
+  /**
+   * After the merge, a valid block imported on a side chain becomes the chain head, as it would
+   * after the consensus client's fork choice update. The blocks are the Cancun blocks of
+   * ethereum/tests BlockchainTests/InvalidBlocks/bcMultiChainTest/UncleFromSideChain.json: chain A
+   * has blocks 1 to 3, side chain B blocks 1 to 4, leaving out the invalid block with uncles.
+   */
+  @Test
+  public void posSideChainImportMovesChainHead() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_GENESIS);
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    final BlockHeader head = blockchain.getChainHeadHeader();
+    assertThat(head.getHash()).isEqualTo(POS_B4);
+    assertThat(controller.getProtocolContext().getWorldStateArchive().getWorldState().rootHash())
+        .isEqualTo(head.getStateRoot());
+  }
+
+  /**
+   * A side chain that forks below the finalized block is imported, but does not become the head, as
+   * the Engine API would not make it the head either.
+   */
+  @Test
+  public void posSideChainBelowFinalizedDoesNotMoveChainHead() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    // chain B forks from the genesis block, below A1
+    blockchain.setFinalized(POS_A1);
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(blockchain.contains(POS_B4)).isTrue();
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+    assertThat(blockchain.getFinalized()).contains(POS_A1);
+    // The head world state is left at B4, not A3: MainnetBlockImporter moves it to every imported
+    // block, including one that stays a side block (#11903)
+  }
+
+  /**
+   * When the new head does not descend from the safe block, the safe block moves back to the
+   * finalized block, or to genesis without one, so that it stays on the canonical chain.
+   */
+  @Test
+  public void posSideChainImportMovesSafeBlockOffTheOldChain() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    blockchain.setSafeBlock(blockchain.getBlockHashByNumber(2).orElseThrow());
+
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_B4);
+    assertThat(blockchain.getSafeBlock()).contains(POS_GENESIS);
+    assertThat(blockchain.getFinalized()).isEmpty();
+  }
+
+  /**
+   * Importing a file again makes its last block the head when an earlier import stored it as a side
+   * block, as when the earlier import's fork choice update failed.
+   */
+  @Test
+  public void posSideChainStoredByEarlierImportBecomesHeadOnRetry() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    // Store chain B as side blocks
+    blockchain.setFinalized(POS_A1);
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+    blockchain.setFinalized(POS_GENESIS);
+
+    final RlpBlockImporter.ImportResult result =
+        rlpBlockImporter.importBlockchain(
+            resourceFile("pos-side-chain-b.blocks"), controller, true);
+    assertThat(result.count).isZero();
+    final BlockHeader head = blockchain.getChainHeadHeader();
+    assertThat(head.getHash()).isEqualTo(POS_B4);
+    assertThat(controller.getProtocolContext().getWorldStateArchive().getWorldState().rootHash())
+        .isEqualTo(head.getStateRoot());
+  }
+
+  /**
+   * Retrying a stored side block that still does not descend from the finalized block fails the
+   * import, rather than reporting success with the head elsewhere.
+   */
+  @Test
+  public void posStoredSideBlockBelowFinalizedFailsOnRetry() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-a.blocks"), controller, true);
+    blockchain.setFinalized(POS_A1);
+    rlpBlockImporter.importBlockchain(resourceFile("pos-side-chain-b.blocks"), controller, true);
+
+    final Path chainB = resourceFile("pos-side-chain-b.blocks");
+    assertThatThrownBy(() -> rlpBlockImporter.importBlockchain(chainB, controller, true))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("Block 4 is stored as a side block");
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+  }
+
+  /** Importing canonical blocks behind the head again leaves the head where it is. */
+  @Test
+  public void posReimportOfCanonicalBlocksBehindHeadKeepsChainHead() throws IOException {
+    final BesuController controller = posSideChainController();
+    final MutableBlockchain blockchain = controller.getProtocolContext().getBlockchain();
+    final Path chainA = resourceFile("pos-side-chain-a.blocks");
+    rlpBlockImporter.importBlockchain(chainA, controller, true);
+
+    // blocks 1 and 2 only
+    final RlpBlockImporter.ImportResult result =
+        rlpBlockImporter.importBlockchain(chainA, controller, true, 0, 3);
+    assertThat(result.count).isZero();
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(POS_A3);
+  }
+
+  private BesuController posSideChainController() throws IOException {
+    final String config =
+        Resources.toString(this.getClass().getResource("/pos-side-chain-genesis.json"), UTF_8);
+    return new BesuController.Builder()
+        .fromGenesisFile(GenesisConfig.fromConfig(config), SyncMode.FULL)
+        .synchronizerConfiguration(SynchronizerConfiguration.builder().build())
+        .ethProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+        .storageProvider(new InMemoryKeyValueStorageProvider())
+        .networkId(BigInteger.ONE)
+        .miningParameters(MiningConfiguration.newDefault())
+        .nodeKey(NodeKeyUtils.generate())
+        .metricsSystem(new NoOpMetricsSystem())
+        .dataDirectory(dataDir)
+        .clock(TestClock.fixed())
+        .transactionPoolConfiguration(TransactionPoolConfiguration.DEFAULT)
+        .evmConfiguration(EvmConfiguration.DEFAULT)
+        .networkConfiguration(NetworkingConfiguration.DEFAULT)
+        .besuComponent(mock(BesuComponent.class))
+        .apiConfiguration(ImmutableApiConfiguration.builder().build())
+        .build();
+  }
+
+  private Path resourceFile(final String name) throws IOException {
+    final Path file = dataDir.resolve(name);
+    Files.write(file, Resources.toByteArray(this.getClass().getResource("/" + name)));
+    return file;
   }
 }

@@ -16,6 +16,7 @@ package org.hyperledger.besu.chainimport;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -38,6 +39,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -105,6 +107,10 @@ public class RlpBlockImporter implements Closeable {
     final ProtocolSchedule protocolSchedule = besuController.getProtocolSchedule();
     final ProtocolContext context = besuController.getProtocolContext();
     final MutableBlockchain blockchain = context.getBlockchain();
+    final Optional<PosHeadUpdater> posHead =
+        besuController.getMiningCoordinator() instanceof MergeMiningCoordinator coordinator
+            ? Optional.of(new PosHeadUpdater(blockchain, coordinator))
+            : Optional.empty();
     int count = 0;
     final BlockHeaderFunctions blockHeaderFunctions =
         ScheduleBasedBlockHeaderFunctions.create(protocolSchedule);
@@ -112,6 +118,8 @@ public class RlpBlockImporter implements Closeable {
       BlockHeader previousHeader = null;
       CompletableFuture<Void> previousBlockFuture = null;
       final AtomicReference<Throwable> threadedException = new AtomicReference<>();
+      // The last block in the import range, when an earlier import already stored it
+      BlockHeader lastStoredHeader = null;
       while (iterator.hasNext()) {
         final Block block = iterator.next();
         final BlockHeader header = block.getHeader();
@@ -122,8 +130,10 @@ public class RlpBlockImporter implements Closeable {
           continue;
         }
         if (blockchain.contains(header.getHash())) {
+          lastStoredHeader = header;
           continue;
         }
+        lastStoredHeader = null;
         if (previousHeader == null) {
           previousHeader = lookupPreviousHeader(blockchain, header);
         }
@@ -165,7 +175,8 @@ public class RlpBlockImporter implements Closeable {
                         block,
                         header,
                         protocolSchedule.getByBlockHeader(header),
-                        skipPowValidation),
+                        skipPowValidation,
+                        posHead),
                 importExecutor);
         previousBlockFuture.exceptionally(
             exception -> {
@@ -178,6 +189,20 @@ public class RlpBlockImporter implements Closeable {
       }
       if (previousBlockFuture != null) {
         previousBlockFuture.join();
+      }
+      // An import whose fork choice update failed has already stored the block, so importing the
+      // same file again skips it. Retry making it the head, rather than reporting success with the
+      // head elsewhere. Only for a side block: a canonical block behind the head stays behind it.
+      if (lastStoredHeader != null
+          && posHead.isPresent()
+          && protocolSchedule.getByBlockHeader(lastStoredHeader).isPoS()
+          && !isCanonical(blockchain, lastStoredHeader)
+          && !posHead.get().makeHead(lastStoredHeader)) {
+        throw new IllegalStateException(
+            "Block "
+                + lastStoredHeader.getNumber()
+                + " is stored as a side block and does not descend from the finalized block, so it"
+                + " cannot be made the chain head");
       }
       logProgress(blockchain.getChainHeadBlockNumber());
       return new RlpBlockImporter.ImportResult(
@@ -221,7 +246,8 @@ public class RlpBlockImporter implements Closeable {
       final Block block,
       final BlockHeader header,
       final ProtocolSpec protocolSpec,
-      final boolean skipPowValidation) {
+      final boolean skipPowValidation,
+      final Optional<PosHeadUpdater> posHead) {
     try {
       cumulativeTimer.start();
       segmentTimer.start();
@@ -238,6 +264,14 @@ public class RlpBlockImporter implements Closeable {
         throw new IllegalStateException(
             "Invalid block at block number " + header.getNumber() + ".");
       }
+      // After the merge only a fork choice update moves the chain head, so a valid block imported
+      // on a side chain would otherwise never become the head. Make it the head, as the consensus
+      // client would, so that importing a side chain ends on its last block.
+      if (protocolSpec.isPoS()
+          && posHead.isPresent()
+          && !context.getBlockchain().getChainHeadHash().equals(header.getHash())) {
+        posHead.get().makeHead(header);
+      }
     } finally {
       blockBacklog.release();
       cumulativeTimer.stop();
@@ -249,6 +283,13 @@ public class RlpBlockImporter implements Closeable {
         logProgress(header.getNumber());
       }
     }
+  }
+
+  private static boolean isCanonical(final MutableBlockchain blockchain, final BlockHeader header) {
+    return blockchain
+        .getBlockHashByNumber(header.getNumber())
+        .map(header.getHash()::equals)
+        .orElse(false);
   }
 
   private void logProgress(final long blockNum) {
