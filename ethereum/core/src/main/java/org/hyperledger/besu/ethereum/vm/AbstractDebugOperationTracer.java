@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.vm;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.AbstractCallOperation;
+import org.hyperledger.besu.evm.operation.InvalidOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -98,6 +99,22 @@ public abstract class AbstractDebugOperationTracer implements OperationTracer {
   public static boolean isSyntheticEmptyCodeStop(
       final boolean virtualOperation, final String opcode, final int codeSize) {
     return virtualOperation && "STOP".equals(opcode) && codeSize == 0;
+  }
+
+  /**
+   * The struct log name of an opcode. A byte that the fork does not define is named {@code opcode
+   * 0x<byte> not defined}, as ethereum/execution-apis#986 proposes; 0xfe stays {@code INVALID}
+   * (EIP-141).
+   *
+   * @param name the name of the operation
+   * @param opcode the byte of the operation
+   * @return the name to report in a struct log
+   */
+  public static String structLogOpName(final String name, final int opcode) {
+    if ("INVALID".equals(name) && opcode != InvalidOperation.OPCODE) {
+      return "opcode 0x" + Integer.toHexString(opcode) + " not defined";
+    }
+    return name;
   }
 
   @Override

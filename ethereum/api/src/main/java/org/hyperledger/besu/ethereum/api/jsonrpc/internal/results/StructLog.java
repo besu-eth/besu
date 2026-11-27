@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.ethereum.vm.AbstractDebugOperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 
 import java.util.Arrays;
@@ -64,7 +65,9 @@ public class StructLog {
             .getMemory()
             .map(a -> Arrays.stream(a).map(StructLog::toBytes32Hex).toArray(String[]::new))
             .orElse(null);
-    op = traceFrame.getOpcode();
+    op =
+        AbstractDebugOperationTracer.structLogOpName(
+            traceFrame.getOpcode(), traceFrame.getOpcodeNumber());
     pc = traceFrame.getPc();
     stack =
         traceFrame
