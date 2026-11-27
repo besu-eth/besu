@@ -15,9 +15,15 @@
 package org.hyperledger.besu.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
+import org.hyperledger.besu.plugin.BesuPlugin;
+import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -109,6 +115,91 @@ public class BesuPluginContextImplTest {
     // Verify services are still accessible after concurrent operations
     assertThat(context.getService(TestServiceA.class)).isPresent().contains(serviceA);
     assertThat(context.getService(TestServiceB.class)).isPresent();
+  }
+
+  @Test
+  void stopPluginsAfterStartupFailureStopsOnlyStartedPlugins() throws Exception {
+    // The JVM shutdown hook that calls stopPlugins() is registered before startPlugins() completes,
+    // so a startup failure fires it while the context is only partially started. stopPlugins() must
+    // still run instead of throwing, and must not call stop() on a plugin that never started.
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+    context.initialize(PluginConfiguration.DEFAULT); // continueOnPluginError defaults to false
+
+    final RecordingPlugin startedPlugin = new RecordingPlugin(false);
+    final RecordingPlugin failingPlugin = new RecordingPlugin(true);
+    addRegisteredPlugin(context, startedPlugin);
+    addRegisteredPlugin(context, failingPlugin);
+    setState(context, "BEFORE_EXTERNAL_SERVICES_FINISHED");
+
+    // With continueOnPluginError=false the failing plugin aborts startup, leaving the context in a
+    // partially started state (BEFORE_MAIN_LOOP_STARTED).
+    assertThatThrownBy(context::startPlugins).isInstanceOf(RuntimeException.class);
+
+    assertThatCode(context::stopPlugins).doesNotThrowAnyException();
+    assertThat(startedPlugin.stopCalled).isTrue();
+    assertThat(failingPlugin.stopCalled).isFalse();
+  }
+
+  @Test
+  void stopPluginsIsIdempotent() throws Exception {
+    final BesuPluginContextImpl context = new BesuPluginContextImpl();
+    context.initialize(PluginConfiguration.DEFAULT);
+
+    final RecordingPlugin plugin = new RecordingPlugin(false);
+    addRegisteredPlugin(context, plugin);
+    setState(context, "BEFORE_EXTERNAL_SERVICES_FINISHED");
+
+    context.startPlugins();
+    context.stopPlugins();
+    assertThat(plugin.stopCount).isEqualTo(1);
+
+    // A second call (for example a shutdown hook racing an explicit stop) is a no-op.
+    assertThatCode(context::stopPlugins).doesNotThrowAnyException();
+    assertThat(plugin.stopCount).isEqualTo(1);
+  }
+
+  private static void addRegisteredPlugin(
+      final BesuPluginContextImpl context, final BesuPlugin plugin) throws Exception {
+    final Field field = BesuPluginContextImpl.class.getDeclaredField("registeredPlugins");
+    field.setAccessible(true);
+    @SuppressWarnings("unchecked")
+    final List<BesuPlugin> registeredPlugins = (List<BesuPlugin>) field.get(context);
+    registeredPlugins.add(plugin);
+  }
+
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private static void setState(final BesuPluginContextImpl context, final String stateName)
+      throws Exception {
+    final Field field = BesuPluginContextImpl.class.getDeclaredField("state");
+    field.setAccessible(true);
+    field.set(
+        context, Enum.valueOf((Class<Enum>) field.getType().asSubclass(Enum.class), stateName));
+  }
+
+  private static final class RecordingPlugin implements BesuPlugin {
+    private final boolean failOnStart;
+    private boolean stopCalled;
+    private int stopCount;
+
+    RecordingPlugin(final boolean failOnStart) {
+      this.failOnStart = failOnStart;
+    }
+
+    @Override
+    public void register(final ServiceManager context) {}
+
+    @Override
+    public void start() {
+      if (failOnStart) {
+        throw new RuntimeException("plugin start failed");
+      }
+    }
+
+    @Override
+    public void stop() {
+      stopCalled = true;
+      stopCount++;
+    }
   }
 
   @Test
