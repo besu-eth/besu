@@ -117,6 +117,15 @@ public class JsonRpcParameter {
                 index, rawParam, rawParam.getClass().getName(), paramClass.getName()),
             e);
       }
+      if (param == null) {
+        // Jackson coerces some non-null values (for example an empty string to a Boolean) to null
+        // instead of failing. Reject that as an invalid parameter rather than letting the
+        // Optional.of below throw a NullPointerException.
+        throw new JsonRpcParameterException(
+            String.format(
+                "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected type: '%s'",
+                index, rawParam, rawParam.getClass().getName(), paramClass.getName()));
+      }
     }
 
     return Optional.of(param);
