@@ -1,12 +1,14 @@
 # Optimistic parallel transaction processing
 
-This document explains how Besu executes the transactions of a block in parallel when the block has no block access list. On mainnet, that is every block before Amsterdam. It covers `OptimisticConcurrentTransactionProcessor`. Blocks with a block access list go through `BalConcurrentTransactionProcessor`, which this document does not cover. It is written for developers who are new to this part of the code.
+This document explains how Besu executes the transactions of a block in parallel when the block has no block access list. On mainnet, that is every block before Amsterdam. It covers `OptimisticConcurrentTransactionProcessor` and `HandoffTransactionProcessor`, which extends it. Blocks with a block access list go through `BalConcurrentTransactionProcessor`, which this document does not cover. It is written for developers who are new to this part of the code.
 
 - [Where the processor runs](#where-the-processor-runs)
 - [The example block](#the-example-block)
 - [Speculative runs](#speculative-runs)
 - [Balance changes](#balance-changes)
 - [Same-sender chains](#same-sender-chains)
+- [Read/write sets](#readwrite-sets)
+- [Refreshes](#refreshes)
 - [Threads](#threads)
 - [Tests](#tests)
 - [Where to start reading](#where-to-start-reading)
@@ -32,15 +34,16 @@ On Bonsai with `--bonsai-parallel-tx-processing-enabled`, which is the default, 
 
 | Block | Processor |
 |---|---|
-| No block access list | `OptimisticConcurrentTransactionProcessor`, on EVM v1 and v2 |
-| Has a block access list (Amsterdam) | `BalConcurrentTransactionProcessor`, not covered here. With `--Xbal-perfect-parallelization-enabled=false`, these blocks use the optimistic processor as well. |
+| No block access list | `HandoffTransactionProcessor`, which extends `OptimisticConcurrentTransactionProcessor`, on EVM v1 and v2 |
+| Has a block access list (Amsterdam) | `BalConcurrentTransactionProcessor`, not covered here. With `--Xbal-perfect-parallelization-enabled=false`, these blocks use the handoff processor as well. |
 
 A block access list (EIP-7928) states which accounts and slots each transaction touches and the values it leaves there, so the BAL processor knows every transaction's inputs in advance. The optimistic processor has no such list. It learns what a transaction touches only by running it.
 
-Both extend `ParallelBlockTransactionProcessor`:
+They all extend `ParallelBlockTransactionProcessor`:
 
 - `runAsyncBlock` starts the work for the block.
 - `getProcessingResult` returns the result for the transaction block processing has reached, or nothing, in which case block processing executes the transaction itself.
+- `onExecutedSequentially` tells the processor what a transaction that block processing executed itself changed.
 - `abort` ends the block's work.
 
 ## The example block
@@ -136,6 +139,40 @@ In the figure:
 
 Without chains, block processing executes tx 9 as well, 7 of the 13 transactions instead of 6. The dashed line marks where that block ends.
 
+## Read/write sets
+
+`BlockReadWriteSets` records what each speculative run of a block read and wrote, and finds the runs whose inputs changed before block processing reaches them. Running such a transaction again on the new values is a **refresh**. `HandoffTransactionProcessor` runs the refreshes, as [Refreshes](#refreshes) describes.
+
+**Read/write sets.** When a run finishes, `BlockReadWriteSets.ReadWriteSet.of` records its **read/write set**. Every storage slot in the run's accumulator counts as read, with the value the run started from: its seed, the value its chain predecessor left, or the parent's value, in that order. Every slot whose value changed counts as written. Storage the run cleared is kept separately. The coinbase account's slots are left out, as in the collision check.
+
+Block access lists and trie logs describe similar changes, but neither has what the index needs. A block access list names the slots a transaction read but not the values it read, and building one for every run before Amsterdam would track every slot access. A trie log keeps only the parent's value of a slot and leaves out slots read as empty. A read/write set keeps both the value a run started from and the parent's value, for every slot it read.
+
+**The index.** `BlockReadWriteSets` indexes the read/write sets by slot: for each slot, its writers and readers by position, plus the latest read/write set of each position. A stored read/write set is compared, read by read, with the value the read/write sets before it leave in that slot, which is the latest writer's value. A different value **invalidates** it, because the run read a value the block will not have at its turn. Its writes in turn invalidate the readers after it that read something else.
+
+**Reports from block processing.** Block processing reports each transaction it takes or executes (`reportTaken`, `reportExecuted`). An executed transaction's writes replace what its read/write set predicted, and a taken one keeps its predicted writes. Neither is invalidated again. The reports are queued and `applyReported` indexes them on another thread, so block processing never waits for the index's lock.
+
+**Seeds.** `takeInvalidated` returns the invalidated positions after a given one, in block order. `seedsFor` returns the values the read/write sets before such a position leave in the slots its run read. These **seeds** are the values a refresh starts from.
+
+A few limits keep the index cheap:
+
+- A slot with more than 64 writers or readers is no longer tracked, and a run that read such a slot gets no seeds.
+- A read/write set whose run cleared storage, or whose transaction was invalid, is marked as not refreshable.
+- A block gets seeds for at most 128 refreshes.
+
+## Refreshes
+
+`HandoffTransactionProcessor` extends the optimistic processor and runs every block the BAL processor does not, on EVM v1 and v2. Everything the optimistic processor does still applies. In addition, it runs a transaction whose run read values the block will not have again on the new values, before block processing gets there.
+
+**Storing read/write sets.** Each run that finishes with a valid result stores its read/write set (`onRunFinished`), runs alone and chained runs alike.
+
+**The refresh worker.** One refresh worker per block (`refreshInvalidated`) indexes the reports from block processing and takes the invalidated positions nearest to block processing first. It leaves the transaction block processing reaches next to block processing. A refresh (`runSeeded`) runs the transaction on the parent state with its seeds set and committed first, so that the transaction starts from them as their original values. Its read/write set replaces the old one and is checked like any other, so a refresh whose seeds change in turn is invalidated again. A chain member after the first is not refreshed: it ran on its predecessor's result, which a refresh on the parent state lacks.
+
+**Taking a refreshed result.** When block processing reaches a transaction whose latest read/write set is a refresh, it stops the transaction's other runs (`reachedWithoutRuns`) and checks the refreshed result like any other (`takeOrReject`). The collision check compares each seeded slot by value: the block must hold the seed at the transaction's turn, or, where the block has no entry for the slot, the parent's value must equal it. A slot the refresh read at the parent's value collides when the block changed it, as for any run, and a refresh that cleared storage is not taken. Balance and nonce changes are carried over as for any run.
+
+**Block processing never waits for a refresh.** If no refresh of a transaction has finished when block processing gets there, block processing takes or rejects the transaction's earlier run as the optimistic processor does. When it executes a transaction itself, `onExecutedSequentially` reports the transaction's writes before they are committed, and the refresh worker indexes them.
+
+In the example block, tx 7, 11 and 12 read pool prices that earlier transactions of the block change. Their refreshes run on those prices, and block processing takes the ones that hold when it gets there instead of executing the transactions.
+
 ## Threads
 
 | Thread | Count | Runs |
@@ -143,14 +180,17 @@ Without chains, block processing executes tx 9 as well, 7 of the 13 transactions
 | block processing | 1 | the transaction loop: takes results and executes the rest |
 | `besu-block-cpu-N` | one per core | runs, chains, late chains, sender recovery |
 | `besu-block-io-N` | two per core | warm-ups of chain members |
+| `besu-block-refresh-N` | one per block | the refreshes of a block |
 
 The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change the counts.
 
 ## Tests
 
-- `TransactionCollisionDetectorTest` tests the collision rules, for runs alone and chained runs, and when a balance change is carried over.
+- `TransactionCollisionDetectorTest` tests the collision rules, for runs alone, chained runs and refreshes, and when a balance change is carried over.
 - `BalanceObservationTest` in the `evm` module tests that the operations report the balances they depend on.
 - `OptimisticTransactionProcessorUnitTest` tests chains, where they stop, sender recovery, late chains and warm-ups.
+- `BlockReadWriteSetsTest` tests what a read/write set records, the slot index, invalidation, reports and seeds.
+- `HandoffParallelBlockProcessorIntegrationTest` imports blocks before Amsterdam on EVM v1 and v2, with refreshes on their worker and before each transaction, and compares the outcome with sequential execution.
 - `OptimisticParallelBlockProcessorIntegrationTest` imports blocks on a genesis built at runtime and compares the outcome with sequential execution.
 
 ```
@@ -163,6 +203,8 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 2. `MainnetParallelBlockProcessor`: picking the processor, and falling back to execution.
 3. `OptimisticConcurrentTransactionProcessor`: runs, chains, late chains, warm-ups and takes.
 4. `TransactionCollisionDetector`: what counts as a collision, for runs alone and chained runs, and which balance changes are carried over.
+5. `BlockReadWriteSets`: read/write sets, the slot index and seeds.
+6. `HandoffTransactionProcessor`: storing read/write sets, the refresh worker and taking refreshed results.
 
 ## Glossary
 
@@ -174,3 +216,7 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 - **Chain:** a sender's transactions run in order on one worker, each on the state the one before it left.
 - **Late chain:** a chain formed once the senders the transaction pool did not know are recovered, after their transactions already ran alone.
 - **Warm-up:** a chain member executed once against the parent state, only so that what it reads is cached.
+- **Read/write set:** the storage slots a run read, with the values it read, and the slots it wrote.
+- **Invalidated:** a read/write set whose run read a slot at a value the transactions before it no longer leave there.
+- **Seed:** the value the transactions before a refresh leave in a slot in its read/write set.
+- **Refresh:** a transaction run again on its seeds after its read/write set was invalidated.

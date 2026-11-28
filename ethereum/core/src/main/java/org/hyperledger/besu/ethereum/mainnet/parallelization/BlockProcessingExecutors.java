@@ -26,7 +26,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Typed thread pools for block processing: one for CPU work (tx execution), one for IO (RocksDB
- * prefetch), one for parallel storage-trie updates, one for BAL state-root. Sizes can be set with
+ * prefetch), one for parallel storage-trie updates, one for BAL state-root, one for refreshes of
+ * speculative runs. Sizes, except of the refresh pool, which grows as needed, can be set with
  * system properties {@code besu.block.cpuThreads}, {@code besu.block.ioThreads}, {@code
  * besu.block.storageTrieThreads}, {@code besu.block.accountTrieThreads}, {@code
  * besu.block.stateRootThreads}. All threads are daemon.
@@ -69,6 +70,11 @@ public final class BlockProcessingExecutors {
   private static final ExecutorService STATE_ROOT_EXECUTOR =
       Executors.newFixedThreadPool(
           STATE_ROOT_THREADS, namedDaemonThreadFactory("besu-block-stateroot"));
+
+  // A block's refresh worker waits for work until the block ends, and the next block's may start
+  // before it notices, so the pool grows rather than queueing it behind.
+  private static final ExecutorService REFRESH_EXECUTOR =
+      Executors.newCachedThreadPool(namedDaemonThreadFactory("besu-block-refresh"));
 
   private BlockProcessingExecutors() {}
 
@@ -133,6 +139,16 @@ public final class BlockProcessingExecutors {
    */
   public static ExecutorService stateRootExecutor() {
     return STATE_ROOT_EXECUTOR;
+  }
+
+  /**
+   * Pool for the workers that run transactions again on the values earlier transactions of the
+   * block leave.
+   *
+   * @return the refresh executor
+   */
+  public static ExecutorService refreshExecutor() {
+    return REFRESH_EXECUTOR;
   }
 
   private static int intProperty(final String key, final int defaultValue) {
