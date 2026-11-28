@@ -98,7 +98,7 @@ public class VmTraceGenerator {
       generateTracingPush(report);
       generateTracingStorage(report);
       handleDepthIncreased(op, report, nextTraceFrame);
-      completeStep(frame, op, report);
+      completeStep(frame, nextTraceFrame, op, report);
     }
     // Virtual frames do not open a VM subtrace; omitted real opcodes still change depth.
     if (!frame.isVirtualOperation()) {
@@ -126,19 +126,41 @@ public class VmTraceGenerator {
   }
 
   private void completeStep(
-      final TraceFrame frame, final VmOperation op, final VmOperationExecutionReport report) {
+      final TraceFrame frame,
+      final Optional<TraceFrame> nextTraceFrame,
+      final VmOperation op,
+      final VmOperationExecutionReport report) {
     // add the operation representation to the list of traces
-    final Optional<ExceptionalHaltReason> exceptionalHaltReason = frame.getExceptionalHaltReason();
-    if (frame.getDepth() > 0
-        && exceptionalHaltReason.isPresent()
-        && exceptionalHaltReason.get() == ExceptionalHaltReason.INSUFFICIENT_GAS) {
+    if (ranOutOfGas(frame, nextTraceFrame)) {
       op.setVmOperationExecutionReport(null);
+      op.setSub(null);
     } else {
       op.setVmOperationExecutionReport(report);
     }
     if (currentTrace != null) {
       currentTrace.add(op);
     }
+  }
+
+  private static boolean ranOutOfGas(
+      final TraceFrame frame, final Optional<TraceFrame> nextTraceFrame) {
+    return frame.getExceptionalHaltReason().orElse(null) == ExceptionalHaltReason.INSUFFICIENT_GAS
+        && halted(frame, nextTraceFrame);
+  }
+
+  /**
+   * Whether the opcode of this frame halted exceptionally, rather than only carrying a halt reason
+   * the tracer added after it completed. The tracer gives a precompile's halt reason to the CALL
+   * that ran it, the halt reason of a callee that fails before its first opcode to the CALL or
+   * CREATE that started it, and a failed code deposit's to the RETURN of the creation. An opcode
+   * that halts ends its call frame, and a RETURN that halts does so before it sets the frame's
+   * output, while a code deposit fails only for non-empty code.
+   */
+  private static boolean halted(final TraceFrame frame, final Optional<TraceFrame> nextTraceFrame) {
+    return frame.getExceptionalHaltReason().isPresent()
+        && frame.getPrecompiledGasCost().isEmpty()
+        && nextTraceFrame.map(next -> next.getDepth() < frame.getDepth()).orElse(true)
+        && !("RETURN".equals(frame.getOpcode()) && !frame.getOutputData().isEmpty());
   }
 
   private void handleDepthIncreased(
