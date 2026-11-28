@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.json.BesuJsonModule;
 
 import java.io.IOException;
+import java.util.Optional;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
@@ -52,6 +55,31 @@ public final class JsonRpcObjectMapperFactory {
   private static ObjectMapper createParameterMapperIgnoringUnknownNulls() {
     // copy() so adding the handler does not mutate the strict (DEFAULT) parameter mapper
     return getParameterMapper().copy().addHandler(new IgnoreNullUnknownHandler());
+  }
+
+  /**
+   * Accepts only the execution-apis address form, {@code 0x} (or {@code 0X}) followed by exactly 40
+   * hex digits, as geth's {@code hexutil.UnmarshalFixedText} does, so a truncated address is
+   * rejected instead of being left-padded to a different account.
+   */
+  private static final Pattern STRICT_ADDRESS = Pattern.compile("0[xX][0-9a-fA-F]{40}");
+
+  /** Describes the address form {@link #parseStrictAddress(String)} accepts. */
+  public static final String STRICT_ADDRESS_MESSAGE =
+      "expected 0x or 0X followed by 40 hexadecimal digits";
+
+  /**
+   * Parses a strict address, for address inputs that are read as strings rather than through the
+   * parameter mappers.
+   *
+   * @param value the address string
+   * @return the address, or empty if {@code value} is null or not a strict address
+   */
+  public static Optional<Address> parseStrictAddress(final String value) {
+    if (value == null || !STRICT_ADDRESS.matcher(value).matches()) {
+      return Optional.empty();
+    }
+    return Optional.of(Address.fromHexStringStrict("0x" + value.substring(2)));
   }
 
   private static ObjectMapper createParameterMapperIgnoringUnknownEmpties() {

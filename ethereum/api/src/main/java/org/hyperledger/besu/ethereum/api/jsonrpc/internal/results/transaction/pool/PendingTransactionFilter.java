@@ -14,17 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory.STRICT_ADDRESS_MESSAGE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.ACTION;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.transaction.pool.Predicate.EQ;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -47,42 +51,52 @@ public class PendingTransactionFilter {
       final List<Filter> filters,
       final int limit)
       throws InvalidJsonRpcParameters {
+    final Map<Filter, Address> addresses = new HashMap<>();
+    filters.stream()
+        .filter(
+            filter ->
+                FROM_FIELD.equals(filter.fieldName())
+                    || (TO_FIELD.equals(filter.fieldName()) && EQ.equals(filter.predicate())))
+        .forEach(filter -> addresses.computeIfAbsent(filter, this::validateAddressFilter));
     return pendingTransactions.stream()
-        .filter(pendingTx -> applyFilters(pendingTx, filters))
+        .filter(pendingTx -> applyFilters(pendingTx, filters, addresses))
         .limit(limit)
         .map(PendingTransaction::getTransaction)
         .toList();
   }
 
+  private Address validateAddressFilter(final Filter filter) {
+    return JsonRpcObjectMapperFactory.parseStrictAddress(filter.fieldValue())
+        .orElseThrow(
+            () ->
+                new InvalidJsonRpcParameters(
+                    "Invalid '%s' address: %s"
+                        .formatted(filter.fieldName(), STRICT_ADDRESS_MESSAGE)));
+  }
+
   private boolean applyFilters(
-      final PendingTransaction pendingTransaction, final List<Filter> filters)
+      final PendingTransaction pendingTransaction,
+      final List<Filter> filters,
+      final Map<Filter, Address> addresses)
       throws InvalidJsonRpcParameters {
     boolean isValid = true;
     for (Filter filter : filters) {
-      final Predicate predicate = filter.getPredicate();
-      final String value = filter.getFieldValue();
-      switch (filter.getFieldName()) {
-        case FROM_FIELD:
-          isValid = validateFrom(pendingTransaction, predicate, value);
-          break;
-        case TO_FIELD:
-          isValid = validateTo(pendingTransaction, predicate, value);
-          break;
-        case GAS_PRICE_FIELD:
-          isValid = validateWei(gasPriceOf(pendingTransaction.getTransaction()), predicate, value);
-          break;
-        case GAS_FIELD:
-          isValid =
-              validateWei(
-                  Wei.of(pendingTransaction.getTransaction().getGasLimit()), predicate, value);
-          break;
-        case VALUE_FIELD:
-          isValid = validateWei(pendingTransaction.getTransaction().getValue(), predicate, value);
-          break;
-        case NONCE_FIELD:
-          isValid = validateNonce(pendingTransaction, predicate, value);
-          break;
-      }
+      final Predicate predicate = filter.predicate();
+      final String value = filter.fieldValue();
+      isValid =
+          switch (filter.fieldName()) {
+            case FROM_FIELD -> validateFrom(pendingTransaction, filter, addresses.get(filter));
+            case TO_FIELD -> validateTo(pendingTransaction, filter, addresses.get(filter));
+            case GAS_PRICE_FIELD ->
+                validateWei(gasPriceOf(pendingTransaction.getTransaction()), predicate, value);
+            case GAS_FIELD ->
+                validateWei(
+                    Wei.of(pendingTransaction.getTransaction().getGasLimit()), predicate, value);
+            case VALUE_FIELD ->
+                validateWei(pendingTransaction.getTransaction().getValue(), predicate, value);
+            case NONCE_FIELD -> validateNonce(pendingTransaction, predicate, value);
+            default -> true;
+          };
       if (!isValid) {
         return false;
       }
@@ -91,23 +105,19 @@ public class PendingTransactionFilter {
   }
 
   private boolean validateFrom(
-      final PendingTransaction pendingTransaction, final Predicate predicate, final String value)
-      throws InvalidJsonRpcParameters {
-    return predicate
+      final PendingTransaction pendingTransaction, final Filter filter, final Address address) {
+    return filter
+        .predicate()
         .getOperator()
-        .apply(
-            pendingTransaction.getTransaction().getSender().getBytes(),
-            Address.fromHexString(value).getBytes());
+        .apply(pendingTransaction.getTransaction().getSender().getBytes(), address.getBytes());
   }
 
   private boolean validateTo(
-      final PendingTransaction pendingTransaction, final Predicate predicate, final String value)
-      throws InvalidJsonRpcParameters {
+      final PendingTransaction pendingTransaction, final Filter filter, final Address address) {
+    final Predicate predicate = filter.predicate();
     final Optional<Address> maybeTo = pendingTransaction.getTransaction().getTo();
     if (maybeTo.isPresent() && predicate.equals(EQ)) {
-      return predicate
-          .getOperator()
-          .apply(maybeTo.get().getBytes(), Address.fromHexString(value).getBytes());
+      return predicate.getOperator().apply(maybeTo.get().getBytes(), address.getBytes());
     } else if (predicate.equals(ACTION)) {
       return pendingTransaction.getTransaction().isContractCreation();
     }
@@ -144,28 +154,5 @@ public class PendingTransactionFilter {
     return predicate.getOperator().apply(transactionWei, Wei.fromHexString(value));
   }
 
-  public static class Filter {
-
-    private final String fieldName;
-    private final String fieldValue;
-    private final Predicate predicate;
-
-    public Filter(final String fieldName, final String fieldValue, final Predicate predicate) {
-      this.fieldName = fieldName;
-      this.fieldValue = fieldValue;
-      this.predicate = predicate;
-    }
-
-    public String getFieldName() {
-      return fieldName;
-    }
-
-    public String getFieldValue() {
-      return fieldValue;
-    }
-
-    public Predicate getPredicate() {
-      return predicate;
-    }
-  }
+  public record Filter(String fieldName, String fieldValue, Predicate predicate) {}
 }

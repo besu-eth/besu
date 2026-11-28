@@ -19,8 +19,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.execution.BaseJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PendingTransactionsParams;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -39,6 +42,8 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -290,6 +295,132 @@ public class TxPoolBesuPendingTransactionsTest {
         .hasMessageContaining("The `to` filter only supports the `eq` or `action` operator");
   }
 
+  @Test
+  public void shouldRejectShortFromAddressFilter() {
+    final Map<String, String> fromFilter = new HashMap<>();
+    fromFilter.put("eq", "0x01");
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                JSON_RPC_VERSION,
+                TXPOOL_PENDING_TRANSACTIONS_METHOD,
+                new Object[] {
+                  null,
+                  new PendingTransactionsParams(
+                      fromFilter,
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>())
+                }));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Invalid 'from' address");
+  }
+
+  @Test
+  public void shouldRejectShortToAddressFilter() {
+    final Map<String, String> toFilter = new HashMap<>();
+    toFilter.put("eq", "0x02");
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                JSON_RPC_VERSION,
+                TXPOOL_PENDING_TRANSACTIONS_METHOD,
+                new Object[] {
+                  null,
+                  new PendingTransactionsParams(
+                      new HashMap<>(),
+                      toFilter,
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>())
+                }));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Invalid 'to' address");
+  }
+
+  @Test
+  public void shouldRejectShortFromAddressFilterWhenPoolIsEmpty() {
+    when(transactionPool.getPendingTransactions()).thenReturn(Set.of());
+
+    assertAddressFilterRejected("from", "0x01");
+  }
+
+  @Test
+  public void shouldRejectShortToAddressFilterWhenPoolIsEmpty() {
+    when(transactionPool.getPendingTransactions()).thenReturn(Set.of());
+
+    assertAddressFilterRejected("to", "0x02");
+  }
+
+  @Test
+  public void shouldRejectUnprefixedFromAddressFilter() {
+    assertAddressFilterRejected("from", "0000000000000000000000000000000000000001");
+  }
+
+  @Test
+  public void shouldRejectUnprefixedToAddressFilter() {
+    assertAddressFilterRejected("to", "0000000000000000000000000000000000000002");
+  }
+
+  @Test
+  public void shouldRejectUnprefixedFromAddressFilterWhenPoolIsEmpty() {
+    when(transactionPool.getPendingTransactions()).thenReturn(Set.of());
+
+    assertAddressFilterRejected("from", "0000000000000000000000000000000000000001");
+  }
+
+  @Test
+  public void shouldRejectUnprefixedToAddressFilterWhenPoolIsEmpty() {
+    when(transactionPool.getPendingTransactions()).thenReturn(Set.of());
+
+    assertAddressFilterRejected("to", "0000000000000000000000000000000000000002");
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "from, 0x01, false",
+    "to, 0x02, false",
+    "from, 0000000000000000000000000000000000000001, true",
+    "to, 0000000000000000000000000000000000000002, true"
+  })
+  public void shouldSerializeInvalidAddressError(
+      final String field, final String address, final boolean emptyPool) throws Exception {
+    if (emptyPool) {
+      when(transactionPool.getPendingTransactions()).thenReturn(Set.of());
+    }
+    final var mapper = JsonRpcObjectMapperFactory.getResponseMapper();
+    final String requestJson =
+        """
+        {"jsonrpc":"2.0","id":42,"method":"txpool_besuPendingTransactions",
+         "params":[null,{"%s":{"eq":"%s"}}]}
+        """
+            .formatted(field, address);
+    final JsonRpcRequest request = mapper.readValue(requestJson, JsonRpcRequest.class);
+    final var response =
+        new BaseJsonRpcProcessor()
+            .process(
+                new JsonRpcRequestId(request.getId()),
+                method,
+                null,
+                new JsonRpcRequestContext(request));
+
+    assertThat(mapper.readTree(mapper.writeValueAsString(response)))
+        .isEqualTo(
+            mapper.readTree(
+                """
+                {"jsonrpc":"2.0","id":42,"error":{"code":-32602,"message":"Invalid params"}}
+                """));
+  }
+
   /**
    * EIP-1559 transactions have no gasPrice field at all -- only maxFeePerGas -- so
    * Transaction#getGasPrice is empty for them. The pool here is
@@ -368,6 +499,32 @@ public class TxPoolBesuPendingTransactionsTest {
 
     final JsonRpcSuccessResponse actualResponse = (JsonRpcSuccessResponse) method.response(request);
     return (Set<TransactionPendingResult>) actualResponse.getResult();
+  }
+
+  private void assertAddressFilterRejected(final String field, final String address) {
+    final Map<String, String> fromFilter = new HashMap<>();
+    final Map<String, String> toFilter = new HashMap<>();
+    (field.equals("from") ? fromFilter : toFilter).put("eq", address);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                JSON_RPC_VERSION,
+                TXPOOL_PENDING_TRANSACTIONS_METHOD,
+                new Object[] {
+                  null,
+                  new PendingTransactionsParams(
+                      fromFilter,
+                      toFilter,
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>(),
+                      new HashMap<>())
+                }));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Invalid '" + field + "' address");
   }
 
   private Set<PendingTransaction> getTransactionPool() {
