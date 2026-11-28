@@ -53,6 +53,9 @@ public class JsonBftConfigOptions implements BftConfigOptions {
   /** The constant TRANSACTION_GAS_LIMIT. */
   public static final String TRANSACTION_GAS_LIMIT = "pertxgaslimit";
 
+  /** The constant BENEFICIARY_CONTRACT_ADDRESS. */
+  public static final String BENEFICIARY_CONTRACT_ADDRESS = "beneficiarycontractaddress";
+
   /** The Bft config root. */
   protected final ObjectNode bftConfigRoot;
 
@@ -129,6 +132,19 @@ public class JsonBftConfigOptions implements BftConfigOptions {
     } catch (final IllegalArgumentException e) {
       throw new IllegalArgumentException(
           "Mining beneficiary in config is not a valid ethereum address", e);
+    }
+  }
+
+  @Override
+  public Optional<Address> getBeneficiaryContractAddress() {
+    try {
+      return JsonUtil.getString(bftConfigRoot, BENEFICIARY_CONTRACT_ADDRESS)
+          .map(String::trim)
+          .filter(s -> !s.isBlank())
+          .map(Address::fromHexStringStrict);
+    } catch (final IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "Beneficiary contract address in config is not a valid ethereum address", e);
     }
   }
 

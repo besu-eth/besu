@@ -169,6 +169,65 @@ public abstract class BaseForksSchedulesFactoryTest<
   }
 
   @Test
+  public void createsScheduleThatEnablesAndDisablesBeneficiaryContract() {
+    final Address contract = Address.fromHexString("0x2222222222222222222222222222222222222222");
+    final C genesisOptions = createBftOptions();
+
+    final ObjectNode enable =
+        JsonUtil.objectNodeFromMap(
+            Map.of(
+                BftFork.FORK_BLOCK_KEY,
+                1,
+                BftFork.BENEFICIARY_CONTRACT_ADDRESS_KEY,
+                contract.getBytes().toHexString()));
+    final ObjectNode disable =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 2, BftFork.BENEFICIARY_CONTRACT_ADDRESS_KEY, ""));
+
+    final ForksSchedule<C> forksSchedule =
+        createForkSchedule(createGenesisConfig(genesisOptions, enable, disable));
+
+    assertThat(forksSchedule.getFork(0, 0).getValue().getBeneficiaryContractAddress()).isEmpty();
+    assertThat(forksSchedule.getFork(1, 0).getValue().getBeneficiaryContractAddress())
+        .contains(contract);
+    assertThat(forksSchedule.getFork(2, 0).getValue().getBeneficiaryContractAddress()).isEmpty();
+  }
+
+  @Test
+  public void beneficiaryContractIsInheritedUnlessExplicitlyConfigured() {
+    final Address contract = Address.fromHexString("0x2222222222222222222222222222222222222222");
+    final C genesisOptions =
+        createBftOptions(o -> o.setBeneficiaryContractAddress(Optional.of(contract)));
+
+    final ObjectNode unrelatedFork =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 1, BftFork.BLOCK_PERIOD_SECONDS_KEY, 5));
+
+    final ForksSchedule<C> forksSchedule =
+        createForkSchedule(createGenesisConfig(genesisOptions, unrelatedFork));
+
+    assertThat(forksSchedule.getFork(0, 0).getValue().getBeneficiaryContractAddress())
+        .contains(contract);
+    assertThat(forksSchedule.getFork(1, 0).getValue().getBeneficiaryContractAddress())
+        .contains(contract);
+  }
+
+  @Test
+  public void createsScheduleWithInvalidBeneficiaryContract_shouldThrow() {
+    final ObjectNode invalidFork =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 1, BftFork.BENEFICIARY_CONTRACT_ADDRESS_KEY, "bla"));
+
+    final GenesisConfigOptions genesisConfigOptions =
+        createGenesisConfig(createBftOptions(), invalidFork);
+
+    assertThatThrownBy(() -> createForkSchedule(genesisConfigOptions))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining(
+            "Beneficiary contract address in transition config is not a valid ethereum address");
+  }
+
+  @Test
   public void createsScheduleThatChangesBlockPeriodAtTimestamp() {
     final C qbftConfigOptions = createBftOptions(o -> o.setBlockPeriodSeconds(2));
 

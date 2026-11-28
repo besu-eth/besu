@@ -53,6 +53,9 @@ public class BftFork implements Fork {
   /** The constant MINING_BENEFICIARY_KEY. */
   public static final String MINING_BENEFICIARY_KEY = "miningbeneficiary";
 
+  /** The constant BENEFICIARY_CONTRACT_ADDRESS_KEY. */
+  public static final String BENEFICIARY_CONTRACT_ADDRESS_KEY = "beneficiarycontractaddress";
+
   /** The constant TRANSACTION_GAS_LIMIT_KEY. */
   public static final String TRANSACTION_GAS_LIMIT_KEY = "pertxgaslimit";
 
@@ -153,6 +156,33 @@ public class BftFork implements Fork {
    */
   public boolean isMiningBeneficiaryConfigured() {
     return JsonUtil.hasKey(forkConfigRoot, MINING_BENEFICIARY_KEY);
+  }
+
+  /**
+   * Gets the reward beneficiary contract address.
+   *
+   * @return the contract address, or empty if none (or an empty string, which removes a previously
+   *     configured one) is configured
+   */
+  public Optional<Address> getBeneficiaryContractAddress() {
+    try {
+      return JsonUtil.getString(forkConfigRoot, BENEFICIARY_CONTRACT_ADDRESS_KEY)
+          .map(String::trim)
+          .filter(s -> !s.isEmpty())
+          .map(Address::fromHexStringStrict);
+    } catch (final IllegalArgumentException e) {
+      throw new IllegalArgumentException(
+          "Beneficiary contract address in transition config is not a valid ethereum address", e);
+    }
+  }
+
+  /**
+   * Is the reward beneficiary contract address present in this transition.
+   *
+   * @return true if the key is present, even if its value is empty
+   */
+  public boolean isBeneficiaryContractAddressConfigured() {
+    return JsonUtil.hasKey(forkConfigRoot, BENEFICIARY_CONTRACT_ADDRESS_KEY);
   }
 
   /**

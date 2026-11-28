@@ -249,6 +249,37 @@ public class JsonBftConfigOptionsTest {
   }
 
   @Test
+  public void shouldGetBeneficiaryContractAddressFromConfig() {
+    final Address contract = Address.fromHexString("0xfe3b557e8fb62b89f4916b721be55ceb828dbd73");
+    final BftConfigOptions config =
+        fromConfigOptions(singletonMap("beneficiarycontractaddress", contract.toString()));
+    assertThat(config.getBeneficiaryContractAddress()).contains(contract);
+  }
+
+  @Test
+  public void beneficiaryContractAddressIsEmptyByDefault() {
+    assertThat(fromConfigOptions(emptyMap()).getBeneficiaryContractAddress()).isEmpty();
+    assertThat(JsonBftConfigOptions.DEFAULT.getBeneficiaryContractAddress()).isEmpty();
+  }
+
+  @Test
+  public void blankBeneficiaryContractAddressIsEmpty() {
+    final BftConfigOptions config =
+        fromConfigOptions(singletonMap("beneficiarycontractaddress", " "));
+    assertThat(config.getBeneficiaryContractAddress()).isEmpty();
+  }
+
+  @Test
+  public void shouldThrowOnInvalidBeneficiaryContractAddress() {
+    final BftConfigOptions config =
+        fromConfigOptions(singletonMap("beneficiarycontractaddress", "bla"));
+    assertThatThrownBy(config::getBeneficiaryContractAddress)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining(
+            "Beneficiary contract address in config is not a valid ethereum address");
+  }
+
+  @Test
   public void getTransactionGasLimitAbsent() {
     final BftConfigOptions config = fromConfigOptions(emptyMap());
     assertThat(config.getTransactionGasLimit()).isEmpty();
