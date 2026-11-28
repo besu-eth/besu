@@ -29,6 +29,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -37,10 +38,14 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.plugin.ServiceManager;
@@ -163,6 +168,40 @@ abstract class AbstractBlockProcessorTest {
   }
 
   @Test
+  void enabledBlockImportTracerRunsTheBlockSequentially() {
+    final BlockAwareOperationTracer importTracer = mock(BlockAwareOperationTracer.class);
+    when(importTracer.isEnabled()).thenReturn(true);
+    final ServiceManager serviceManager = mock(ServiceManager.class);
+    final BlockImportTracerProvider provider = header -> importTracer;
+    when(protocolContext.getPluginServiceManager()).thenReturn(serviceManager);
+    when(serviceManager.getService(BlockImportTracerProvider.class))
+        .thenReturn(Optional.of(provider));
+
+    blockProcessor.processBlock(
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(testBlockBuilder(emptyList()))
+            .blockAccessList(Optional.empty())
+            .build());
+
+    assertThat(blockProcessor.parallelExecutionStarts).isZero();
+  }
+
+  @Test
+  void blockRunsInParallelWithoutAnEnabledBlockImportTracer() {
+    blockProcessor.processBlock(
+        BlockExecutionContext.builder()
+            .protocolContext(protocolContext)
+            .worldState(worldState)
+            .block(testBlockBuilder(emptyList()))
+            .blockAccessList(Optional.empty())
+            .build());
+
+    assertThat(blockProcessor.parallelExecutionStarts).isOne();
+  }
+
+  @Test
   void blockAccessListFactoryFromContextIsUsedWhenTheForkHasNone() {
     // The fork defines no block access list factory (the mocked spec returns empty).
     final BlockAccessListFactory blockAccessListFactory = spy(new BlockAccessListFactory());
@@ -248,6 +287,8 @@ abstract class AbstractBlockProcessorTest {
 
   private static class TestBlockProcessor extends AbstractBlockProcessor {
 
+    private int parallelExecutionStarts = 0;
+
     protected TestBlockProcessor(
         final MainnetTransactionProcessor transactionProcessor,
         final TransactionReceiptFactory transactionReceiptFactory,
@@ -260,6 +301,21 @@ abstract class AbstractBlockProcessorTest {
           miningBeneficiaryCalculator,
           protocolSchedule,
           balConfiguration);
+    }
+
+    @Override
+    protected Optional<ParallelBlockTransactionProcessor> startParallelExecution(
+        final ProtocolContext protocolContext,
+        final BlockHeader blockHeader,
+        final List<Transaction> transactions,
+        final Address miningBeneficiary,
+        final BlockHashLookup blockHashLookup,
+        final Wei blobGasPrice,
+        final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+        final Optional<BlockAccessList> blockAccessList,
+        final Optional<BlockHeader> maybeParentHeader) {
+      parallelExecutionStarts++;
+      return Optional.empty();
     }
   }
 

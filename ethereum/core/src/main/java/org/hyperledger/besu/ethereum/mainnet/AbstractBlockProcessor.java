@@ -230,7 +230,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                               calculateExcessBlobGasForParent(protocolSpec, parentHeader)))
               .orElse(Wei.ZERO);
 
-      if (!context.isSequentialExecutionRequested()) {
+      // a result taken from parallel execution never reaches the block tracer, so an enabled one
+      // needs every transaction executed in order
+      if (!context.isSequentialExecutionRequested() && !blockTracer.isEnabled()) {
         parallelProcessor =
             startParallelExecution(
                 protocolContext,

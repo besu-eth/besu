@@ -42,7 +42,8 @@ import org.jspecify.annotations.Nullable;
  * Builder#sequentialExecutionRequested(boolean)}.
  *
  * <p>A block tracer can optionally be set, see {@link Builder#blockTracer}. It requires sequential
- * execution.
+ * execution. Without one, the block runs sequentially as well while the plugin-provided block
+ * import tracer is enabled.
  *
  * <p>An output validator can optionally be set, see {@link Builder#outputValidator}.
  *
