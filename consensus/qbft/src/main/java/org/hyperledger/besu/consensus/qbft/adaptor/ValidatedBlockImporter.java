@@ -96,7 +96,7 @@ public class ValidatedBlockImporter implements BlockImporter {
       final HeaderValidationMode ommerValidationMode,
       final Optional<BlockAccessList> blockAccessList) {
     final Hash blockHash = block.getHash();
-    if (context.getBlockchain().contains(blockHash)) {
+    if (isStored(context, blockHash)) {
       return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
     }
     // Both orders of NewBlock and proposal are covered. Marked before waiting for the lock below: a
@@ -114,7 +114,7 @@ public class ValidatedBlockImporter implements BlockImporter {
       // the lock of MainnetBlockImporter.importBlock, so the head check, append and world state
       // move of a validated block are not interleaved with another import
       synchronized (blockImporter) {
-        if (context.getBlockchain().contains(blockHash)) {
+        if (isStored(context, blockHash)) {
           return new BlockImportResult(BlockImportStatus.ALREADY_IMPORTED);
         }
         final Optional<ValidatedBlockCache.ValidatedBlock> validatedBlock =
@@ -201,6 +201,14 @@ public class ValidatedBlockImporter implements BlockImporter {
         .getWorldState(withBlockHeaderAndUpdateNodeHead(block.getHeader()));
     LOG.debug("Imported block {} without executing it again", block.toLogString());
     return new BlockImportResult(BlockImportStatus.IMPORTED);
+  }
+
+  // A block is imported once its total difficulty is stored, which happens in the same commit as
+  // the block. contains() is not enough: DefaultBlockchain.appendBlock caches the header before the
+  // commit, so while another import of the same block is committing it, contains() is true but a
+  // caller such as EthProtocolManager.blockMined cannot read the total difficulty yet.
+  private static boolean isStored(final ProtocolContext context, final Hash blockHash) {
+    return context.getBlockchain().getTotalDifficultyByHash(blockHash).isPresent();
   }
 
   // the outputs are applied with the trie log of the execution, which only path-based storage saves

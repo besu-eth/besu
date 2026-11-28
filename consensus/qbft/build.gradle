@@ -78,6 +78,8 @@ dependencies {
   testImplementation project(':crypto:algorithms')
   testImplementation project(':evm')
   testImplementation project(':metrics:core')
+  testImplementation project(':plugin-api')
+  testImplementation project(':services:kvstore')
   testImplementation project(':testutil')
 
   testImplementation 'org.assertj:assertj-core'

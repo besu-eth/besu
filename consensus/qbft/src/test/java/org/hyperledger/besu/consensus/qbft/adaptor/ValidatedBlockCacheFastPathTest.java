@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult.BlockImportStatus;
@@ -249,7 +250,8 @@ class ValidatedBlockCacheFastPathTest {
     verify(blockchain).appendBlock(announcedBlock, receipts, Optional.empty());
 
     // then the round commits, and finds the block imported
-    when(blockchain.contains(sealedBlock.getHash())).thenReturn(true);
+    when(blockchain.getTotalDifficultyByHash(sealedBlock.getHash()))
+        .thenReturn(Optional.of(Difficulty.ONE));
     assertThat(importer().importBlock(sealed, Optional.empty())).isTrue();
 
     verify(blockValidator)
