@@ -47,7 +47,7 @@ public class StateOverrideParameterTest {
   public void jsonDeserializesCorrectly() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{"
-            + "\"from\":\"0x0\", \"to\": \"0x0\"}, "
+            + "\"from\":\"0x0000000000000000000000000000000000000000\", \"to\": \"0x0000000000000000000000000000000000000000\"}, "
             + "\"latest\","
             + "{\""
             + ADDRESS_HEX1
@@ -73,7 +73,7 @@ public class StateOverrideParameterTest {
   public void jsonWithCodeDeserializesCorrectly() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{"
-            + "\"from\":\"0x0\", \"to\": \"0x0\"}, "
+            + "\"from\":\"0x0000000000000000000000000000000000000000\", \"to\": \"0x0000000000000000000000000000000000000000\"}, "
             + "\"latest\","
             + "{\""
             + ADDRESS_HEX1
@@ -102,7 +102,7 @@ public class StateOverrideParameterTest {
   public void jsonWithHexNonceDeserializesCorrectly() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{"
-            + "\"from\":\"0x0\", \"to\": \"0x0\"}, "
+            + "\"from\":\"0x0000000000000000000000000000000000000000\", \"to\": \"0x0000000000000000000000000000000000000000\"}, "
             + "\"latest\","
             + "{\""
             + ADDRESS_HEX1
@@ -130,7 +130,7 @@ public class StateOverrideParameterTest {
   public void jsonWithStorageOverridesDeserializesCorrectly() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{"
-            + "\"from\":\"0x0\", \"to\": \"0x0\"}, "
+            + "\"from\":\"0x0000000000000000000000000000000000000000\", \"to\": \"0x0000000000000000000000000000000000000000\"}, "
             + "\"latest\","
             + "{\""
             + ADDRESS_HEX1
@@ -164,7 +164,7 @@ public class StateOverrideParameterTest {
   public void jsonWithMultipleStateOverridesDeserializesCorrectly() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_call\",\"params\":[{"
-            + "\"from\":\"0x0\", \"to\": \"0x0\"}, "
+            + "\"from\":\"0x0000000000000000000000000000000000000000\", \"to\": \"0x0000000000000000000000000000000000000000\"}, "
             + "\"latest\","
             + "{\""
             + ADDRESS_HEX1

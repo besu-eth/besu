@@ -62,7 +62,7 @@ public class FilterParameterTest {
   @Test
   public void jsonWithArrayOfAddressesShouldSerializeSuccessfully() throws Exception {
     final String jsonWithAddressArray =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":[\"0x0\",\"0x1\"]}],\"id\":1}";
+        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":[\"0x0000000000000000000000000000000000000000\",\"0x0000000000000000000000000000000000000001\"]}],\"id\":1}";
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(readJsonAsJsonRpcRequest(jsonWithAddressArray));
     final FilterParameter expectedFilterParameter = filterParameterWithAddresses("0x0", "0x1");
@@ -76,7 +76,7 @@ public class FilterParameterTest {
   @Test
   public void jsonWithSingleAddressShouldSerializeSuccessfully() throws Exception {
     final String jsonWithSingleAddress =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0\"}],\"id\":1}";
+        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0000000000000000000000000000000000000000\"}],\"id\":1}";
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(readJsonAsJsonRpcRequest(jsonWithSingleAddress));
     final FilterParameter expectedFilterParameter = filterParameterWithAddresses("0x0");
@@ -90,7 +90,7 @@ public class FilterParameterTest {
   @Test
   public void jsonWithSingleAddressAndSingleTopicShouldSerializeSuccessfully() throws Exception {
     final String jsonWithSingleAddress =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0\", "
+        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0000000000000000000000000000000000000000\", "
             + "\"topics\":\""
             + TOPIC_TWO
             + "\" }],\"id\":1}";
@@ -109,7 +109,7 @@ public class FilterParameterTest {
   @Test
   public void jsonWithSingleAddressAndMultipleTopicsShouldSerializeSuccessfully() throws Exception {
     final String jsonWithSingleAddress =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0\", "
+        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0000000000000000000000000000000000000000\", "
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + "]}],\"id\":1}";
@@ -129,7 +129,7 @@ public class FilterParameterTest {
   public void jsonWithSingleAddressAndMultipleListsOfTopicsShouldSerializeSuccessfully()
       throws Exception {
     final String jsonWithSingleAddress =
-        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0\", "
+        "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x0000000000000000000000000000000000000000\", "
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + ","
@@ -151,7 +151,7 @@ public class FilterParameterTest {
   public void jsonWithFromAndToParametersDeserializesCorrectly() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{"
-            + "\"address\":\"0x0\", \"fromBlock\": \"0x0\", \"toBlock\": \"pending\","
+            + "\"address\":\"0x0000000000000000000000000000000000000000\", \"fromBlock\": \"0x0\", \"toBlock\": \"pending\","
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + ","
@@ -170,7 +170,7 @@ public class FilterParameterTest {
   public void jsonWithBlockHashIncludingAliasAndFromAndToParametersIsInvalid() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{"
-            + "\"address\":\"0x0\", \"fromBlock\": \"0x0\", \"toBlock\": \"pending\","
+            + "\"address\":\"0x0000000000000000000000000000000000000000\", \"fromBlock\": \"0x0\", \"toBlock\": \"pending\","
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + ","
@@ -181,7 +181,7 @@ public class FilterParameterTest {
 
     final String jsonUsingAlias =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{"
-            + "\"address\":\"0x0\", \"fromBlock\": \"0x0\", \"toBlock\": \"pending\","
+            + "\"address\":\"0x0000000000000000000000000000000000000000\", \"fromBlock\": \"0x0\", \"toBlock\": \"pending\","
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + ","
@@ -209,7 +209,7 @@ public class FilterParameterTest {
   public void jsonBlockHashAliasSucceeds() throws Exception {
     final String json =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{"
-            + "\"address\":\"0x0\","
+            + "\"address\":\"0x0000000000000000000000000000000000000000\","
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + ","
@@ -220,7 +220,7 @@ public class FilterParameterTest {
 
     final String jsonUsingAlias =
         "{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{"
-            + "\"address\":\"0x0\","
+            + "\"address\":\"0x0000000000000000000000000000000000000000\","
             + "\"topics\":["
             + TOPICS_TWO_THREE_ARRAY
             + ","
@@ -426,7 +426,8 @@ public class FilterParameterTest {
   public void fromAndToAddressesShouldDeserializeAsTwoListsOfAddresses()
       throws java.io.IOException {
     final FilterParameter filterParameter =
-        readJsonAsFilterParameter("{\"fromAddress\":[\"0x0\"], \"toAddress\":[\"0x1\"]}");
+        readJsonAsFilterParameter(
+            "{\"fromAddress\":[\"0x0000000000000000000000000000000000000000\"], \"toAddress\":[\"0x0000000000000000000000000000000000000001\"]}");
     assertThat(filterParameter.getFromAddress()).containsExactly(Address.fromHexString("0x0"));
     assertThat(filterParameter.getToAddress()).containsExactly(Address.fromHexString("0x1"));
   }
@@ -461,12 +462,15 @@ public class FilterParameterTest {
   @Test
   public void intersectionModeShouldMatchEveryPopulatedAddressList() throws java.io.IOException {
     final FilterParameter both =
-        readJsonAsFilterParameter("{\"fromAddress\":[\"0x1\"], \"toAddress\":[\"0x2\"]}");
+        readJsonAsFilterParameter(
+            "{\"fromAddress\":[\"0x0000000000000000000000000000000000000001\"], \"toAddress\":[\"0x0000000000000000000000000000000000000002\"]}");
     assertThat(both.matchesTraceAddresses(address("0x1"), address("0x2"))).isTrue();
     assertThat(both.matchesTraceAddresses(address("0x1"), address("0x3"))).isFalse();
     assertThat(both.matchesTraceAddresses(address("0x3"), address("0x2"))).isFalse();
 
-    final FilterParameter fromOnly = readJsonAsFilterParameter("{\"fromAddress\":[\"0x1\"]}");
+    final FilterParameter fromOnly =
+        readJsonAsFilterParameter(
+            "{\"fromAddress\":[\"0x0000000000000000000000000000000000000001\"]}");
     assertThat(fromOnly.matchesTraceAddresses(address("0x1"), address("0x3"))).isTrue();
     assertThat(fromOnly.matchesTraceAddresses(Optional.empty(), address("0x3"))).isFalse();
   }
@@ -475,7 +479,7 @@ public class FilterParameterTest {
   public void unionModeShouldMatchEitherPopulatedAddressList() throws java.io.IOException {
     final FilterParameter both =
         readJsonAsFilterParameter(
-            "{\"fromAddress\":[\"0x1\"], \"toAddress\":[\"0x2\"], \"mode\":\"union\"}");
+            "{\"fromAddress\":[\"0x0000000000000000000000000000000000000001\"], \"toAddress\":[\"0x0000000000000000000000000000000000000002\"], \"mode\":\"union\"}");
     assertThat(both.matchesTraceAddresses(address("0x1"), address("0x3"))).isTrue();
     assertThat(both.matchesTraceAddresses(address("0x3"), address("0x2"))).isTrue();
     assertThat(both.matchesTraceAddresses(address("0x3"), address("0x3"))).isFalse();
@@ -484,7 +488,8 @@ public class FilterParameterTest {
 
     // an empty list imposes no restriction, so it doesn't match every trace
     final FilterParameter fromOnly =
-        readJsonAsFilterParameter("{\"fromAddress\":[\"0x1\"], \"mode\":\"union\"}");
+        readJsonAsFilterParameter(
+            "{\"fromAddress\":[\"0x0000000000000000000000000000000000000001\"], \"mode\":\"union\"}");
     assertThat(fromOnly.matchesTraceAddresses(address("0x1"), address("0x3"))).isTrue();
     assertThat(fromOnly.matchesTraceAddresses(address("0x3"), address("0x3"))).isFalse();
 

@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.data.Withdrawal;
 
 import java.util.List;
 import java.util.Map;
@@ -319,6 +320,75 @@ public class EthSimulateV1Test {
                 simulateRequestWithMovedPrecompile(precompile, Address.fromHexString("0x1234"))))
         .isNotInstanceOf(JsonRpcErrorResponse.class);
     verify(blockSimulator).process(any(BlockHeader.class), any(), any(OperationTracer.class));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "0x1",
+        "0xee",
+        "0x000000000000000000000000000000000000000",
+        "00000000000000000000000000000000000000ee"
+      })
+  public void shouldRejectMalformedWithdrawalAddressInBlockOverrides(final String address) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+
+    final JsonRpcResponse response = method.response(simulateRequestWithWithdrawal(address));
+
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode())
+        .isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+    verifyNoInteractions(blockSimulator);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "0x00000000000000000000000000000000000000ee",
+        "0X00000000000000000000000000000000000000EE"
+      })
+  public void shouldAcceptFullWithdrawalAddressInBlockOverrides(final String address) {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
+
+    assertThat(method.response(simulateRequestWithWithdrawal(address)))
+        .isNotInstanceOf(JsonRpcErrorResponse.class);
+
+    final ArgumentCaptor<BlockSimulationParameter> parameter =
+        ArgumentCaptor.forClass(BlockSimulationParameter.class);
+    verify(blockSimulator)
+        .process(any(BlockHeader.class), parameter.capture(), any(OperationTracer.class));
+    final List<Withdrawal> withdrawals =
+        parameter
+            .getValue()
+            .getBlockStateCalls()
+            .getFirst()
+            .getBlockOverrides()
+            .getWithdrawals()
+            .orElseThrow();
+    assertThat(withdrawals).hasSize(1);
+    assertThat(withdrawals.getFirst().getAddress())
+        .isEqualTo(Address.fromHexString("0x00000000000000000000000000000000000000ee"));
+  }
+
+  private static JsonRpcRequestContext simulateRequestWithWithdrawal(final String address) {
+    return simulateRequest(
+        Map.of(
+            "blockStateCalls",
+            List.of(
+                Map.of(
+                    "blockOverrides",
+                    Map.of(
+                        "withdrawals",
+                        List.of(
+                            Map.of(
+                                "index", "0x0",
+                                "validatorIndex", "0x0",
+                                "address", address,
+                                "amount", "0x1")))))));
   }
 
   private static JsonRpcRequestContext simulateRequestWithMovedPrecompile(
