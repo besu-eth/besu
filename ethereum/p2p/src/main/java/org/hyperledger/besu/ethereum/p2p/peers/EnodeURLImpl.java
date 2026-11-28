@@ -432,7 +432,11 @@ public class EnodeURLImpl implements EnodeURL, NodeIdentifier {
           if (!enodeDnsConfiguration.updateEnabled()) {
             throw new IllegalArgumentException("Invalid ip address or hostname.");
           } else {
+            // Keep the name so getIp() can resolve it once DNS answers. With only the
+            // loopback placeholder the entry renders as 127.0.0.1, and parsed again the
+            // loopback branch above turns it into this node's own hostname.
             this.ip = InetAddresses.forString("127.0.0.1");
+            this.maybeHostname = Optional.of(hostField);
           }
         }
       } else if (InetAddresses.isUriInetAddress(hostField)) {

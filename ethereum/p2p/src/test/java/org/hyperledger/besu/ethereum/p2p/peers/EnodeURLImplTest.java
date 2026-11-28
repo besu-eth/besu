@@ -948,7 +948,7 @@ public class EnodeURLImplTest {
   }
 
   @Test
-  public void toURIWithoutDiscoveryPortShouldUseLoopbackWhenDomainNotFound() {
+  public void toURIWithoutDiscoveryPortShouldKeepDomainWhenNotFound() {
     String enodeString =
         String.format("enode://%s@%s:%d", VALID_NODE_ID, "besu-is-awesome.example.com", 9999);
 
@@ -957,8 +957,26 @@ public class EnodeURLImplTest {
             enodeString,
             ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build());
 
-    URI expected = URI.create(String.format("enode://%s@%s:%d", VALID_NODE_ID, "127.0.0.1", 9999));
+    URI expected =
+        URI.create(
+            String.format("enode://%s@%s:%d", VALID_NODE_ID, "besu-is-awesome.example.com", 9999));
     assertThat(enodeA.toURIWithoutDiscoveryPort()).isEqualTo(expected);
+  }
+
+  @Test
+  public void unresolvableDomainShouldNotBecomeLocalHostWhenParsedAgain()
+      throws UnknownHostException {
+    final String enodeString =
+        String.format("enode://%s@%s:%d", VALID_NODE_ID, "besu-is-awesome.example.com", 9999);
+    final EnodeDnsConfiguration dnsUpdate =
+        ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build();
+
+    // What a nodes allowlist does: render the entry, write it, read it back.
+    final EnodeURL first = EnodeURLImpl.fromString(enodeString, dnsUpdate);
+    final EnodeURL reparsed = EnodeURLImpl.fromString(first.toString(), dnsUpdate);
+
+    assertThat(reparsed.toString()).isEqualTo(enodeString);
+    assertThat(reparsed.getHost()).isNotEqualTo(InetAddress.getLocalHost().getHostName());
   }
 
   @Test
@@ -1115,13 +1133,15 @@ public class EnodeURLImplTest {
   }
 
   @Test
-  public void getHostShouldReturnLoopBackWhenDomainNotFound() {
+  public void getHostShouldKeepDomainWhenNotFound() {
     String site = "besu-is-awesome.example.com";
     String enodeString = String.format("enode://%s@%s:%d", VALID_NODE_ID, site, 9999);
     final EnodeURL enode =
         EnodeURLImpl.fromString(
             enodeString,
             ImmutableEnodeDnsConfiguration.builder().dnsEnabled(true).updateEnabled(true).build());
-    assertEquals("127.0.0.1", enode.getHost());
+    assertEquals(site, enode.getHost());
+    // the address stays the loopback placeholder until the name resolves
+    assertEquals("127.0.0.1", enode.getIpAsString());
   }
 }
