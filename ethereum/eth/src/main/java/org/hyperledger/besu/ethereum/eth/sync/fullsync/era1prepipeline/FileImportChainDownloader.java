@@ -46,7 +46,11 @@ public class FileImportChainDownloader implements ChainDownloader {
             fileImportPipelineFactory.createFileImportPipelineForCurrentBlockNumber(
                 blockchain.getChainHeadBlockNumber()));
     return pipeline
-        .map((p) -> ethScheduler.startPipeline(p))
+        .map(
+            (p) ->
+                ethScheduler
+                    .startPipeline(p)
+                    .whenComplete((result, error) -> fileImportPipelineFactory.close()))
         .orElseThrow(
             () -> new RuntimeException("Failed to construct and start file import pipeline"));
   }

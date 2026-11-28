@@ -125,6 +125,7 @@
 - DNS discovery now compares each linked ENR tree with its own previous sequence number, so a linked tree with a higher sequence number no longer stops the tree that links to it from being read, and each refresh reads a tree or subtree at most once and stops after 50,000 records or 5 minutes.
 
 ### Additions and Improvements
+- Add current-format Ere history import before FULL sync with `--erae-import-prepipeline-enabled`, an explicit `--erae-data-uri`, and the shared `--erae-import-prepipeline-concurrency` alias. [#11244](https://github.com/besu-eth/besu/issues/11244)
 - Upgrade snappy from 1.1.10.7 to 1.1.10.9, resolving CVE-2026-93451 and CVE-2026-108106 [#11841](https://github.com/besu-eth/besu/pull/11841)
 - Upgrade Guava from 33.7.2-jre to 33.8.0-jre, resolving CVE-2026-118042 [#11860](https://github.com/besu-eth/besu/pull/11860)
 - Upgrade opentelemetry from 1.62.0 to 1.67.0, resolving CVE-2026-118259, along with the OpenTelemetry OkHttp instrumentation (2.25.0-alpha to 2.33.1-alpha) and semantic conventions (1.40.0 to 1.44.0) that match it. Plugins that use OpenTelemetry directly should align with these versions. Since 1.67.0, an `SdkTracerProvider` with no span processor creates no spans, so with `OTEL_TRACES_EXPORTER=none` Besu no longer creates spans. [#11859](https://github.com/besu-eth/besu/pull/11859)

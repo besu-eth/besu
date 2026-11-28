@@ -765,7 +765,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             forkIdManager);
 
     final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
-    final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
+    final boolean hasInitialSyncPhase =
+        (fullSyncDisabled || syncConfig.ereImportPrepipelineEnabled()) && p2pEnabled;
     final SyncState syncState =
         new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
 
