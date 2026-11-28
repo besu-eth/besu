@@ -7,6 +7,7 @@ This document explains how Besu executes the transactions of a block in parallel
 - [Speculative runs](#speculative-runs)
 - [Balance changes](#balance-changes)
 - [Same-sender chains](#same-sender-chains)
+- [Read/write sets](#readwrite-sets)
 - [Threads](#threads)
 - [Tests](#tests)
 - [Where to start reading](#where-to-start-reading)
@@ -136,6 +137,26 @@ In the figure:
 
 Without chains, block processing executes tx 9 as well, 7 of the 13 transactions instead of 6. The dashed line marks where that block ends.
 
+## Read/write sets
+
+`BlockReadWriteSets` records what each speculative run of a block read and wrote, and finds the runs whose inputs changed before block processing reaches them. Running such a transaction again on the new values is a **refresh**. No processor uses `BlockReadWriteSets` yet.
+
+**Read/write sets.** When a run finishes, `BlockReadWriteSets.ReadWriteSet.of` records its **read/write set**. Every storage slot in the run's accumulator counts as read, with the value the run started from: its seed, the value its chain predecessor left, or the parent's value, in that order. Every slot whose value changed counts as written. Storage the run cleared is kept separately. The coinbase account's slots are left out, as in the collision check.
+
+Block access lists and trie logs describe similar changes, but neither has what the index needs. A block access list names the slots a transaction read but not the values it read, and building one for every run before Amsterdam would track every slot access. A trie log keeps only the parent's value of a slot and leaves out slots read as empty. A read/write set keeps both the value a run started from and the parent's value, for every slot it read.
+
+**The index.** `BlockReadWriteSets` indexes the read/write sets by slot: for each slot, its writers and readers by position, plus the latest read/write set of each position. A stored read/write set is compared, read by read, with the value the read/write sets before it leave in that slot, which is the latest writer's value. A different value **invalidates** it, because the run read a value the block will not have at its turn. Its writes in turn invalidate the readers after it that read something else.
+
+**Reports from block processing.** Block processing reports each transaction it takes or executes (`reportTaken`, `reportExecuted`). An executed transaction's writes replace what its read/write set predicted, and a taken one keeps its predicted writes. Neither is invalidated again. The reports are queued and `applyReported` indexes them on another thread, so block processing never waits for the index's lock.
+
+**Seeds.** `takeInvalidated` returns the invalidated positions after a given one, in block order. `seedsFor` returns the values the read/write sets before such a position leave in the slots its run read. These **seeds** are the values a refresh starts from.
+
+A few limits keep the index cheap:
+
+- A slot with more than 64 writers or readers is no longer tracked, and a run that read such a slot gets no seeds.
+- A read/write set whose run cleared storage, or whose transaction was invalid, is marked as not refreshable.
+- A block gets seeds for at most 128 refreshes.
+
 ## Threads
 
 | Thread | Count | Runs |
@@ -151,6 +172,7 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 - `TransactionCollisionDetectorTest` tests the collision rules, for runs alone and chained runs, and when a balance change is carried over.
 - `BalanceObservationTest` in the `evm` module tests that the operations report the balances they depend on.
 - `OptimisticTransactionProcessorUnitTest` tests chains, where they stop, sender recovery, late chains and warm-ups.
+- `BlockReadWriteSetsTest` tests what a read/write set records, the slot index, invalidation, reports and seeds.
 - `OptimisticParallelBlockProcessorIntegrationTest` imports blocks on a genesis built at runtime and compares the outcome with sequential execution.
 
 ```
@@ -163,6 +185,7 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 2. `MainnetParallelBlockProcessor`: picking the processor, and falling back to execution.
 3. `OptimisticConcurrentTransactionProcessor`: runs, chains, late chains, warm-ups and takes.
 4. `TransactionCollisionDetector`: what counts as a collision, for runs alone and chained runs, and which balance changes are carried over.
+5. `BlockReadWriteSets`: read/write sets, the slot index and seeds.
 
 ## Glossary
 
@@ -174,3 +197,7 @@ The system properties `besu.block.cpuThreads` and `besu.block.ioThreads` change 
 - **Chain:** a sender's transactions run in order on one worker, each on the state the one before it left.
 - **Late chain:** a chain formed once the senders the transaction pool did not know are recovered, after their transactions already ran alone.
 - **Warm-up:** a chain member executed once against the parent state, only so that what it reads is cached.
+- **Read/write set:** the storage slots a run read, with the values it read, and the slots it wrote.
+- **Invalidated:** a read/write set whose run read a slot at a value the transactions before it no longer leave there.
+- **Seed:** the value the transactions before a refresh leave in a slot in its read/write set.
+- **Refresh:** a transaction run again on its seeds after its read/write set was invalidated.
