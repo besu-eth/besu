@@ -19,8 +19,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.LogWithMetadata;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationResult;
@@ -149,6 +154,63 @@ public class BlockStateCallResultTest {
     assertThat(error.getCode()).isEqualTo(-32015);
     assertThat(error.getMessage()).isEqualTo("vm execution error: Bad instruction");
     assertThat(error.getData()).isNull();
+  }
+
+  @Test
+  public void callsWithEqualHashesEachReturnOnlyTheirOwnLogs() {
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final Block block = gen.block();
+    // Unsigned simulated calls that differ only in their sender share a transaction hash.
+    final Transaction transaction = gen.transaction();
+    final TransactionSimulatorResult first =
+        new TransactionSimulatorResult(transaction, successful());
+    final TransactionSimulatorResult second =
+        new TransactionSimulatorResult(transaction, successful());
+    final Hash sharedHash = transaction.getHash();
+    final LogWithMetadata firstLog = logWithMetadata(block, sharedHash, 0, 0, Address.ZERO);
+    final LogWithMetadata secondLog =
+        logWithMetadata(block, sharedHash, 1, 1, Address.fromHexString("0x01"));
+
+    final BlockSimulationResult simulationResult = mock(BlockSimulationResult.class);
+    when(simulationResult.getBlock()).thenReturn(block);
+    when(simulationResult.getLogsWithMetadata()).thenReturn(List.of(firstLog, secondLog));
+    when(simulationResult.getSerializedTrieLog()).thenReturn(Optional.empty());
+    when(simulationResult.getTransactionSimulations()).thenReturn(List.of(first, second));
+
+    final List<CallProcessingResult> calls =
+        BlockStateCallResult.create(simulationResult, false).getTransactionProcessingResults();
+
+    assertThat(calls).hasSize(2);
+    assertThat(calls.get(0).getLogs().getResults())
+        .extracting(LogResult::getLogIndex)
+        .containsExactly("0x0");
+    assertThat(calls.get(1).getLogs().getResults())
+        .extracting(LogResult::getLogIndex)
+        .containsExactly("0x1");
+  }
+
+  private static LogWithMetadata logWithMetadata(
+      final Block block,
+      final Hash transactionHash,
+      final int transactionIndex,
+      final int logIndex,
+      final Address logger) {
+    return new LogWithMetadata(
+        logIndex,
+        block.getHeader().getNumber(),
+        block.getHash(),
+        block.getHeader().getTimestamp(),
+        transactionHash,
+        transactionIndex,
+        logger,
+        Bytes.EMPTY,
+        List.of(),
+        false);
+  }
+
+  private static TransactionProcessingResult successful() {
+    return TransactionProcessingResult.successful(
+        List.of(), 21000, 0, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
   }
 
   private static TransactionProcessingResult failed(

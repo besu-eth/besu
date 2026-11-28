@@ -71,6 +71,35 @@ public class BlockSimulationResultTest {
     assertThat(logs).extracting(LogWithMetadata::getTransactionIndex).containsExactly(2, 4, 4);
   }
 
+  @Test
+  public void equalCallsUseTheirOwnTransactionIndex() {
+    // Unsigned simulated calls that differ only in their sender are equal transactions.
+    final Transaction transaction = mock(Transaction.class);
+    when(transaction.getHash()).thenReturn(Hash.ZERO);
+    final List<TransactionSimulatorResultWithMetadata> results = new ArrayList<>();
+    for (int i = 0; i < 2; i++) {
+      results.add(
+          new TransactionSimulatorResultWithMetadata(
+              new TransactionSimulatorResult(transaction, mock(TransactionProcessingResult.class)),
+              mock(TransactionReceipt.class),
+              0L,
+              List.of(log())));
+    }
+
+    final BlockStateCallSimulationResult blockStateCallResult =
+        mock(BlockStateCallSimulationResult.class);
+    when(blockStateCallResult.getTransactionSimulatorResults()).thenReturn(results);
+    final BlockBody body = mock(BlockBody.class);
+    when(body.getTransactions()).thenReturn(List.of(transaction, transaction));
+    final Block block = new Block(mock(BlockHeader.class), body);
+
+    final List<LogWithMetadata> logs =
+        new BlockSimulationResult(block, blockStateCallResult).getLogsWithMetadata();
+
+    assertThat(logs).extracting(LogWithMetadata::getLogIndex).containsExactly(0, 1);
+    assertThat(logs).extracting(LogWithMetadata::getTransactionIndex).containsExactly(0, 1);
+  }
+
   private static Log log() {
     return new Log(Address.ZERO, Bytes.EMPTY, List.of());
   }
