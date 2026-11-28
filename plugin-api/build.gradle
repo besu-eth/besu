@@ -128,7 +128,8 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
   fieldExcludes = []
   // Lifecycle refinements on the plugin-api-refactor holding branch: option declaration (#11223),
   // then the phase-gated contexts (#11226) which retire ServiceManager and split RpcEndpointService,
-  // then the single plugin id (#11442) which retires BesuPlugin#getName()
+  // and whose register(RegistrationContext) and start(StartContext) are abstract methods the released
+  // BesuPlugin lacks, then the single plugin id (#11442) which retires BesuPlugin#getName()
   classExcludes = [
     'org.hyperledger.besu.plugin.ServiceManager',
     'org.hyperledger.besu.plugin.ServiceManager$SimpleServiceManager',
@@ -138,7 +139,9 @@ tasks.register('checkAPICompatibility', me.champeau.gradle.japicmp.JapicmpTask) 
     'org.hyperledger.besu.plugin.BesuPlugin#getName()',
     'org.hyperledger.besu.plugin.BesuPlugin#beforeExternalServices()',
     'org.hyperledger.besu.plugin.BesuPlugin#register(org.hyperledger.besu.plugin.ServiceManager)',
+    'org.hyperledger.besu.plugin.BesuPlugin#register(org.hyperledger.besu.plugin.RegistrationContext)',
     'org.hyperledger.besu.plugin.BesuPlugin#start()',
+    'org.hyperledger.besu.plugin.BesuPlugin#start(org.hyperledger.besu.plugin.StartContext)',
     'org.hyperledger.besu.plugin.BesuPlugin#afterExternalServicePostMainLoop()',
     'org.hyperledger.besu.plugin.services.sync.SynchronizationService#subscribeSyncStatus(org.hyperledger.besu.plugin.services.sync.spi.SyncStatusListener)',
     'org.hyperledger.besu.plugin.services.sync.SynchronizationService#subscribeInitialSyncCompletion(org.hyperledger.besu.plugin.services.sync.spi.InitialSyncCompletionListener)',
