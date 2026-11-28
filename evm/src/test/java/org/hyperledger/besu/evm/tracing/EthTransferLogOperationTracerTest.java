@@ -15,12 +15,19 @@
 package org.hyperledger.besu.evm.tracing;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -133,5 +140,67 @@ class EthTransferLogOperationTracerTest {
 
     // Only parent log remains
     assertThat(tracer.getLogs()).hasSize(1);
+  }
+
+  @Test
+  void contractLogThenValueCallKeepsExecutionOrder() {
+    final Log contractLog = new Log(SENDER, Bytes.fromHexString("0xaa"), List.of());
+    final List<Log> parentFrameLogs = new ArrayList<>();
+    parentFrameLogs.add(contractLog);
+
+    final Operation log1 = mock(Operation.class);
+    when(log1.getOpcode()).thenReturn(0xA1);
+
+    when(parentFrame.getValue()).thenReturn(Wei.ZERO);
+    when(parentFrame.getCurrentOperation()).thenReturn(log1);
+    when(parentFrame.getLogs()).thenReturn(parentFrameLogs);
+
+    tracer.traceContextEnter(parentFrame);
+    tracer.tracePostExecution(parentFrame, new Operation.OperationResult(0, null));
+    assertThat(tracer.getLogs()).containsExactly(contractLog);
+
+    when(childFrame.getValue()).thenReturn(Wei.of(1));
+    when(childFrame.getSenderAddress()).thenReturn(SENDER);
+    when(childFrame.getRecipientAddress()).thenReturn(RECIPIENT);
+    when(childFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+
+    tracer.traceContextEnter(childFrame);
+    tracer.traceContextExit(childFrame);
+    when(parentFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    tracer.traceContextExit(parentFrame);
+
+    assertThat(tracer.getLogs()).hasSize(2);
+    assertThat(tracer.getLogs().getFirst()).isEqualTo(contractLog);
+    assertThat(tracer.getLogs().get(1).getLogger())
+        .isEqualTo(EthTransferLogOperationTracer.SIMULATION_TRANSFER_ADDRESS);
+  }
+
+  @Test
+  void failedFrameDropsContractLogsFromThatFrame() {
+    final Log contractLog = new Log(RECIPIENT, Bytes.fromHexString("0xbb"), List.of());
+    final List<Log> childFrameLogs = new ArrayList<>();
+    childFrameLogs.add(contractLog);
+
+    final Operation log0 = mock(Operation.class);
+    when(log0.getOpcode()).thenReturn(0xA0);
+
+    when(parentFrame.getValue()).thenReturn(Wei.ZERO);
+    tracer.traceContextEnter(parentFrame);
+
+    when(childFrame.getValue()).thenReturn(Wei.ZERO);
+    when(childFrame.getCurrentOperation()).thenReturn(log0);
+    when(childFrame.getLogs()).thenReturn(childFrameLogs);
+    when(childFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_FAILED);
+
+    tracer.traceContextEnter(childFrame);
+    tracer.tracePostExecution(childFrame, new Operation.OperationResult(0, null));
+    assertThat(tracer.getLogs()).containsExactly(contractLog);
+
+    tracer.traceContextExit(childFrame);
+    assertThat(tracer.getLogs()).isEmpty();
+
+    when(parentFrame.getState()).thenReturn(MessageFrame.State.COMPLETED_SUCCESS);
+    tracer.traceContextExit(parentFrame);
+    assertThat(tracer.getLogs()).isEmpty();
   }
 }

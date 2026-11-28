@@ -20,20 +20,26 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class BlockStateCallSimulationResultTest {
@@ -117,6 +123,45 @@ public class BlockStateCallSimulationResultTest {
     assertThat(result.getRemainingGas()).isEqualTo(30_000_000L - 21_000L);
   }
 
+  @Test
+  public void transferTracerLogsArePreferredOverReceiptLogs() {
+    final Log receiptOnlyLog = new Log(CONTRACT, Bytes.fromHexString("0xbb"), List.of());
+    final BlockStateCallSimulationResult result =
+        resultWith(BlockGasAccountingStrategy.FRONTIER, 30_000_000L, List.of(receiptOnlyLog));
+
+    final EthTransferLogOperationTracer tracer = new EthTransferLogOperationTracer();
+    final MessageFrame frame = mock(MessageFrame.class);
+    when(frame.getValue()).thenReturn(Wei.of(5));
+    when(frame.getSenderAddress()).thenReturn(SENDER);
+    when(frame.getRecipientAddress()).thenReturn(CONTRACT);
+    tracer.traceContextEnter(frame);
+
+    result.add(call(21_000L, 21_000L, 0L), mock(MutableWorldState.class), tracer);
+
+    final List<Log> logs = result.getTransactionSimulatorResults().getFirst().logs();
+    assertThat(logs).hasSize(1);
+    assertThat(logs.getFirst().getLogger())
+        .isEqualTo(EthTransferLogOperationTracer.SIMULATION_TRANSFER_ADDRESS);
+  }
+
+  @Test
+  public void withoutTransferTracerUsesReceiptLogsOnly() {
+    final Log contractLog = new Log(CONTRACT, Bytes.fromHexString("0xaa"), List.of());
+    final BlockStateCallSimulationResult result =
+        resultWith(BlockGasAccountingStrategy.FRONTIER, 30_000_000L, List.of(contractLog));
+
+    result.add(
+        call(21_000L, 21_000L, 0L), mock(MutableWorldState.class), OperationTracer.NO_TRACING);
+
+    assertThat(result.getTransactionSimulatorResults().getFirst().logs())
+        .containsExactly(contractLog);
+  }
+
+  private static final Address SENDER =
+      Address.fromHexString("0x1111111111111111111111111111111111111111");
+  private static final Address CONTRACT =
+      Address.fromHexString("0x4444444444444444444444444444444444444444");
+
   private static BlockStateCallSimulationResult resultWith(
       final BlockGasAccountingStrategy strategy, final long blockGasLimit) {
     return resultWith(strategy, blockGasLimit, Long.MAX_VALUE);
@@ -124,7 +169,14 @@ public class BlockStateCallSimulationResultTest {
 
   private static BlockStateCallSimulationResult resultWith(
       final BlockGasAccountingStrategy strategy, final long blockGasLimit, final long gasBudget) {
-    return resultWith(strategy, blockGasLimit, gasBudget, false);
+    return resultWith(strategy, blockGasLimit, gasBudget, false, List.of());
+  }
+
+  private static BlockStateCallSimulationResult resultWith(
+      final BlockGasAccountingStrategy strategy,
+      final long blockGasLimit,
+      final List<Log> receiptLogs) {
+    return resultWith(strategy, blockGasLimit, Long.MAX_VALUE, false, receiptLogs);
   }
 
   private static BlockStateCallSimulationResult resultWith(
@@ -132,11 +184,21 @@ public class BlockStateCallSimulationResultTest {
       final long blockGasLimit,
       final long gasBudget,
       final boolean allowExceedingExecutionGasLimit) {
+    return resultWith(
+        strategy, blockGasLimit, gasBudget, allowExceedingExecutionGasLimit, List.of());
+  }
+
+  private static BlockStateCallSimulationResult resultWith(
+      final BlockGasAccountingStrategy strategy,
+      final long blockGasLimit,
+      final long gasBudget,
+      final boolean allowExceedingExecutionGasLimit,
+      final List<Log> receiptLogs) {
     ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
     AbstractBlockProcessor.TransactionReceiptFactory receiptFactory =
         mock(AbstractBlockProcessor.TransactionReceiptFactory.class);
     TransactionReceipt receipt = mock(TransactionReceipt.class);
-    when(receipt.getLogsList()).thenReturn(List.of());
+    when(receipt.getLogsList()).thenReturn(receiptLogs);
     when(receiptFactory.create(any(), any(), any(), anyLong())).thenReturn(receipt);
     StateGasCostCalculator stateGasCostCalculator = mock(StateGasCostCalculator.class);
     when(stateGasCostCalculator.transactionExecutionGasLimit()).thenReturn(TX_EXECUTION_GAS_LIMIT);

@@ -121,7 +121,8 @@ public class BlockStateCallSimulationResult {
    * @param result the transaction simulation result
    * @param worldState the world state after the transaction
    * @param operationTracer the tracer used for the transaction; if it is an {@link
-   *     EthTransferLogOperationTracer}, its logs are used in place of the receipt logs
+   *     EthTransferLogOperationTracer}, its execution-ordered logs (transfers and contract LOGs)
+   *     are used instead of the receipt logs
    */
   public void add(
       final TransactionSimulatorResult result,
@@ -145,6 +146,8 @@ public class BlockStateCallSimulationResult {
         transactionReceiptFactory.create(
             result.transaction().getType(), result.result(), worldState, cumulativeGasUsed);
 
+    // EthTransferLogOperationTracer records transfer and contract logs in execution order
+    // (including dropping a failed frame's logs). Prefer that list over the receipt.
     List<Log> logs =
         (operationTracer instanceof EthTransferLogOperationTracer tracer)
             ? tracer.getLogs()
