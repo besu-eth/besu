@@ -36,6 +36,7 @@
 - `debug_traceTransaction` and `debug_storageRangeAt` replay the block's earlier transactions as block import does, so an SSTORE of a slot one of them wrote is no longer charged differently on Bonsai, and their changes are no longer lost on Forest. [#11754](https://github.com/besu-eth/besu/pull/11754)
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork. With `--snapsync-server-enabled` on Bonsai, it advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
 - Snap sync no longer loses trie nodes when writing them fails with a retryable error, which stalled the sync or left blocks after the pivot unable to import. [#12016](https://github.com/besu-eth/besu/pull/12016)
+- Keep `vmTrace` parent instructions, top-level and child bytecode and CALL resumption gas correct after omitted halted opcodes. [#11352](https://github.com/besu-eth/besu/pull/11352)
 
 ### Additions and Improvements
 - The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)
@@ -44,6 +45,11 @@
 - Upgrade the stable reference tests to `tests@v21.0.3`. [#12046](https://github.com/besu-eth/besu/pull/12046)
 - Parallel block import recovers each transaction's sender and EIP-7702 authorities once. [#11922](https://github.com/besu-eth/besu/pull/11922)
 - Parallel transaction execution carries a balance or nonce change over to the block instead of executing the transaction again when the transaction did not depend on it. [#11809](https://github.com/besu-eth/besu/pull/11809)
+
+## 26.11.3
+
+### Additions and Improvements
+- Schedule the Amsterdam fork on Hoodi at timestamp `1797361944` (Tue, 15 Dec 2026, 19:12:24 UTC). [#12058](https://github.com/besu-eth/besu/pull/12058)
 
 ## 26.11.2
 
