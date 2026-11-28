@@ -919,6 +919,46 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
     assertThat(validationResult.isValid()).isTrue();
   }
 
+  @Test
+  public void shouldRejectBlobTransactionWhenUpfrontCostWithBlobGasExceedsUint256() {
+    // one blob costs 2^17 blob gas
+    when(gasCalculator.blobGasCost(1)).thenReturn(131072L);
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.cancunDefault(0L, Optional.empty()),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.FRONTIER, TransactionType.EIP1559, TransactionType.BLOB),
+            Integer.MAX_VALUE);
+
+    // gas * maxFeePerGas fits in 256 bits, adding the blob gas cost takes it to 2^256 or more,
+    // which getUpfrontGasCost would cap at Wei.MAX_WEI, a balance a sender can hold
+    final long gasLimit = 21000;
+    final Wei maxFeePerGas =
+        Wei.of(Wei.MAX_WEI.getAsBigInteger().divide(BigInteger.valueOf(gasLimit)));
+    final BlobsWithCommitments bwc = new BlobTestFixture().createBlobsWithCommitments(1);
+    final Transaction blobTx =
+        new TransactionTestFixture()
+            .to(Optional.of(Address.fromHexString("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF")))
+            .type(TransactionType.BLOB)
+            .chainId(Optional.of(BigInteger.ONE))
+            .gasLimit(gasLimit)
+            .value(Wei.ZERO)
+            .maxFeePerGas(Optional.of(maxFeePerGas))
+            .maxPriorityFeePerGas(Optional.of(Wei.ZERO))
+            .maxFeePerBlobGas(Optional.of(Wei.ONE))
+            .blobsWithCommitments(Optional.of(bwc))
+            .versionedHashes(Optional.of(bwc.getVersionedHashes()))
+            .createTransaction(senderKeys);
+
+    assertThat(
+            validator.validate(
+                blobTx, Optional.of(Wei.ONE), Optional.of(Wei.ONE), transactionProcessingParams))
+        .isEqualTo(ValidationResult.invalid(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_UINT256));
+  }
+
   @ParameterizedTest
   @MethodSource("shouldSupportTransactionGasLimitCap_EIP_7825")
   public void shouldSupportTransactionGasLimitCap_EIP_7825(

@@ -283,7 +283,12 @@ public class MainnetTransactionValidator implements TransactionValidator {
               intrinsicGasCostOrFloor, transaction.getGasLimit()));
     }
 
-    if (transaction.calculateUpfrontGasCost(transaction.getMaxGasPrice(), Wei.ZERO, 0).bitLength()
+    if (transaction
+            .calculateUpfrontGasCost(
+                transaction.getMaxGasPrice(),
+                transaction.getMaxFeePerBlobGas().orElse(Wei.ZERO),
+                gasCalculator.blobGasCost(transaction.getBlobCount()))
+            .bitLength()
         > 256) {
       return ValidationResult.invalid(
           TransactionInvalidReason.UPFRONT_COST_EXCEEDS_UINT256,
