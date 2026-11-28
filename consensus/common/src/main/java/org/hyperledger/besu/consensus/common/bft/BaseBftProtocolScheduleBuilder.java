@@ -192,14 +192,15 @@ public abstract class BaseBftProtocolScheduleBuilder {
               + ")");
     }
 
-    final long effectiveCap = cap == 0 ? Long.MAX_VALUE : cap;
-
+    // Pass the raw configured cap. 0 disables the BFT override (keep fork caps); N > 0 overrides
+    // both tx.gas and intrinsic/storage caps to N (can raise above Osaka/Amsterdam defaults). Do
+    // not rewrite 0 to Long.MAX_VALUE — that used to disable EIP-7825 via the "no cap" sentinel.
     final ProtocolSpecBuilder.GasLimitCalculatorBuilder delegateBuilder =
         builder.getGasLimitCalculatorBuilder();
     return (feeMarket, gasCalculator, blobSchedule) -> {
       final GasLimitCalculator delegate =
           delegateBuilder.apply(feeMarket, gasCalculator, blobSchedule);
-      return new TransactionGasLimitOverrideGasLimitCalculator(delegate, effectiveCap);
+      return new TransactionGasLimitOverrideGasLimitCalculator(delegate, cap);
     };
   }
 }

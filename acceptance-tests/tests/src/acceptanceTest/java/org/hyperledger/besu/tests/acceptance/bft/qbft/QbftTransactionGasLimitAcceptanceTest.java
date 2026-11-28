@@ -36,7 +36,7 @@ public class QbftTransactionGasLimitAcceptanceTest extends AcceptanceTestBase {
   private static final long HIGH_GAS_LIMIT = OSAKA_DEFAULT_TX_GAS_LIMIT + 1_000_000L;
 
   @Test
-  public void transactionGasLimitZeroAllowsTransactionAboveDefaultCap() throws Exception {
+  public void transactionGasLimitZeroKeepsOsakaDefaultCap() throws Exception {
     final List<BesuNode> validators = createValidators(OptionalLong.of(0L));
     cluster.start(validators.toArray(new BesuNode[0]));
 
@@ -46,11 +46,14 @@ public class QbftTransactionGasLimitAcceptanceTest extends AcceptanceTestBase {
     validators.get(0).execute(accountTransactions.createTransfer(sender, 50));
     cluster.verify(sender.balanceEquals(50));
 
-    // pertxgaslimit=0 means unlimited; a tx with gas > Osaka default cap should succeed
-    validators
-        .get(1)
-        .execute(accountTransactions.createTransferWithGasLimit(sender, 1, HIGH_GAS_LIMIT));
-    cluster.verify(sender.balanceEquals(51));
+    // pertxgaslimit=0 means no BFT override; Osaka's 2^24 cap still applies
+    assertThatThrownBy(
+            () ->
+                validators
+                    .get(1)
+                    .execute(
+                        accountTransactions.createTransferWithGasLimit(sender, 1, HIGH_GAS_LIMIT)))
+        .isInstanceOf(RuntimeException.class);
   }
 
   @Test

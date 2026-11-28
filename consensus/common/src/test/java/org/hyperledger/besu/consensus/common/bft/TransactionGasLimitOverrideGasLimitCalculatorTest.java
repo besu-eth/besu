@@ -20,6 +20,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.mainnet.AmsterdamTargetingGasLimitCalculator;
+import org.hyperledger.besu.ethereum.mainnet.OsakaTargetingGasLimitCalculator;
 
 import org.junit.jupiter.api.Test;
 
@@ -28,11 +30,73 @@ public class TransactionGasLimitOverrideGasLimitCalculatorTest {
   private final GasLimitCalculator delegate = mock(GasLimitCalculator.class);
 
   @Test
-  public void transactionGasLimitCapReturnsOverride() {
+  public void positiveOverrideSetsTxGasCapEvenAboveOsakaDelegate() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final long override = 40_000_000L;
     final TransactionGasLimitOverrideGasLimitCalculator calculator =
-        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 12345L);
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, override);
 
-    assertThat(calculator.transactionGasLimitCap()).isEqualTo(12345L);
+    assertThat(calculator.transactionGasLimitCap()).isEqualTo(override);
+  }
+
+  @Test
+  public void positiveOverrideSetsIntrinsicCapToSameValue() {
+    when(delegate.transactionIntrinsicGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final long override = 40_000_000L;
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, override);
+
+    assertThat(calculator.transactionIntrinsicGasLimitCap()).isEqualTo(override);
+  }
+
+  @Test
+  public void positiveOverrideCanLowerBelowAmsterdamDelegateCap() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 1_000_000L);
+
+    assertThat(calculator.transactionGasLimitCap()).isEqualTo(1_000_000L);
+  }
+
+  @Test
+  public void zeroFallsBackToDelegateTxGasCap() {
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 0L);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+  }
+
+  @Test
+  public void zeroFallsBackToDelegateIntrinsicCap() {
+    when(delegate.transactionIntrinsicGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, 0L);
+
+    assertThat(calculator.transactionIntrinsicGasLimitCap())
+        .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+  }
+
+  @Test
+  public void negativeFallsBackToDelegateCaps() {
+    // Genesis parsing rejects negatives; the calculator still treats them as "no override".
+    when(delegate.transactionGasLimitCap())
+        .thenReturn(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    when(delegate.transactionIntrinsicGasLimitCap())
+        .thenReturn(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
+    final TransactionGasLimitOverrideGasLimitCalculator calculator =
+        new TransactionGasLimitOverrideGasLimitCalculator(delegate, -1L);
+
+    assertThat(calculator.transactionGasLimitCap())
+        .isEqualTo(AmsterdamTargetingGasLimitCalculator.EIP_8037_TRANSACTION_TOTAL_GAS_LIMIT_CAP);
+    assertThat(calculator.transactionIntrinsicGasLimitCap())
+        .isEqualTo(OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
   }
 
   @Test
