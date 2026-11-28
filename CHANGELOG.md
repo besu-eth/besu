@@ -25,6 +25,7 @@
 - The `evmstacksize` genesis option is deprecated and will be removed in a future release; system calls already ignore it and use a stack size of 1024. [#11871](https://github.com/besu-eth/besu/pull/11871)
 
 ### Bug fixes
+- `engine_forkchoiceUpdatedV4` returns `Invalid payload attributes` (-38003) instead of `Invalid params` (-32602) when the payload attributes leave out `slotNumber` or `targetGasLimit`, as the Engine API requires. [#12076](https://github.com/besu-eth/besu/pull/12076)
 - A call to an account whose code is an EIP-7702 delegation designator no longer runs the delegated code before Prague. [#12003](https://github.com/besu-eth/besu/pull/12003)
 - `admin_logsRemoveCache` now removes every log bloom cache segment intersecting the requested block range, including the final segment when the start block is not aligned to a cache segment boundary. [#11949](https://github.com/besu-eth/besu/pull/11949)
 - `debug_traceBlock`, `debug_traceBlockByHash`, `debug_traceBlockByNumber` and `trace_block` return `Pruned history unavailable` (4444) when the parent block's world state cannot be loaded and the chain head's state is available, and `World state unavailable` (-32000) when the head state is also unavailable. They previously returned an empty trace for a block that has transactions. A trace that starts and then fails returns `Internal error` (-32603) instead of a missing-state error. The genesis block still returns an empty trace. [#11946](https://github.com/besu-eth/besu/issues/11946)
