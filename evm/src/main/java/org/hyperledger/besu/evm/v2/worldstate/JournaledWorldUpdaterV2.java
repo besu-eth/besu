@@ -113,6 +113,18 @@ public final class JournaledWorldUpdaterV2 implements WorldUpdater {
     return new JournaledWorldUpdaterV2(journal, this);
   }
 
+  // a frame's balance observations concern the transaction, so they go to the updater the
+  // journal commits to, which passes them straight to the one that records them
+  @Override
+  public void observeBalance(final Address address) {
+    journal.parent().observeBalance(address);
+  }
+
+  @Override
+  public void observeSufficientBalance(final Address address, final Wei margin) {
+    journal.parent().observeSufficientBalance(address, margin);
+  }
+
   @Override
   public void revert() {
     checkNotAbandoned();

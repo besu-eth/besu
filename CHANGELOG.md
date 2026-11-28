@@ -44,6 +44,7 @@
 - An `engine_forkchoiceUpdated` call no longer waits for `engine_newPayload` calls that are still being validated once the blocks it names are stored, so a slow payload does not delay a fork choice update or the build of the next block. [#11954](https://github.com/besu-eth/besu/pull/11954)
 - Upgrade the stable reference tests to `tests@v21.0.3`. [#12046](https://github.com/besu-eth/besu/pull/12046)
 - Parallel block import recovers each transaction's sender and EIP-7702 authorities once. [#11922](https://github.com/besu-eth/besu/pull/11922)
+- Parallel transaction execution carries a balance or nonce change over to the block instead of executing the transaction again when the transaction did not depend on it. [#11809](https://github.com/besu-eth/besu/pull/11809)
 
 ## 26.11.3
 

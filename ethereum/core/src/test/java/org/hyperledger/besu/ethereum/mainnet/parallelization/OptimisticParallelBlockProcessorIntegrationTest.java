@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ABSENT_ACCOUNT;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_4;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_5;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_6;
@@ -22,27 +23,50 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_1_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_3;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_3_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CONTRACT_ADDRESS;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.CREATOR_CONTRACT;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.EMPTY_ACCOUNT;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.GENESIS_CONFIG;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY_KEYPAIR;
 import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.PARALLEL_TEST_CONTRACT;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.REVERTED_CREATION_CALLER;
 
+import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.config.JsonUtil;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
+import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.function.Function;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -194,6 +218,51 @@ class OptimisticParallelBlockProcessorIntegrationTest {
     }
 
     @Test
+    @DisplayName("A payment to an account that sent a transaction earlier in the block is reused")
+    void paymentToAnAccountThatSentATransactionIsReused() {
+      final Address payee = Address.fromHexStringStrict(ACCOUNT_GENESIS_3);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createTransferTransaction(
+                  5,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_3_KEYPAIR),
+              transfer(0, ACCOUNT_GENESIS_3));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), payee);
+      assertThat(result.parWorldState().get(payee).getNonce()).isEqualTo(6);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "A payment to an account that sent its first transaction earlier in the block is executed"
+            + " again")
+    void paymentToAnAccountThatSentItsFirstTransactionIsExecutedAgain() {
+      final Address payee = Address.fromHexStringStrict(ACCOUNT_GENESIS_2);
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_2_KEYPAIR),
+              transfer(0, ACCOUNT_GENESIS_2));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), payee);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
     @DisplayName("Storage writes chained after an earlier one of their sender are reused")
     void chainedStorageWritesAreReused() {
       final Address contract = Address.fromHexStringStrict(CONTRACT_ADDRESS);
@@ -230,6 +299,262 @@ class OptimisticParallelBlockProcessorIntegrationTest {
 
       assertContractStorage(result.seqWorldState(), contract, 0, 1000);
       assertContractStorageMatches(result.seqWorldState(), result.parWorldState(), contract, 0);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("Credits to an account whose balance changed earlier in the block are reused")
+    void creditsToTheSameAccountAreReused() {
+      final String recipient = "0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  recipient,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "A transfer of nothing to an account whose balance changed earlier in the block is reused")
+    void transferOfNothingToAnAccountWhoseBalanceChangedIsReused() {
+      final String recipient = "0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0, 0L, 300_000L, 0L, 5L, recipient, ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A credit to an account whose balance the transaction reads is executed again")
+    void creditToAnAccountWhoseBalanceIsReadIsExecutedAgain() {
+      // the contract self-destructs to itself, which reads its balance
+      final String recipient = "0x0000000000000000000000000000000000007701";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, recipient),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  recipient,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(recipient));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("Spending from an account whose balance changed earlier in the block is reused")
+    void spendingFromAnAccountWhoseBalanceChangedIsReused() {
+      // the contract pays 1 wei from its own balance on every call, without reading the balance
+      final String payer = "0x0000000000000000000000000000000000007720";
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, payer),
+              createTransferTransaction(0, 0L, 300_000L, 0L, 5L, payer, ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexString(payer));
+      assertAccountsMatch(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexString("0xa4664C40AACeBD82A2Db79f0ea36C06Bc6A19Adb"));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A payment to the mining beneficiary after paid priority fees is reused")
+    void paymentToTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_1_KEYPAIR),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  3L,
+                  10L,
+                  MINING_BENEFICIARY.toHexString(),
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "A payment to the mining beneficiary that no earlier transaction changed is reused")
+    void firstPaymentToTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  MINING_BENEFICIARY.toHexString(),
+                  ACCOUNT_GENESIS_1_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
+    }
+
+    @Test
+    @DisplayName("A transaction whose sender an earlier one paid is reused")
+    void transactionWhoseSenderWasPaidIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              transfer(0, ACCOUNT_GENESIS_2),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertAccountsMatch(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexStringStrict(ACCOUNT_GENESIS_2));
+      assertAccountsMatch(
+          result.seqWorldState(), result.parWorldState(), Address.fromHexStringStrict(ACCOUNT_4));
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A transaction of the mining beneficiary after paid priority fees is reused")
+    void transactionOfTheMiningBeneficiaryIsReused() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(1),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  2L,
+                  10L,
+                  ACCOUNT_4,
+                  ACCOUNT_GENESIS_1_KEYPAIR),
+              createTransferTransaction(
+                  0,
+                  2_000_000_000_000_000_000L,
+                  300_000L,
+                  3L,
+                  10L,
+                  ACCOUNT_5,
+                  MINING_BENEFICIARY_KEYPAIR));
+
+      assertAccountsMatch(result.seqWorldState(), result.parWorldState(), MINING_BENEFICIARY);
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "Zero-fee transactions keep their results when the coinbase account does not exist")
+    void zeroFeeTransactionsAreReusedWithAnAbsentCoinbaseAccount() {
+      assertThat(createFreshContext().getStateArchive().getWorldState().get(ABSENT_ACCOUNT))
+          .isNull();
+
+      // each zero fee credit creates the coinbase account, and state clearing deletes it again
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              ABSENT_ACCOUNT,
+              transfer(0, ACCOUNT_4),
+              createTransferTransaction(
+                  0,
+                  1_000_000_000_000_000_000L,
+                  300_000L,
+                  0L,
+                  5L,
+                  ACCOUNT_5,
+                  ACCOUNT_GENESIS_2_KEYPAIR));
+
+      assertThat(result.parWorldState().get(ABSENT_ACCOUNT)).isNull();
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName(
+        "Chained zero-fee transactions keep their results when the coinbase account does not exist")
+    void chainedZeroFeeTransactionsAreReusedWithAnAbsentCoinbaseAccount() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5), ABSENT_ACCOUNT, transfer(0, ACCOUNT_4), transfer(1, ACCOUNT_5));
+
+      assertThat(result.parWorldState().get(ABSENT_ACCOUNT)).isNull();
+      assertThat(result.parResult().getNbParallelizedTransactions()).contains(2);
+    }
+
+    @Test
+    @DisplayName("A transaction that deleted the empty coinbase account is executed again")
+    void transactionThatDeletedTheEmptyCoinbaseAccountIsExecutedAgain() {
+      assertThat(createFreshContext().getStateArchive().getWorldState().get(EMPTY_ACCOUNT))
+          .isNotNull();
+
+      // the zero fee credit touches the coinbase account, and state clearing deletes it
+      final ComparisonResult result =
+          executeAndCompare(Wei.of(5), EMPTY_ACCOUNT, transfer(0, ACCOUNT_4));
+
+      assertThat(result.seqWorldState().get(EMPTY_ACCOUNT)).isNull();
+      assertThat(result.parWorldState().get(EMPTY_ACCOUNT)).isNull();
+    }
+
+    @Test
+    @DisplayName(
+        "A transaction whose reverted creation read a contract's nonce is executed again when the"
+            + " block changed that nonce")
+    void revertedCreationReadingAChangedNonceIsExecutedAgain() {
+      final ComparisonResult result =
+          executeAndCompare(
+              Wei.of(5),
+              // raises the creator's nonce without creating at the address its CREATE would use
+              createTransferTransaction(
+                  0, 0L, 1_000_000L, 0L, 5L, CREATOR_CONTRACT, ACCOUNT_GENESIS_2_KEYPAIR),
+              // the caller stores the address the creator created at and reverted
+              createTransferTransaction(
+                  0, 0L, 1_000_000L, 0L, 5L, REVERTED_CREATION_CALLER, ACCOUNT_GENESIS_1_KEYPAIR));
+
+      assertContractStorageMatches(
+          result.seqWorldState(),
+          result.parWorldState(),
+          Address.fromHexStringStrict(REVERTED_CREATION_CALLER),
+          0);
       assertThat(result.parResult().getNbParallelizedTransactions()).contains(1);
     }
 
@@ -306,7 +631,7 @@ class OptimisticParallelBlockProcessorIntegrationTest {
               21_000L,
               0L,
               5L,
-              ACCOUNT_4,
+              ACCOUNT_GENESIS_2,
               SignatureAlgorithmFactory.getInstance().generateKeyPair());
 
       final TransactionProcessingResult result =
@@ -336,6 +661,63 @@ class OptimisticParallelBlockProcessorIntegrationTest {
           .payload(payload)
           .chainId(BigInteger.valueOf(42))
           .signAndBuild(keyPair);
+    }
+  }
+
+  @Nested
+  @DisplayName("Reuse of Speculative Results on Osaka")
+  class SpeculativeResultReuseOnOsaka extends SpeculativeResultReuse {
+
+    // the optimistic processor runs the blocks before Amsterdam, which carry no block access list
+    @Override
+    protected ExecutionContextTestFixture createFreshContext() {
+      final ObjectNode genesis = JsonUtil.objectNodeFromString(readGenesis());
+      ((ObjectNode) genesis.get("config")).remove("amsterdamTime");
+      return ExecutionContextTestFixture.builder(GenesisConfig.fromConfig(genesis))
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .build();
+    }
+
+    @Override
+    protected boolean buildsBlockAccessLists() {
+      return false;
+    }
+
+    private String readGenesis() {
+      try (InputStream genesis = getClass().getResourceAsStream(GENESIS_CONFIG)) {
+        return new String(genesis.readAllBytes(), StandardCharsets.UTF_8);
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
+  }
+
+  @Nested
+  @DisplayName("Reuse of Speculative Results on EVM v2")
+  class SpeculativeResultReuseOnEvmV2 extends SpeculativeResultReuse {
+
+    // EVM v2 runs a transaction's frames on one journal, which must pass on what the transaction
+    // observes of balances like the stacked updaters do
+    @Override
+    protected ExecutionContextTestFixture createFreshContext() {
+      final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_CONFIG);
+      return ExecutionContextTestFixture.builder(genesisConfig)
+          .dataStorageFormat(DataStorageFormat.BONSAI)
+          .protocolSchedule(
+              new ProtocolScheduleBuilder(
+                      genesisConfig.getConfigOptions(),
+                      Optional.of(BigInteger.valueOf(42)),
+                      ProtocolSpecAdapters.create(0, Function.identity()),
+                      false,
+                      new EvmConfiguration(
+                          32_000L, EvmConfiguration.WorldUpdaterMode.STACKED, true, true),
+                      MiningConfiguration.MINING_DISABLED,
+                      new BadBlockManager(),
+                      false,
+                      ImmutableBalConfiguration.builder().build(),
+                      new NoOpMetricsSystem())
+                  .createProtocolSchedule())
+          .build();
     }
   }
 }

@@ -35,6 +35,10 @@ public final class ParallelBlockProcessorTestSupport {
 
   public static final String ACCOUNT_GENESIS_1 = "0x627306090abab3a6e1400e9345bc60c78a8bef57";
   public static final String ACCOUNT_GENESIS_2 = "0x7f2d653f56ea8de6ffa554c7a0cd4e03af79f3eb";
+
+  /** Starts with nonce 5. */
+  public static final String ACCOUNT_GENESIS_3 = "0x285cd078a4ff3204ed0ae1cefc7330315aa40bc8";
+
   public static final String ACCOUNT_2 = "0x0000000000000000000000000000000000000002";
   public static final String ACCOUNT_3 = "0x0000000000000000000000000000000000000003";
   public static final String ACCOUNT_4 = "0x0000000000000000000000000000000000000004";
@@ -42,11 +46,20 @@ public final class ParallelBlockProcessorTestSupport {
   public static final String ACCOUNT_6 = "0x0000000000000000000000000000000000000006";
   public static final String CONTRACT_ADDRESS = "0x00000000000000000000000000000000000fffff";
   public static final String PARALLEL_TEST_CONTRACT = "0x00000000000000000000000000000000000eeeee";
+  public static final Address EMPTY_ACCOUNT =
+      Address.fromHexStringStrict("0x0000000000000000000000000000000000007740");
+  public static final Address ABSENT_ACCOUNT =
+      Address.fromHexStringStrict("0x0000000000000000000000000000000000007799");
+  public static final String CREATOR_CONTRACT = "0x0000000000000000000000000000000000007750";
+  public static final String REVERTED_CREATION_CALLER =
+      "0x0000000000000000000000000000000000007751";
 
   public static final KeyPair ACCOUNT_GENESIS_1_KEYPAIR =
       generateKeyPair("c87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3");
   public static final KeyPair ACCOUNT_GENESIS_2_KEYPAIR =
       generateKeyPair("fc5141e75bf622179f8eedada7fab3e2e6b3e3da8eb9df4f46d84df22df7430e");
+  public static final KeyPair ACCOUNT_GENESIS_3_KEYPAIR =
+      generateKeyPair("2d6f0c1e8a4b39f5c7e13a9d0b6f4e2c18a7d5b3f9e1c0a2b4d6e8f0a1c3e5d7");
   public static final KeyPair MINING_BENEFICIARY_KEYPAIR =
       generateKeyPair("3a4ff6d22d7502ef2452368165422861c01a0f72f851793b372b87888dc3c453");
 

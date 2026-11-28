@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -27,7 +28,11 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
 
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
@@ -517,5 +522,66 @@ public class PayOperationTest {
     assertThat(result.getHaltReason()).isNull();
     assertThat(frame.getStackItem(0)).isEqualTo(AbstractCallOperation.LEGACY_FAILURE_STACK_ITEM);
     assertThat(worldUpdater.get(CURRENT_ADDRESS).getBalance()).isEqualTo(Wei.of(2000));
+  }
+
+  @Test
+  void reportsTheMarginOfAPaymentTheBalanceCovers() {
+    final Set<Address> observed = new HashSet<>();
+    final Map<Address, Wei> margins = new HashMap<>();
+    final SimpleWorld world = recordingWorld(observed, margins);
+    world.createAccount(CURRENT_ADDRESS, 0, Wei.of(2000));
+    world.createAccount(RECIPIENT_ADDRESS, 0, Wei.ZERO);
+    final var frame =
+        new TestMessageFrameBuilder()
+            .address(CURRENT_ADDRESS)
+            .initialGas(10000)
+            .pushStackItem(Wei.of(1500))
+            .pushStackItem(RECIPIENT_ADDRESS.getBytes())
+            .worldUpdater(world)
+            .build();
+    frame.warmUpAddress(RECIPIENT_ADDRESS);
+
+    new PayOperation(new OsakaGasCalculator()).execute(frame, EVM_INSTANCE);
+
+    assertThat(observed).isEmpty();
+    assertThat(margins).containsExactly(entry(CURRENT_ADDRESS, Wei.of(500)));
+  }
+
+  @Test
+  void reportsTheBalanceOfAPaymentItDoesNotCover() {
+    final Set<Address> observed = new HashSet<>();
+    final Map<Address, Wei> margins = new HashMap<>();
+    final SimpleWorld world = recordingWorld(observed, margins);
+    world.createAccount(CURRENT_ADDRESS, 0, Wei.of(2000));
+    world.createAccount(RECIPIENT_ADDRESS, 0, Wei.ZERO);
+    final var frame =
+        new TestMessageFrameBuilder()
+            .address(CURRENT_ADDRESS)
+            .initialGas(10000)
+            .pushStackItem(Wei.of(3000))
+            .pushStackItem(RECIPIENT_ADDRESS.getBytes())
+            .worldUpdater(world)
+            .build();
+    frame.warmUpAddress(RECIPIENT_ADDRESS);
+
+    new PayOperation(new OsakaGasCalculator()).execute(frame, EVM_INSTANCE);
+
+    assertThat(observed).containsExactly(CURRENT_ADDRESS);
+    assertThat(margins).isEmpty();
+  }
+
+  private static SimpleWorld recordingWorld(
+      final Set<Address> observed, final Map<Address, Wei> margins) {
+    return new SimpleWorld() {
+      @Override
+      public void observeBalance(final Address address) {
+        observed.add(address);
+      }
+
+      @Override
+      public void observeSufficientBalance(final Address address, final Wei margin) {
+        margins.put(address, margin);
+      }
+    };
   }
 }

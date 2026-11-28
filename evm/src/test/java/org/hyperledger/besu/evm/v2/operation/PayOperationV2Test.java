@@ -15,11 +15,13 @@
 package org.hyperledger.besu.evm.v2.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.UInt256;
+import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
@@ -27,6 +29,11 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -144,6 +151,55 @@ class PayOperationV2Test {
         .initialGas(100_000L)
         .pushStackItem(Bytes32.leftPad(Bytes.ofUnsignedLong(value)))
         .pushStackItem(recipient)
+        .build();
+  }
+
+  @Test
+  void reportsTheMarginOfAPaymentTheBalanceCovers() {
+    final Set<Address> observed = new HashSet<>();
+    final Map<Address, Wei> margins = new HashMap<>();
+    final MessageFrame frame = recordingFrame(observed, margins, 300);
+
+    operation.execute(frame, null);
+
+    assertThat(observed).isEmpty();
+    assertThat(margins).containsExactly(entry(CURRENT, Wei.of(700)));
+  }
+
+  @Test
+  void reportsTheBalanceOfAPaymentItDoesNotCover() {
+    final Set<Address> observed = new HashSet<>();
+    final Map<Address, Wei> margins = new HashMap<>();
+    final MessageFrame frame = recordingFrame(observed, margins, 3_000);
+
+    operation.execute(frame, null);
+
+    assertThat(observed).containsExactly(CURRENT);
+    assertThat(margins).isEmpty();
+  }
+
+  /** A frame paying from CURRENT, which holds 1000, on a world that records balance reports. */
+  private MessageFrame recordingFrame(
+      final Set<Address> observed, final Map<Address, Wei> margins, final long value) {
+    final SimpleWorld world =
+        new SimpleWorld() {
+          @Override
+          public void observeBalance(final Address address) {
+            observed.add(address);
+          }
+
+          @Override
+          public void observeSufficientBalance(final Address address, final Wei margin) {
+            margins.put(address, margin);
+          }
+        };
+    world.createAccount(CURRENT, 0, Wei.of(1_000));
+    return new TestMessageFrameBuilderV2()
+        .worldUpdater(world)
+        .address(CURRENT)
+        .initialGas(100_000L)
+        .pushStackItem(Bytes32.leftPad(Bytes.ofUnsignedLong(value)))
+        .pushStackItem(Bytes32.leftPad(RECIPIENT.getBytes()))
         .build();
   }
 }

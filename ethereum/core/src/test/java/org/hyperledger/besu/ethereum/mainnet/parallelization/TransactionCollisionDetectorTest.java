@@ -14,14 +14,20 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.ACCOUNT_GENESIS_2_KEYPAIR;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector.CarriedAccount;
 import org.hyperledger.besu.ethereum.trie.common.MptStorageRootStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.code.BonsaiCodeCache;
@@ -32,6 +38,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.math.BigInteger;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
@@ -124,11 +133,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -153,11 +164,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -165,6 +178,7 @@ class TransactionCollisionDetectorTest {
   @Test
   void testCollisionWithModifiedCode() {
     final Address address = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
     final BonsaiAccount priorAccountValue = createAccount(address);
     final BonsaiAccount nextAccountValue = new BonsaiAccount(priorAccountValue, worldState, true);
     nextAccountValue.setCode(Bytes.repeat((byte) 0x01, 10));
@@ -182,11 +196,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -223,11 +239,13 @@ class TransactionCollisionDetectorTest {
         .put(updateStorageSlotKey, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected a collision with the modified address");
   }
@@ -263,11 +281,13 @@ class TransactionCollisionDetectorTest {
         .put(new StorageSlotKey(UInt256.ONE), new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(
         hasCollision,
@@ -304,11 +324,13 @@ class TransactionCollisionDetectorTest {
     final Transaction transaction = createTransaction(sender, address);
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(hasCollision, "Expected no collision for a transfer that touches no storage slots");
   }
@@ -350,11 +372,13 @@ class TransactionCollisionDetectorTest {
         .put(overlappingSlot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected collision when one of many block slots overlaps");
   }
@@ -387,11 +411,13 @@ class TransactionCollisionDetectorTest {
         .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(
         hasCollision, "Expected no collision when the block only read the overlapping slot");
@@ -427,11 +453,13 @@ class TransactionCollisionDetectorTest {
         .put(slot, new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(
         hasCollision, "Expected collision when tx read a slot that the block already modified");
@@ -462,11 +490,13 @@ class TransactionCollisionDetectorTest {
         .put(new StorageSlotKey(UInt256.ONE), new BonsaiValue<>(UInt256.ONE, UInt256.ONE));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertTrue(hasCollision, "Expected collision when tx read a slot of storage the block cleared");
   }
@@ -488,11 +518,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(
         hasCollision,
@@ -500,49 +532,82 @@ class TransactionCollisionDetectorTest {
   }
 
   @Test
-  void testCollisionWithMiningBeneficiaryAddress() {
-    final Address miningBeneficiary = Address.ZERO;
-    final Address address = Address.fromHexString("0x1");
+  void miningBeneficiaryAsSenderIsCarriedOverWhenTheBlockOnlyRaisedItsBalance() {
+    final Address beneficiary = Address.ZERO;
+    trxUpdater.recordBalanceObservations();
+    // earlier transactions paid their fees to the beneficiary
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 2, 40)));
 
-    final Transaction transaction = createTransaction(miningBeneficiary, address);
-
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            miningBeneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected collision with the mining beneficiary address as sender");
+    // the run's spending of 10 on the block's balance of 60, and the run's nonce
+    assertThat(carryOver(createTransaction(beneficiary, Address.fromHexString("0x2"))))
+        .as("Expected no collision as the fees only raised the balance that paid for the gas")
+        .contains(Map.of(beneficiary, new CarriedAccount(Wei.of(50), 2)));
   }
 
   @Test
-  void testCollisionWithAnotherMiningBeneficiaryAddress() {
-    final Address miningBeneficiary = Address.ZERO;
-    final Address address = Address.fromHexString("0x1");
-    final BonsaiAccount miningBeneficiaryValue = createAccount(address);
-
-    final Transaction transaction = createTransaction(address, address);
-
-    // Simulate that the mining beneficiary is read in the next transaction
+  void miningBeneficiaryWhoseBalanceWasReadCollides() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.ZERO;
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.observeBalance(beneficiary);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
     trxUpdater
         .getAccountsToUpdate()
-        .put(miningBeneficiary, new BonsaiValue<>(miningBeneficiaryValue, miningBeneficiaryValue));
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 50)));
 
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            miningBeneficiary,
-            new ParallelizedTransactionContext(trxUpdater, null, true, Wei.ZERO),
-            bonsaiUpdater);
+    assertThat(carryOver(createTransaction(sender, beneficiary)))
+        .as("Expected a collision as the transaction read the beneficiary's balance")
+        .isEmpty();
+  }
 
-    assertTrue(hasCollision, "Expected collision with the read mining beneficiary address");
+  @Test
+  void paymentToTheMiningBeneficiaryIsCarriedOver() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.ZERO;
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 55)));
+
+    // the run's credit of 5 on the block's balance of 60
+    assertThat(carryOver(createTransaction(sender, beneficiary)))
+        .as("Expected the payment to the beneficiary to be carried over")
+        .contains(Map.of(beneficiary, new CarriedAccount(Wei.of(65), 1)));
   }
 
   @Test
   void testCollisionWithDeletedAddress() {
     final Address address = Address.fromHexString("0x1");
     final BonsaiAccount accountValue = createAccount(address);
+    trxUpdater.recordBalanceObservations();
 
     // Simulate that the address was deleted in the block
     bonsaiUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, null));
@@ -552,14 +617,9 @@ class TransactionCollisionDetectorTest {
     // Simulate that the deleted address is read in the next transaction
     trxUpdater.getAccountsToUpdate().put(address, new BonsaiValue<>(accountValue, accountValue));
 
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected a collision with the deleted address");
+    assertThat(carryOver(transaction))
+        .as("Expected a collision with the deleted address")
+        .isEmpty();
   }
 
   @Test
@@ -574,18 +634,14 @@ class TransactionCollisionDetectorTest {
 
     final Transaction transaction =
         createTransaction(Address.fromHexString("0x2"), Address.fromHexString("0x3"));
+    trxUpdater.recordBalanceObservations();
     // the detector relies on the commit to list the deleted account among the updated ones
     trxUpdater.deleteAccount(address);
     trxUpdater.commit();
 
-    boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
-
-    assertTrue(hasCollision, "Expected a collision with the address the transaction deleted");
+    assertThat(carryOver(transaction))
+        .as("Expected a collision with the address the transaction deleted")
+        .isEmpty();
   }
 
   @Test
@@ -606,11 +662,13 @@ class TransactionCollisionDetectorTest {
         .put(address, new BonsaiValue<>(priorAccountValue, priorAccountValue));
 
     boolean hasCollision =
-        collisionDetector.hasCollision(
-            transaction,
-            Address.ZERO,
-            new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
-            bonsaiUpdater);
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty();
 
     assertFalse(hasCollision, "Expected no collision with the read address");
   }
@@ -624,6 +682,33 @@ class TransactionCollisionDetectorTest {
         Wei.of(balance),
         new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
         Hash.EMPTY,
+        false,
+        new BonsaiCodeCache());
+  }
+
+  private BonsaiAccount createAccount(
+      final Address address, final long nonce, final long balance, final Hash codeHash) {
+    return new BonsaiAccount(
+        worldState,
+        address,
+        Hash.hash(address.getBytes()),
+        nonce,
+        Wei.of(balance),
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
+        codeHash,
+        false,
+        new BonsaiCodeCache());
+  }
+
+  private BonsaiAccount createContract(final Address address, final long nonce) {
+    return new BonsaiAccount(
+        worldState,
+        address,
+        Hash.hash(address.getBytes()),
+        nonce,
+        Wei.of(50),
+        new MptStorageRootStrategy(Hash.EMPTY_TRIE_HASH),
+        Hash.hash(Bytes.fromHexString("0x00")),
         false,
         new BonsaiCodeCache());
   }
@@ -643,11 +728,14 @@ class TransactionCollisionDetectorTest {
   }
 
   private boolean hasChainedCollision(final Transaction transaction) {
-    return collisionDetector.hasCollision(
-        transaction,
-        Address.ZERO,
-        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO, predecessorUpdater),
-        bonsaiUpdater);
+    return collisionDetector
+        .carryOverIfNoCollision(
+            transaction,
+            Address.ZERO,
+            new ParallelizedTransactionContext(
+                trxUpdater, null, false, Wei.ZERO, predecessorUpdater),
+            bonsaiUpdater)
+        .isEmpty();
   }
 
   @Test
@@ -668,6 +756,120 @@ class TransactionCollisionDetectorTest {
     assertFalse(
         hasChainedCollision(createTransaction(sender, recipient)),
         "Expected no collision when the block holds the state the chain assumed");
+  }
+
+  @Test
+  void runThatDeletedTheMiningBeneficiaryCollides() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x9");
+    trxUpdater.recordBalanceObservations();
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 1, 90)));
+    trxUpdater.deleteAccount(beneficiary);
+    trxUpdater.commit();
+    // the worker drops a beneficiary the transaction touched only for its fee
+    trxUpdater.getAccountsToUpdate().remove(beneficiary);
+    trxUpdater.getStorageToClear().remove(beneficiary);
+    // the block still holds the beneficiary as an existing empty account
+    final BonsaiAccount emptyBeneficiary = createAccount(beneficiary, 0, 0);
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(beneficiary, new BonsaiValue<>(emptyBeneficiary, emptyBeneficiary));
+
+    assertTrue(
+        collisionDetector
+            .carryOverIfNoCollision(
+                createTransaction(sender, Address.fromHexString("0x2")),
+                beneficiary,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty(),
+        "Expected a collision as taking the result would not delete the beneficiary");
+  }
+
+  @Test
+  void runThatDeletedAMiningBeneficiaryTheBlockDoesNotHoldHasNoCollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x9");
+    trxUpdater.recordBalanceObservations();
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender, new BonsaiValue<>(createAccount(sender, 0, 100), createAccount(sender, 1, 90)));
+    // the fee credit created the beneficiary, and state clearing deleted it again
+    trxUpdater.deleteAccount(beneficiary);
+    trxUpdater.commit();
+    trxUpdater.getAccountsToUpdate().remove(beneficiary);
+    trxUpdater.getStorageToClear().remove(beneficiary);
+
+    assertFalse(
+        collisionDetector
+            .carryOverIfNoCollision(
+                createTransaction(sender, Address.fromHexString("0x2")),
+                beneficiary,
+                new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty(),
+        "Expected no collision as the block does not hold the beneficiary either");
+  }
+
+  @Test
+  void chainedRunThatOnlyDeletedAMiningBeneficiaryTheBlockDoesNotHoldHasNoCollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final BonsaiAccount parent = createAccount(sender, 0, 100);
+    final BonsaiAccount afterPredecessor = createAccount(sender, 1, 90);
+    predecessorUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    bonsaiUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, createAccount(sender, 2, 80)));
+    // the zero fee created the beneficiary, and state clearing deleted it again
+    trxUpdater.deleteAccount(Address.ZERO);
+    trxUpdater.commit();
+    trxUpdater.getAccountsToUpdate().remove(Address.ZERO);
+    trxUpdater.getStorageToClear().remove(Address.ZERO);
+
+    assertFalse(
+        hasChainedCollision(createTransaction(sender, Address.fromHexString("0x2"))),
+        "Expected no collision as the block does not hold the beneficiary either");
+  }
+
+  @Test
+  void chainedTransactionThatTouchedTheMiningBeneficiaryCollides() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address beneficiary = Address.fromHexString("0x9");
+    final BonsaiAccount parent = createAccount(sender, 0, 100);
+    final BonsaiAccount afterPredecessor = createAccount(sender, 1, 90);
+
+    predecessorUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    bonsaiUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(parent, afterPredecessor));
+    trxUpdater.recordBalanceObservations();
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(parent, createAccount(sender, 2, 80)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            beneficiary,
+            new BonsaiValue<>(
+                createAccount(beneficiary, 1, 50), createAccount(beneficiary, 1, 60)));
+
+    assertTrue(
+        collisionDetector
+            .carryOverIfNoCollision(
+                createTransaction(sender, beneficiary),
+                beneficiary,
+                new ParallelizedTransactionContext(
+                    trxUpdater, null, true, Wei.ZERO, predecessorUpdater),
+                bonsaiUpdater)
+            .isEmpty(),
+        "Expected a collision as a chained result carries no balance over");
   }
 
   @Test
@@ -861,5 +1063,334 @@ class TransactionCollisionDetectorTest {
     assertTrue(
         hasChainedCollision(createTransaction(sender, contract)),
         "Expected a collision when the block cleared a storage the transaction touched");
+  }
+
+  private Optional<Map<Address, CarriedAccount>> carryOver(final Transaction transaction) {
+    return collisionDetector.carryOverIfNoCollision(
+        transaction,
+        Address.ZERO,
+        new ParallelizedTransactionContext(trxUpdater, null, false, Wei.ZERO),
+        bonsaiUpdater);
+  }
+
+  private Transaction creditScenario(final long creditedBalance) {
+    final Address sender = Address.fromHexString("0x1");
+    final Address credited = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block paid the account
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(createAccount(credited, 1, 50), createAccount(credited, 1, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(
+                createAccount(credited, 1, 50), createAccount(credited, 1, creditedBalance)));
+    return createTransaction(sender, credited);
+  }
+
+  @Test
+  void creditToAnAccountWhoseBalanceChangedIsCarriedOver() {
+    // the run's credit of 5 on the block's balance of 70
+    assertThat(carryOver(creditScenario(55)))
+        .contains(Map.of(Address.fromHexString("0x2"), new CarriedAccount(Wei.of(75), 1)));
+  }
+
+  @Test
+  void creditToAnAccountWhoseBalanceWasObservedIsACollision() {
+    final Transaction transaction = creditScenario(55);
+    trxUpdater.observeBalance(Address.fromHexString("0x2"));
+
+    assertThat(carryOver(transaction)).isEmpty();
+  }
+
+  @Test
+  void creditToAnAccountWhoseSlotTheBlockChangedIsACollision() {
+    final Address credited = Address.fromHexString("0x2");
+    final Transaction transaction = creditScenario(55);
+    // the run and an earlier transaction of the block both wrote the slot
+    putSlot(bonsaiUpdater, credited, 1, UInt256.ONE, UInt256.valueOf(3));
+    putSlot(trxUpdater, credited, 1, UInt256.ONE, UInt256.valueOf(2));
+
+    assertThat(carryOver(transaction)).isEmpty();
+  }
+
+  @Test
+  void spendingFromAnAccountWhoseBalanceChangedIsACollision() {
+    assertThat(carryOver(creditScenario(45))).isEmpty();
+  }
+
+  @Test
+  void spendingWithinItsMarginFromAnAccountWhoseBalanceChangedIsCarriedOver() {
+    final Transaction transaction = creditScenario(45);
+    // the transaction found 50 where it spent 10
+    trxUpdater.observeSufficientBalance(Address.fromHexString("0x2"), Wei.of(40));
+    // the run's spending of 5 on the block's balance of 70
+    assertThat(carryOver(transaction))
+        .contains(Map.of(Address.fromHexString("0x2"), new CarriedAccount(Wei.of(65), 1)));
+  }
+
+  @Test
+  void spendingExactlyWhatTheBlockLeftIsCarriedOver() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address spent = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block took 30 of the 50
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 20)));
+    // the run spent 20 of the 50
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 30)));
+    trxUpdater.observeSufficientBalance(spent, Wei.of(30));
+
+    // the run's spending of 20 on the block's balance of 20
+    assertThat(carryOver(createTransaction(sender, spent)))
+        .contains(Map.of(spent, new CarriedAccount(Wei.ZERO, 1)));
+  }
+
+  @Test
+  void spendingBeyondItsMarginFromAnAccountWhoseBalanceChangedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address spent = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    // an earlier transaction of the block took 30 of the 50
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 20)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(spent, new BonsaiValue<>(createAccount(spent, 1, 50), createAccount(spent, 1, 5)));
+    // the transaction found 50 where it spent 45
+    trxUpdater.observeSufficientBalance(spent, Wei.of(5));
+
+    assertThat(carryOver(createTransaction(sender, spent))).isEmpty();
+  }
+
+  @Test
+  void creditWithoutRecordedObservationsIsACollision() {
+    final Transaction transaction = creditScenario(55);
+    final BonsaiWorldStateUpdateAccumulator unrecorded =
+        new BonsaiWorldStateUpdateAccumulator(
+            worldState,
+            (__, ___) -> {},
+            (__, ___) -> {},
+            EvmConfiguration.DEFAULT,
+            new BonsaiCodeCache());
+    unrecorded.getAccountsToUpdate().putAll(trxUpdater.getAccountsToUpdate());
+
+    assertTrue(
+        collisionDetector
+            .carryOverIfNoCollision(
+                transaction,
+                Address.ZERO,
+                new ParallelizedTransactionContext(unrecorded, null, false, Wei.ZERO),
+                bonsaiUpdater)
+            .isEmpty());
+  }
+
+  @Test
+  void creditToAnAccountTheBlockEmptiedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    final Address credited = Address.fromHexString("0x2");
+    final BonsaiAccount senderAccount = createAccount(sender, 0, 100);
+    trxUpdater.recordBalanceObservations();
+    trxUpdater.getAccountsToUpdate().put(sender, new BonsaiValue<>(senderAccount, senderAccount));
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(createAccount(credited, 0, 50), createAccount(credited, 0, 0)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            credited,
+            new BonsaiValue<>(createAccount(credited, 0, 50), createAccount(credited, 0, 60)));
+
+    assertThat(carryOver(createTransaction(sender, credited))).isEmpty();
+  }
+
+  private Transaction senderScenario(final long blockBalance) {
+    final Address sender = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
+    // an earlier transaction of the block changed the sender's balance
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            sender,
+            new BonsaiValue<>(
+                createAccount(sender, 1, 50), createAccount(sender, 1, blockBalance)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 40)));
+    return createTransaction(sender, Address.fromHexString("0x3"));
+  }
+
+  @Test
+  void senderBalanceTheBlockRaisedIsCarriedOver() {
+    // the run's spending of 10 on the block's balance of 70, and the run's nonce
+    assertThat(carryOver(senderScenario(70)))
+        .contains(Map.of(Address.fromHexString("0x1"), new CarriedAccount(Wei.of(60), 2)));
+  }
+
+  @Test
+  void senderBalanceTheBlockLoweredIsACollision() {
+    assertThat(carryOver(senderScenario(45))).isEmpty();
+  }
+
+  @Test
+  void senderBalanceTheRunObservedIsACollision() {
+    final Transaction transaction = senderScenario(70);
+    trxUpdater.observeBalance(Address.fromHexString("0x1"));
+
+    assertThat(carryOver(transaction)).isEmpty();
+  }
+
+  @Test
+  void senderNonceTheBlockChangedIsACollision() {
+    final Address sender = Address.fromHexString("0x1");
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(sender, new BonsaiValue<>(createAccount(sender, 1, 50), createAccount(sender, 2, 40)));
+
+    assertThat(carryOver(createTransaction(sender, Address.fromHexString("0x3")))).isEmpty();
+  }
+
+  /**
+   * Earlier transactions of the block raised the account's nonce from the given one and its
+   * balance. The transaction paid the account and left it with the given nonce.
+   */
+  private void nonceScenario(
+      final Address account, final long parentNonce, final long transactionNonce) {
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, parentNonce, 50),
+                createAccount(account, parentNonce + 1, 70)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, parentNonce, 50),
+                createAccount(account, transactionNonce, 55)));
+  }
+
+  @Test
+  void nonceTheBlockChangedIsKeptForAnAccountTheTransactionPaid() {
+    final Address paid = Address.fromHexString("0x2");
+    nonceScenario(paid, 1, 1);
+    // the run's credit of 5 on the block's balance of 70, and the block's nonce
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), paid)))
+        .contains(Map.of(paid, new CarriedAccount(Wei.of(75), 2)));
+  }
+
+  @Test
+  void removedDelegationIsACollisionAlthoughTheNonceQualifies() {
+    // an earlier transaction removed the account's EIP-7702 delegation, so its code is empty again
+    // while the authorization raised its non-zero nonce
+    final Address account = Address.fromHexString("0x2");
+    final Hash delegation =
+        Hash.hash(
+            Bytes.concatenate(
+                Bytes.fromHexString("0xef0100"), Address.fromHexString("0x9").getBytes()));
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, 1, 50, delegation),
+                createAccount(account, 2, 50, Hash.EMPTY)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(
+            account,
+            new BonsaiValue<>(
+                createAccount(account, 1, 50, delegation),
+                createAccount(account, 1, 55, delegation)));
+
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), account)))
+        .as("Expected a collision as the block changed the account's code")
+        .isEmpty();
+  }
+
+  @Test
+  void nonceTheBlockChangedIsACollisionForAnAccountWithCode() {
+    // a creation in a frame that reverted read the contract's nonce and left it unchanged
+    final Address contract = Address.fromHexString("0x2");
+    trxUpdater.recordBalanceObservations();
+    bonsaiUpdater
+        .getAccountsToUpdate()
+        .put(contract, new BonsaiValue<>(createContract(contract, 1), createContract(contract, 2)));
+    trxUpdater
+        .getAccountsToUpdate()
+        .put(contract, new BonsaiValue<>(createContract(contract, 1), createContract(contract, 1)));
+
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), contract))).isEmpty();
+  }
+
+  @Test
+  void nonceTheBlockRaisedFromZeroIsACollision() {
+    // a creation at the account's address would fail at the transaction's turn but not on the
+    // parent state
+    final Address paid = Address.fromHexString("0x2");
+    nonceScenario(paid, 0, 0);
+
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), paid))).isEmpty();
+  }
+
+  @Test
+  void nonceTheBlockChangedIsACollisionWhenTheTransactionChangedItToo() {
+    final Address paid = Address.fromHexString("0x2");
+    nonceScenario(paid, 1, 2);
+
+    assertThat(carryOver(createTransaction(Address.fromHexString("0x1"), paid))).isEmpty();
+  }
+
+  @Test
+  void nonceTheBlockChangedIsACollisionForAnAuthorityOfTheTransaction() {
+    final Address authority = Address.fromHexStringStrict(ACCOUNT_GENESIS_2);
+    nonceScenario(authority, 1, 1);
+    // signed for the nonce the block reached, so the run on the parent state skipped it
+    final Transaction transaction =
+        new Transaction.Builder()
+            .type(TransactionType.DELEGATE_CODE)
+            .nonce(1)
+            .maxPriorityFeePerGas(Wei.ZERO)
+            .maxFeePerGas(Wei.ONE)
+            .gasLimit(100_000)
+            .to(authority)
+            .value(Wei.ZERO)
+            .payload(Bytes.EMPTY)
+            .chainId(BigInteger.ONE)
+            .codeDelegations(
+                List.of(
+                    CodeDelegation.builder()
+                        .chainId(BigInteger.ONE)
+                        .address(Address.fromHexString("0x9"))
+                        .nonce(2)
+                        .signAndBuild(ACCOUNT_GENESIS_2_KEYPAIR)))
+            .sender(Address.fromHexString("0x1"))
+            .build();
+
+    assertThat(carryOver(transaction)).isEmpty();
   }
 }

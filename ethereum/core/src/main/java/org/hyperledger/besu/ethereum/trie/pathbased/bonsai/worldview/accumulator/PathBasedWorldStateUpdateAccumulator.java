@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.AbstractWorldUpdater;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogAccumulator;
 
@@ -55,6 +56,7 @@ import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -86,6 +88,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
 
+  // the balances a speculatively executed transaction depends on, null when not recorded
+  private @Nullable BalanceObservations balanceObservations;
+
   public PathBasedWorldStateUpdateAccumulator(
       final BonsaiWorldView world,
       final Consumer<BonsaiValue<ACCOUNT>> accountPreloader,
@@ -97,6 +102,57 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends Bonsa
     this.storagePreloader = storagePreloader;
     this.isAccumulatorStateChanged = false;
     this.evmConfiguration = evmConfiguration;
+  }
+
+  /**
+   * Starts recording which balances the transaction executed on this accumulator depends on, so
+   * that a change of any other balance by an earlier transaction does not invalidate it.
+   */
+  public void recordBalanceObservations() {
+    balanceObservations = new BalanceObservations();
+  }
+
+  /**
+   * The balances the transaction executed on this accumulator depends on.
+   *
+   * @return the observations, or empty if they were not recorded
+   */
+  public Optional<BalanceObservations> getBalanceObservations() {
+    return Optional.ofNullable(balanceObservations);
+  }
+
+  /**
+   * Sets the balance and nonce of an account whose change a transaction carried over. Call it after
+   * importing the transaction's changes, which hold the account.
+   *
+   * @param address the account
+   * @param balance the balance it ends with
+   * @param nonce the nonce it ends with
+   */
+  public void carryOver(final Address address, final Wei balance, final long nonce) {
+    final ACCOUNT account = accountsToUpdate.get(address).getUpdated();
+    account.setBalance(balance);
+    account.setNonce(nonce);
+  }
+
+  @Override
+  public WorldUpdater balanceObserver() {
+    // the accumulator records the observations itself
+    return this;
+  }
+
+  @Override
+  public void observeBalance(final Address address) {
+    if (balanceObservations != null) {
+      balanceObservations.observe(address);
+    }
+  }
+
+  @Override
+  public void observeSufficientBalance(final Address address, final Wei margin) {
+    if (balanceObservations != null) {
+      balanceObservations.observeSufficient(address, margin);
+    }
   }
 
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {

@@ -156,4 +156,63 @@ public interface WorldUpdater extends MutableWorldView {
   default void markTransactionBoundary() {
     // default is to ignore
   }
+
+  /**
+   * The updater that the balance observations reported to this updater reach, so that an updater
+   * created on top of it can report to that one directly rather than through every updater in
+   * between. An updater that records the observations itself returns itself. By default they go
+   * where those of the parent updater go, so that an updater does not drop them by not overriding
+   * this.
+   *
+   * @return the updater that receives the balance observations reported to this updater
+   */
+  default WorldUpdater balanceObserver() {
+    return parentUpdater().map(WorldUpdater::balanceObserver).orElse(this);
+  }
+
+  /**
+   * Records that the executing transaction depends on the balance of an account: it read the
+   * balance, or tried to spend more than the balance holds. Spending that the balance covers is
+   * reported through {@link #observeSpending} instead, as its outcome only depends on the balance
+   * sufficing.
+   *
+   * @param address the account whose balance the transaction depends on
+   */
+  default void observeBalance(final Address address) {
+    final WorldUpdater observer = balanceObserver();
+    if (observer != this) {
+      observer.observeBalance(address);
+    }
+  }
+
+  /**
+   * Records that the executing transaction spends from an account whose balance suffices with the
+   * given margin, so that its outcome holds for any balance lower by no more than that margin.
+   *
+   * @param address the account the transaction spends from
+   * @param margin how much the balance exceeds what the transaction spends at this point
+   */
+  default void observeSufficientBalance(final Address address, final Wei margin) {
+    final WorldUpdater observer = balanceObserver();
+    if (observer != this) {
+      observer.observeSufficientBalance(address, margin);
+    }
+  }
+
+  /**
+   * Records that the executing transaction spends from an account: its outcome depends on the
+   * balance only through whether it suffices.
+   *
+   * @param address the account the transaction spends from
+   * @param balance the account's balance at this point
+   * @param value what the transaction spends from it
+   */
+  default void observeSpending(final Address address, final Wei balance, final Wei value) {
+    if (balance.compareTo(value) >= 0) {
+      observeSufficientBalance(address, balance.subtract(value));
+    } else {
+      // an insufficient balance makes the spending fail, which a higher balance would not
+      observeBalance(address);
+    }
+  }
 }

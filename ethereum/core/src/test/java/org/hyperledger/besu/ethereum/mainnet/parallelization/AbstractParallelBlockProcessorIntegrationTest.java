@@ -77,6 +77,11 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
 
   // ==================== Context Creation ====================
 
+  /** Whether the genesis activates Amsterdam, so that blocks build a block access list. */
+  protected boolean buildsBlockAccessLists() {
+    return true;
+  }
+
   protected ExecutionContextTestFixture createFreshContext() {
     return ExecutionContextTestFixture.builder(GenesisConfig.fromResource(GENESIS_CONFIG))
         .dataStorageFormat(DataStorageFormat.BONSAI)
@@ -330,11 +335,16 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
 
     final Optional<BlockAccessList> seqBal = getBlockAccessList(seqResult);
     final Optional<BlockAccessList> parBal = getBlockAccessList(parResult);
-    assertThat(seqBal).as("Sequential BAL should be present").isPresent();
-    assertThat(parBal).as(getVariantName() + " parallel BAL should be present").isPresent();
-    assertThat(BodyValidation.balHash(parBal.get()))
-        .as(getVariantName() + " parallel BAL hash must match sequential")
-        .isEqualTo(BodyValidation.balHash(seqBal.get()));
+    if (buildsBlockAccessLists()) {
+      assertThat(seqBal).as("Sequential BAL should be present").isPresent();
+      assertThat(parBal).as(getVariantName() + " parallel BAL should be present").isPresent();
+      assertThat(BodyValidation.balHash(parBal.get()))
+          .as(getVariantName() + " parallel BAL hash must match sequential")
+          .isEqualTo(BodyValidation.balHash(seqBal.get()));
+    } else {
+      assertThat(seqBal).as("Sequential BAL should be absent").isEmpty();
+      assertThat(parBal).as(getVariantName() + " parallel BAL should be absent").isEmpty();
+    }
 
     return new ComparisonResult(
         seqWs.rootHash(), parWs.rootHash(), seqResult, parResult, seqWs, parWs);
@@ -383,12 +393,17 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
   }
 
   protected ComparisonResult executeAndCompare(final Wei baseFee, final Transaction... txs) {
-    final Hash stateRoot = discoverStateRoot(baseFee, txs);
+    return executeAndCompare(baseFee, MINING_BENEFICIARY, txs);
+  }
+
+  protected ComparisonResult executeAndCompare(
+      final Wei baseFee, final Address coinbase, final Transaction... txs) {
+    final Hash stateRoot = discoverStateRoot(baseFee, coinbase, txs);
 
     // Sequential processing
     final ExecutionContextTestFixture seqCtx = createFreshContext();
     final MutableWorldState seqWs = seqCtx.getStateArchive().getWorldState();
-    final Block block = createBlock(seqCtx, stateRoot, baseFee, txs);
+    final Block block = createBlock(seqCtx, stateRoot, baseFee, coinbase, txs);
     final BlockProcessor seqProcessor = createSequentialProcessor(seqCtx);
     final BlockProcessingResult seqResult =
         seqProcessor.processBlock(
@@ -405,7 +420,7 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     // Parallel processing
     final ExecutionContextTestFixture parCtx = createFreshContext();
     final MutableWorldState parWs = parCtx.getStateArchive().getWorldState();
-    final Block parBlock = createBlock(parCtx, stateRoot, baseFee, txs);
+    final Block parBlock = createBlock(parCtx, stateRoot, baseFee, coinbase, txs);
     final BlockProcessor parProcessor = createParallelProcessor(parCtx);
     final BlockProcessingResult parResult =
         parProcessor.processBlock(
@@ -430,11 +445,16 @@ public abstract class AbstractParallelBlockProcessorIntegrationTest {
     // BAL hash comparison
     final Optional<BlockAccessList> seqBal = getBlockAccessList(seqResult);
     final Optional<BlockAccessList> parBal = getBlockAccessList(parResult);
-    assertThat(seqBal).as("Sequential BAL should be present").isPresent();
-    assertThat(parBal).as(getVariantName() + " parallel BAL should be present").isPresent();
-    assertThat(BodyValidation.balHash(parBal.get()))
-        .as(getVariantName() + " parallel BAL hash must match sequential")
-        .isEqualTo(BodyValidation.balHash(seqBal.get()));
+    if (buildsBlockAccessLists()) {
+      assertThat(seqBal).as("Sequential BAL should be present").isPresent();
+      assertThat(parBal).as(getVariantName() + " parallel BAL should be present").isPresent();
+      assertThat(BodyValidation.balHash(parBal.get()))
+          .as(getVariantName() + " parallel BAL hash must match sequential")
+          .isEqualTo(BodyValidation.balHash(seqBal.get()));
+    } else {
+      assertThat(seqBal).as("Sequential BAL should be absent").isEmpty();
+      assertThat(parBal).as(getVariantName() + " parallel BAL should be absent").isEmpty();
+    }
 
     return new ComparisonResult(
         seqWs.rootHash(), parWs.rootHash(), seqResult, parResult, seqWs, parWs);

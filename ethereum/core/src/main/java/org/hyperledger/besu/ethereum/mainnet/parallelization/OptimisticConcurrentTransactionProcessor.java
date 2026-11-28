@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.TransactionCollisionDetector.CarriedAccount;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -603,6 +604,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
         ((PathBasedWorldStateUpdateAccumulator) roundWorldStateUpdater)
             .importStateChangesFromSource(previousInChain);
         contextBuilder.chainPredecessorAccumulator(previousInChain);
+      } else {
+        // a chained result carries nothing over, so only a run alone needs them
+        roundWorldStateUpdater.recordBalanceObservations();
       }
       final WorldUpdater transactionUpdater = roundWorldStateUpdater.updater();
       final Optional<AccessLocationTracker> transactionLocationTracker =
@@ -664,8 +668,9 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
          * If the address of the mining beneficiary has been touched only for adding rewards,
          * we remove it from the accumulator to avoid a false positive collision. Its code and
          * storage are removed too, as the merge would otherwise overwrite the block's ones while
-         * the collision detection skips it. It stays in the deleted accounts, so a deletion still
-         * collides. The balance will be increased during the sequential processing.
+         * the collision detection skips it. It stays in the deleted accounts, so a deletion of a
+         * beneficiary the block holds as an existing empty account still collides. The balance
+         * will be increased during the sequential processing.
          */
         roundWorldStateUpdater.getAccountsToUpdate().remove(miningBeneficiary);
         roundWorldStateUpdater.getCodeToUpdate().remove(miningBeneficiary);
@@ -749,33 +754,40 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
           parallelizedTransactionContext.transactionProcessingResult();
       // a reverted or halted execution is as repeatable as a successful one when nothing it read
       // changed; an invalid result is replayed anyway, and its sender may not even be recoverable
-      if (!transactionProcessingResult.isInvalid()
-          && !transactionCollisionDetector.hasCollision(
-              transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator)) {
+      final Optional<Map<Address, CarriedAccount>> carriedAccounts =
+          transactionProcessingResult.isInvalid()
+              ? Optional.empty()
+              : transactionCollisionDetector.carryOverIfNoCollision(
+                  transaction, miningBeneficiary, parallelizedTransactionContext, blockAccumulator);
+      if (carriedAccounts.isPresent()) {
         final Wei reward = parallelizedTransactionContext.miningBeneficiaryReward();
-        if (!reward.isZero() || !transactionProcessor.getClearEmptyAccounts()) {
+        // a result that touched the beneficiary before its reward already holds it
+        final boolean resultHoldsReward =
+            parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction();
+        // a zero reward only creates an empty account that state clearing deletes again
+        final boolean rewardChangesState =
+            !reward.isZero() || !transactionProcessor.getClearEmptyAccounts();
+        if (!resultHoldsReward && rewardChangesState) {
           final MutableAccount miningBeneficiaryAccount =
               blockAccumulator.getOrCreate(miningBeneficiary);
           miningBeneficiaryAccount.incrementBalance(reward);
 
           if (!reward.isZero()) {
-            final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
-            transactionProcessingResult
-                .getPartialBlockAccessView()
-                .ifPresent(
-                    partialBlockAccessView ->
-                        partialBlockAccessView.accountChanges().stream()
-                            .filter(
-                                accountChanges ->
-                                    accountChanges.getAddress().equals(miningBeneficiary))
-                            .findFirst()
-                            .ifPresent(
-                                accountChanges ->
-                                    accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+            setPostBalance(
+                transactionProcessingResult,
+                miningBeneficiary,
+                miningBeneficiaryAccount.getBalance());
           }
         }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+        carriedAccounts
+            .get()
+            .forEach(
+                (address, carried) -> {
+                  blockAccumulator.carryOver(address, carried.balance(), carried.nonce());
+                  setPostBalance(transactionProcessingResult, address, carried.balance());
+                });
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
@@ -793,5 +805,21 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       future.cancel(true);
     }
     return Optional.empty();
+  }
+
+  /** Sets the post balance of an account whose balance the transaction's access list records. */
+  private static void setPostBalance(
+      final TransactionProcessingResult result, final Address address, final Wei balance) {
+    result
+        .getPartialBlockAccessView()
+        .ifPresent(
+            partialBlockAccessView ->
+                partialBlockAccessView.accountChanges().stream()
+                    .filter(
+                        accountChanges ->
+                            accountChanges.getAddress().equals(address)
+                                && accountChanges.getPostBalance().isPresent())
+                    .findFirst()
+                    .ifPresent(accountChanges -> accountChanges.setPostBalance(balance)));
   }
 }
