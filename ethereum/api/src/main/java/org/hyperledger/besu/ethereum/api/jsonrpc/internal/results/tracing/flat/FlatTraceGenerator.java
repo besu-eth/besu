@@ -79,7 +79,13 @@ public class FlatTraceGenerator {
     final Optional<String> smartContractAddress =
         smartContractCode.map(
             __ -> Address.contractAddress(tx.getSender(), tx.getNonce()).getBytes().toHexString());
-    final Optional<Bytes> revertReason = transactionTrace.getResult().getRevertReason();
+    // A halt names its error. The alt_bn128 and BLS12-381 precompiles also record a revert reason
+    // when they halt; that is not data the caller received, so only a revert reports one.
+    final Optional<Bytes> revertReason =
+        transactionTrace
+            .getResult()
+            .getRevertReason()
+            .filter(__ -> transactionTrace.getResult().getExceptionalHaltReason().isEmpty());
 
     // set code field in result node
     smartContractCode.ifPresent(firstFlatTraceBuilder.getResultBuilder()::code);

@@ -1,5 +1,5 @@
 {
-  "comment": "A failed root bn128Add precompile reports its exceptional halt. The output and revertReason are the \"error\" bytes that the alt_bn128 precompiles record when they halt; a nested precompile call that halts leaves out revertReason.",
+  "comment": "A failed root bn128Add precompile reports its exceptional halt. The alt_bn128 precompiles record the bytes of \"error\" as a revert reason when they halt; that is not output the caller received, so the output is empty and revertReason is left out, as for a nested precompile call that halts.",
   "request": {
     "jsonrpc": "2.0",
     "method": "trace_call",
@@ -22,7 +22,7 @@
   "response": {
     "jsonrpc": "2.0",
     "result": {
-      "output": "0x6572726f72",
+      "output": "0x",
       "stateDiff": null,
       "trace": [
         {
@@ -35,7 +35,6 @@
             "value": "0x0"
           },
           "error": "Precompile error",
-          "revertReason": "0x6572726f72",
           "subtraces": 0,
           "traceAddress": [],
           "type": "call"

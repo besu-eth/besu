@@ -93,6 +93,7 @@ public abstract class AbstractTraceByBlock extends AbstractBlockParameterMethod
     transactionTrace
         .getResult()
         .getRevertReason()
+        .filter(__ -> transactionTrace.getResult().getExceptionalHaltReason().isEmpty())
         .ifPresentOrElse(
             revertReason -> builder.output(revertReason.toHexString()),
             () -> builder.output(simulatorResult.getOutput().toString()));
