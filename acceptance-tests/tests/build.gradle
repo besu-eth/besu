@@ -29,7 +29,7 @@ solidity {
   // TODO: remove the forced version, when DEV network is upgraded to support latest forks
   version = '0.8.19'
   executable = rootProject.solcExecutable('0.8.19').absolutePath
-  evmVersion = 'london'
+  evmVersion = org.web3j.solidity.gradle.plugin.EVMVersion.LONDON
 }
 
 tasks.named('compileSolidity').configure { dependsOn solcDownload }
