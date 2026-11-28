@@ -15,11 +15,11 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.units.bigints.UInt64;
 
 public sealed class PayloadAttributesV1 permits PayloadAttributesV2 {
 
@@ -32,10 +32,11 @@ public sealed class PayloadAttributesV1 permits PayloadAttributesV2 {
       @JsonProperty("timestamp") final String timestamp,
       @JsonProperty("prevRandao") final String prevRandao,
       @JsonProperty("suggestedFeeRecipient") final String suggestedFeeRecipient) {
-    // The timestamp is a uint64 QUANTITY, so the whole range must parse: Long.decode reads hex, but
-    // signed, and throws above Long.MAX_VALUE. Larger values are carried as negative longs and
-    // compared unsigned, as the engine_newPayload payload fields are.
-    this.timestamp = UInt64.fromHexString(timestamp).toBytes().toLong();
+    // uint64 QUANTITY: require a 0x-prefixed hex string. Without the prefix, Jackson turns a JSON
+    // number into a decimal digit string and UInt64.fromHexString would read those digits as hex
+    // (e.g. 1793629250 -> 0x1793629250). Larger-than-Long.MAX_VALUE values are carried as negative
+    // longs and compared unsigned, as the engine_newPayload payload fields are.
+    this.timestamp = QuantityJson.parseUint64(timestamp);
     this.prevRandao = Bytes32.fromHexString(prevRandao);
     this.suggestedFeeRecipient = Address.fromHexString(suggestedFeeRecipient);
   }

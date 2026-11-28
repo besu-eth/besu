@@ -346,8 +346,10 @@ public sealed class EngineForkchoiceUpdatedV1<
           requestContext.getOptionalParameter(
               1, getPayloadAttributesClass(), FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      // Structural / encoding errors (including a non-QUANTITY timestamp) are -32602 Invalid
+      // params. Semantic attribute checks still use getInvalidPayloadAttributesError() (-38003).
       throw new InvalidRequestParametersException(
-          "Invalid payload attributes parameter (index 1)", getInvalidPayloadAttributesError(), e);
+          "Invalid payload attributes parameter (index 1)", RpcErrorType.INVALID_PARAMS, e);
     }
 
     logger().debug("Payload attributes {}", maybePayloadAttributes);

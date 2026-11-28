@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -43,13 +44,13 @@ public class EnginePayloadAttributesParameter {
       @JsonProperty("parentBeaconBlockRoot") final String parentBeaconBlockRoot,
       @JsonProperty("slotNumber") final String slotNumber,
       @JsonProperty("targetGasLimit") final String targetGasLimit) {
-    this.timestamp = Long.decode(timestamp);
+    this.timestamp = QuantityJson.parseUint64(timestamp);
     this.prevRandao = Bytes32.fromHexString(prevRandao);
     this.suggestedFeeRecipient = Address.fromHexString(suggestedFeeRecipient);
     this.withdrawals = withdrawals;
     this.parentBeaconBlockRoot =
         parentBeaconBlockRoot == null ? null : Bytes32.fromHexString(parentBeaconBlockRoot);
-    this.slotNumber = slotNumber == null ? null : Long.decode(slotNumber);
+    this.slotNumber = slotNumber == null ? null : QuantityJson.parseUint64(slotNumber);
     this.targetGasLimit = PayloadAttributesV4.parseTargetGasLimit(targetGasLimit);
   }
 

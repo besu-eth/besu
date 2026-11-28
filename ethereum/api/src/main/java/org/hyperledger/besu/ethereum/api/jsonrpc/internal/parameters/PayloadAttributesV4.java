@@ -15,12 +15,12 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import org.apache.tuweni.units.bigints.UInt64;
 
 public final class PayloadAttributesV4 extends PayloadAttributesV3 {
 
@@ -51,7 +51,7 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
       return null;
     }
     try {
-      return UInt64.fromHexString(slotNumber).toBytes().toLong();
+      return QuantityJson.parseUint64(slotNumber);
     } catch (final IllegalArgumentException e) {
       return null;
     }
@@ -66,8 +66,9 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
     if (targetGasLimit == null) {
       return null;
     }
-    final UInt64 value = UInt64.fromHexString(targetGasLimit);
-    return value.fitsLong() ? value.toLong() : Long.MAX_VALUE;
+    // QUANTITY-validated; values above Long.MAX_VALUE come back negative (unsigned) and clamp up.
+    final long value = QuantityJson.parseUint64(targetGasLimit);
+    return value < 0 ? Long.MAX_VALUE : value;
   }
 
   public Long getSlotNumber() {
