@@ -24,6 +24,7 @@ import org.apache.tuweni.units.bigints.UInt64;
 
 public final class PayloadAttributesV4 extends PayloadAttributesV3 {
 
+  private final boolean hasSlotNumber;
   private final Long slotNumber;
   private final Long targetGasLimit;
 
@@ -37,6 +38,7 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
       @JsonProperty("slotNumber") final String slotNumber,
       @JsonProperty("targetGasLimit") final String targetGasLimit) {
     super(timestamp, prevRandao, suggestedFeeRecipient, withdrawals, parentBeaconBlockRoot);
+    this.hasSlotNumber = slotNumber != null;
     this.slotNumber = parseSlotNumber(slotNumber);
     this.targetGasLimit = parseTargetGasLimit(targetGasLimit);
   }
@@ -68,6 +70,11 @@ public final class PayloadAttributesV4 extends PayloadAttributesV3 {
     }
     final UInt64 value = UInt64.fromHexString(targetGasLimit);
     return value.fitsLong() ? value.toLong() : Long.MAX_VALUE;
+  }
+
+  /** Whether the request carried a {@code slotNumber}, well-formed or not. */
+  public boolean hasSlotNumber() {
+    return hasSlotNumber;
   }
 
   public Long getSlotNumber() {

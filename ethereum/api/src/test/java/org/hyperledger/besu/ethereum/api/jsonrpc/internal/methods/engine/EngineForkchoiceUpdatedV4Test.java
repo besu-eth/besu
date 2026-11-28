@@ -189,7 +189,31 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
   }
 
   @Test
-  public void shouldReturnInvalidTargetGasLimitParamsWhenTargetGasLimitMissing() {
+  public void shouldReturnInvalidPayloadAttributesWhenSlotNumberMissing() {
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
+
+    final PayloadAttributesV4 payloadWithMissingSlot =
+        new PayloadAttributesV4(
+            Quantity.create(mockHeader.getTimestamp() + 1),
+            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+            Address.ECREC.toString(),
+            Collections.emptyList(),
+            Bytes32.ZERO.toHexString(),
+            null,
+            "0x1C9C380");
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(payloadWithMissingSlot));
+
+    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
+    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
+  }
+
+  @Test
+  public void shouldReturnInvalidPayloadAttributesWhenTargetGasLimitMissing() {
     final BlockHeader mockHeader = setupValidForkchoiceUpdate();
 
     final PayloadAttributesV4 payloadWithMissingTargetGasLimit =
@@ -209,7 +233,7 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
 
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS);
+        .isEqualTo(RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
   }
 
   @Test

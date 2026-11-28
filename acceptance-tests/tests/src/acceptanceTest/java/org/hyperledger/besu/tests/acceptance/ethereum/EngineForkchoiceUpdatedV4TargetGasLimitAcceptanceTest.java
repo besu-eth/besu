@@ -32,11 +32,11 @@ import org.junit.jupiter.api.Test;
  *
  * <p>From Amsterdam onwards the consensus layer must supply {@code targetGasLimit} when requesting
  * a payload; a payload-building fcU that omits it is rejected with {@code
- * INVALID_TARGET_GAS_LIMIT_PARAMS} (-32602).
+ * INVALID_PAYLOAD_ATTRIBUTES} (-38003).
  */
 public class EngineForkchoiceUpdatedV4TargetGasLimitAcceptanceTest extends AcceptanceTestBase {
   private static final String GENESIS_FILE = "/dev/dev_amsterdam.json";
-  private static final int INVALID_TARGET_GAS_LIMIT_PARAMS_CODE = -32602;
+  private static final int INVALID_PAYLOAD_ATTRIBUTES_CODE = -38003;
 
   private BesuNode besuNode;
   private AmsterdamAcceptanceTestHelper testHelper;
@@ -63,7 +63,7 @@ public class EngineForkchoiceUpdatedV4TargetGasLimitAcceptanceTest extends Accep
 
     final JsonNode error = response.get("error");
     assertThat(error).withFailMessage("Missing error object in response: %s", response).isNotNull();
-    assertThat(error.get("code").asInt()).isEqualTo(INVALID_TARGET_GAS_LIMIT_PARAMS_CODE);
-    assertThat(error.get("message").asText()).contains("target gas limit");
+    assertThat(error.get("code").asInt()).isEqualTo(INVALID_PAYLOAD_ATTRIBUTES_CODE);
+    assertThat(error.get("data").asText()).contains("target gas limit");
   }
 }

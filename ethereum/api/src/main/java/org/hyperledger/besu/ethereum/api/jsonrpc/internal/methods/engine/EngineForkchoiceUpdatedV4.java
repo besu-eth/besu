@@ -163,14 +163,18 @@ public final class EngineForkchoiceUpdatedV4<
   }
 
   private ValidationResult<RpcErrorType> validatePayloadAttributesV4(final PA attrs) {
-    // Any uint64 is a legal slot number, so only absence is rejected here.
+    // Attributes without a field of PayloadAttributesV4 do not match its structure (-38003).
+    if (!attrs.hasSlotNumber()) {
+      return ValidationResult.invalid(getInvalidPayloadAttributesError(), "Missing slotNumber");
+    }
+    // Any uint64 is a legal slot number, so a present one is rejected only when malformed.
     if (attrs.getSlotNumber() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Invalid slotNumber");
     }
     if (attrs.getTargetGasLimit() == null) {
       return ValidationResult.invalid(
-          RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS, "Missing target gas limit field");
+          getInvalidPayloadAttributesError(), "Missing target gas limit field");
     }
     return ValidationResult.valid();
   }
