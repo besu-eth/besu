@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidationMode;
@@ -132,7 +133,8 @@ class ValidatedBlockImporterTest {
   @Test
   void doesNotImportBlockAgain() {
     recordValidation();
-    when(blockchain.contains(block.getHash())).thenReturn(true);
+    when(blockchain.getTotalDifficultyByHash(block.getHash()))
+        .thenReturn(Optional.of(Difficulty.ONE));
 
     assertThat(importBlock(block, HeaderValidationMode.FULL).getStatus())
         .isEqualTo(ALREADY_IMPORTED);
@@ -146,7 +148,8 @@ class ValidatedBlockImporterTest {
     recordValidation();
     stubFastPathPreconditions(HeaderValidationMode.FULL);
     assertThat(importBlock(block, HeaderValidationMode.FULL).isImported()).isTrue();
-    when(blockchain.contains(block.getHash())).thenReturn(true);
+    when(blockchain.getTotalDifficultyByHash(block.getHash()))
+        .thenReturn(Optional.of(Difficulty.ONE));
 
     assertThat(importer.importBlock(protocolContext, block, HeaderValidationMode.NONE).getStatus())
         .isEqualTo(ALREADY_IMPORTED);
