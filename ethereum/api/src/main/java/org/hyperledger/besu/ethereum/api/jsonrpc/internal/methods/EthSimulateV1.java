@@ -124,7 +124,7 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
     }
     simulateV1Parameter.getBlockStateCalls().stream()
         .flatMap(blockStateCall -> blockStateCall.getCalls().stream())
-        .forEach(CallParameterUtil::rejectEmptyBlobHashes);
+        .forEach(CallParameterUtil::rejectInvalidSimulateCallParameters);
     try {
       Optional<BlockStateCallError> maybeValidationError =
           simulateV1Parameter.validate(getValidPrecompileAddresses(header));

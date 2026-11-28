@@ -266,4 +266,22 @@ public class CallParameterTest {
         .isThrownBy(() -> objectMapper.readValue(json, CallParameter.class))
         .withMessageContaining("authority and signature");
   }
+
+  @Test
+  public void omittedAuthorizationListIsAbsent() throws JsonProcessingException {
+    final CallParameter callParameter = objectMapper.readValue("{}", CallParameter.class);
+
+    assertThat(callParameter.getAuthorizationList()).isEmpty();
+    assertThat(callParameter.getCodeDelegationAuthorizations()).isEmpty();
+  }
+
+  @Test
+  public void emptyAuthorizationListIsPresent() throws JsonProcessingException {
+    final CallParameter callParameter =
+        objectMapper.readValue("{\"authorizationList\": []}", CallParameter.class);
+
+    assertThat(callParameter.getAuthorizationList()).isPresent();
+    assertThat(callParameter.getAuthorizationList().orElseThrow()).isEmpty();
+    assertThat(callParameter.getCodeDelegationAuthorizations()).isEmpty();
+  }
 }

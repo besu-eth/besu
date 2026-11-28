@@ -37,6 +37,7 @@
 - A node started with `--sync-mode=SNAP2` before the Amsterdam fork syncs with SNAP instead of waiting for the fork. With `--snapsync-server-enabled` on Bonsai, it advertises snap/2 once it can serve peers syncing with SNAP2. [#11983](https://github.com/besu-eth/besu/pull/11983)
 - Snap sync no longer loses trie nodes when writing them fails with a retryable error, which stalled the sync or left blocks after the pivot unable to import. [#12016](https://github.com/besu-eth/besu/pull/12016)
 - Keep `vmTrace` parent instructions, top-level and child bytecode and CALL resumption gas correct after omitted halted opcodes. [#11352](https://github.com/besu-eth/besu/pull/11352)
+- `eth_simulateV1` now rejects an empty `authorizationList`, a call that sets `gasPrice` together with `maxFeePerGas` or `maxPriorityFeePerGas`, and a call that sets both `authorizationList` and `blobVersionedHashes`, each with `Invalid params` (`-32602`). An empty authorization list was previously treated as absent and simulated as type `0x2`; mixed fee fields were accepted; both lists returned `Internal error` (`-32603`). [#12050](https://github.com/besu-eth/besu/pull/12050)
 
 ### Additions and Improvements
 - The sequenced transaction pool penalises a transaction whose selection result asks for it, for example one that took longer than the block selection time to execute, as the layered pool does. A penalised transaction is selected after the others, so it cannot monopolise the selection time of every block. [#11681](https://github.com/besu-eth/besu/pull/11681)

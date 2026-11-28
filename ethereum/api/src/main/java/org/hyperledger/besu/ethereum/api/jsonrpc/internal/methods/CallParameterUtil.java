@@ -102,6 +102,46 @@ public class CallParameterUtil {
     }
   }
 
+  /**
+   * Rejects a call that sets an empty authorizationList. A set-code (EIP-7702) transaction carries
+   * at least one authorization. An omitted field is not a set-code call and is left alone.
+   *
+   * @param callParams the call parameters
+   */
+  public static void rejectEmptyAuthorizationList(final CallParameter callParams) {
+    if (callParams.getAuthorizationList().map(List::isEmpty).orElse(false)) {
+      throw new InvalidJsonRpcParameters(
+          "set-code transaction needs at least one authorization", RpcErrorType.INVALID_PARAMS);
+    }
+  }
+
+  /**
+   * Rejects a call that sets both authorizationList and blobVersionedHashes. No transaction type
+   * carries both, so the request is invalid rather than an internal error while building the call.
+   *
+   * @param callParams the call parameters
+   */
+  public static void rejectConflictingTransactionTypeFields(final CallParameter callParams) {
+    if (callParams.getAuthorizationList().isPresent()
+        && callParams.getBlobVersionedHashes().isPresent()) {
+      throw new InvalidJsonRpcParameters(
+          "both authorizationList and blobVersionedHashes specified", RpcErrorType.INVALID_PARAMS);
+    }
+  }
+
+  /**
+   * Applies the call-parameter checks that {@code eth_simulateV1} runs on every call in the
+   * request, including mixed fee fields that {@code eth_call} already rejects.
+   *
+   * @param callParams the call parameters
+   */
+  public static void rejectInvalidSimulateCallParameters(final CallParameter callParams) {
+    rejectMixedFeeFields(callParams);
+    rejectEmptyBlobHashes(callParams);
+    rejectEmptyAuthorizationList(callParams);
+    rejectConflictingTransactionTypeFields(callParams);
+  }
+
   private static InvalidJsonRpcParameters invalidBlobCount() {
     return new InvalidJsonRpcParameters(
         "blob transaction needs at least one blob versioned hash", RpcErrorType.INVALID_BLOB_COUNT);
