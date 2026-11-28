@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.MissingTrieLogException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.MissingCodeException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.PathBasedWorldState;
@@ -251,8 +252,12 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final BlockHeader blockHeader,
       final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
+    // The bound is inclusive: the retained trie logs are those of blocks (head - maxLayersToLoad,
+    // head], exactly enough to roll head's state back to the post-state of block
+    // head - maxLayersToLoad, so that block is still reconstructible (EIP-8252 requires head -
+    // REORG_RETENTION_WINDOW inclusive). Only a greater depth has no trie log to roll through.
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
-        >= trieLogManager.getMaxLayersToLoad()) {
+        > trieLogManager.getMaxLayersToLoad()) {
       LOG.warn(
           "Exceeded the limit of historical blocks that can be loaded ({}). If you need to make older historical queries, configure your `--bonsai-historical-block-limit`.",
           trieLogManager.getMaxLayersToLoad());
@@ -289,8 +294,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   private TrieLog trieLogOrThrow(final Hash blockHash) {
     return trieLogManager
         .getTrieLogLayer(blockHash)
-        .orElseThrow(
-            () -> new IllegalStateException("Missing trie log for block hash " + blockHash));
+        .orElseThrow(() -> new MissingTrieLogException(blockHash));
   }
 
   protected Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
@@ -305,10 +309,22 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         final Optional<BlockHeader> maybePersistedHeader =
             blockchain.getBlockHeader(mutableState.blockHash()).map(BlockHeader.class::cast);
 
-        final List<TrieLog> rollBacks = new ArrayList<>();
-        final List<TrieLog> rollForwards = new ArrayList<>();
+        // Buffer only the block HASHES to roll through, not the decoded trie logs. A roll can span
+        // the whole EIP-8252 reorg retention window (DEFAULT_MAX_LAYERS_TO_LOAD = 262,144 blocks);
+        // a single trie log is tens of KiB, so buffering every decoded log here would hold O(depth)
+        // layers resident (tens of GiB) and OOM the node. A hash is 32 bytes. The logs are decoded
+        // and applied one at a time in the apply loops below, so at most one trie-log layer is
+        // resident at once and peak memory no longer scales with roll depth. Each log is decoded
+        // fresh from storage by block hash (TrieLogManager.getTrieLogLayer has no cache and no
+        // cross-layer state), and the apply order is byte-for-byte unchanged, so the net effect on
+        // the accumulator - and therefore the reconstructed state root - is identical.
+        final List<Hash> rollBacks = new ArrayList<>();
+        final List<Hash> rollForwards = new ArrayList<>();
         if (maybePersistedHeader.isEmpty()) {
-          trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
+          // Preserve the original semantics: only roll back this block if its trie log exists.
+          if (trieLogManager.getTrieLogLayer(mutableState.blockHash()).isPresent()) {
+            rollBacks.add(mutableState.blockHash());
+          }
         } else {
           BlockHeader targetHeader = headerOrThrow(blockHash);
           BlockHeader persistedHeader = maybePersistedHeader.get();
@@ -316,7 +332,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           Hash persistedBlockHash = persistedHeader.getBlockHash();
           while (persistedHeader.getNumber() > targetHeader.getNumber()) {
             LOG.debug("Rollback {}", persistedBlockHash);
-            rollBacks.add(trieLogOrThrow(persistedBlockHash));
+            rollBacks.add(persistedBlockHash);
             persistedHeader = headerOrThrow(persistedHeader.getParentHash());
             persistedBlockHash = persistedHeader.getBlockHash();
           }
@@ -324,7 +340,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           Hash targetBlockHash = targetHeader.getBlockHash();
           while (persistedHeader.getNumber() < targetHeader.getNumber()) {
             LOG.debug("Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogOrThrow(targetBlockHash));
+            rollForwards.add(targetBlockHash);
             targetHeader = headerOrThrow(targetHeader.getParentHash());
             targetBlockHash = targetHeader.getBlockHash();
           }
@@ -333,10 +349,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           while (!persistedBlockHash.equals(targetBlockHash)) {
             LOG.debug("Paired Rollback {}", persistedBlockHash);
             LOG.debug("Paired Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogOrThrow(targetBlockHash));
+            rollForwards.add(targetBlockHash);
             targetHeader = headerOrThrow(targetHeader.getParentHash());
 
-            rollBacks.add(trieLogOrThrow(persistedBlockHash));
+            rollBacks.add(persistedBlockHash);
             persistedHeader = headerOrThrow(persistedHeader.getParentHash());
 
             targetBlockHash = targetHeader.getBlockHash();
@@ -348,14 +364,17 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         final PathBasedWorldStateUpdateAccumulator<?> pathBasedUpdater =
             (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
         try {
-          for (final TrieLog rollBack : rollBacks) {
-            LOG.debug("Attempting Rollback of {}", rollBack.getBlockHash());
-            pathBasedUpdater.rollBack(rollBack);
+          // Decode each trie log just before applying it and drop the reference immediately, so the
+          // peak number of trie-log layers resident at once is bounded (O(1)), not O(roll depth).
+          // Rollbacks newest->oldest, rollforwards oldest->newest - the same order as before.
+          for (final Hash rollBack : rollBacks) {
+            LOG.debug("Attempting Rollback of {}", rollBack);
+            pathBasedUpdater.rollBack(trieLogOrThrow(rollBack));
           }
           for (int i = rollForwards.size() - 1; i >= 0; i--) {
-            final var forward = rollForwards.get(i);
-            LOG.debug("Attempting Rollforward of {}", rollForwards.get(i).getBlockHash());
-            pathBasedUpdater.rollForward(forward);
+            final Hash rollForward = rollForwards.get(i);
+            LOG.debug("Attempting Rollforward of {}", rollForward);
+            pathBasedUpdater.rollForward(trieLogOrThrow(rollForward));
           }
           pathBasedUpdater.commit();
 
@@ -366,6 +385,16 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
               mutableState.getWorldStateStorage().getClass().getSimpleName(),
               blockHash);
           return Optional.of(mutableState);
+        } catch (final MissingTrieLogException e) {
+          // A trie log needed to roll to the target is absent (pruned or never stored). Logs are
+          // decoded inside the apply loops, so this can surface after a partial roll; reset the
+          // updater before rethrowing to the outer handler, which reports the state as unavailable
+          // (engine API answers SYNCING) rather than a healable trie fault. The updater is always
+          // present in production; the null guard only covers mocked world states in tests.
+          if (pathBasedUpdater != null) {
+            pathBasedUpdater.reset();
+          }
+          throw e;
         } catch (final MerkleTrieException | MissingCodeException e) {
           // the caller heals and rolls the state again, from a clean updater
           pathBasedUpdater.reset();
@@ -382,6 +411,18 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
           return Optional.empty();
         }
+      } catch (final MissingTrieLogException e) {
+        // A trie log needed to roll to the target was pruned or never stored (e.g. a node upgraded
+        // or snap-synced without the historical trie logs). The state is unavailable to
+        // reconstruct, not corrupt, so report it as missing - the engine API answers SYNCING rather
+        // than an internal error - instead of raising a trie fault that would trigger a heal.
+        LOG.atLevel(rollingFailureLogLevel)
+            .setMessage("Cannot roll {} to block hash {}: {}")
+            .addArgument(() -> mutableState.getWorldStateStorage().getClass().getSimpleName())
+            .addArgument(blockHash)
+            .addArgument(e::getMessage)
+            .log();
+        return Optional.empty();
       } catch (final RuntimeException re) {
         LOG.warn("Archive rolling failed for block hash " + blockHash, re);
         if (re instanceof MerkleTrieException || re instanceof MissingCodeException) {

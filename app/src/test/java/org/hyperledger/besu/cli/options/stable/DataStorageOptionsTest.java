@@ -15,6 +15,7 @@
 package org.hyperledger.besu.cli.options.stable;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.EIP_8252_REORG_RETENTION_WINDOW;
 import static org.hyperledger.besu.ethereum.worldstate.ExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT;
 
 import org.hyperledger.besu.cli.options.AbstractCLIOptionsTest;
@@ -39,6 +40,9 @@ public class DataStorageOptionsTest
                         .getTrieLogPruningWindowSize())
                 .isEqualTo(600),
         "--bonsai-limit-trie-logs-enabled",
+        // keep retention below the 600 pruning window so validation passes with the raised default
+        "--bonsai-historical-block-limit",
+        "512",
         "--bonsai-trie-logs-pruning-window-size",
         "600");
   }
@@ -69,6 +73,9 @@ public class DataStorageOptionsTest
     internalTestFailure(
         "--bonsai-trie-logs-pruning-window-size=512 must be greater than --bonsai-historical-block-limit=512",
         "--bonsai-limit-trie-logs-enabled",
+        // pin retention explicitly so the assertion is independent of the (raised) default
+        "--bonsai-historical-block-limit",
+        "512",
         "--bonsai-trie-logs-pruning-window-size",
         "512");
   }
@@ -93,6 +100,39 @@ public class DataStorageOptionsTest
         "--bonsai-limit-trie-logs-enabled",
         "--bonsai-historical-block-limit",
         "512");
+  }
+
+  @Test
+  public void defaultRetentionCoversEip8252ReorgWindow() {
+    // EIP-8252: by default an EL MUST be able to reconstruct the post-state of every canonical
+    // block within REORG_RETENTION_WINDOW (= 8192 epochs * 32 slots = 2^18 = 262,144) blocks of
+    // head without re-sync. For Bonsai that depth is the retained trie-log layer count.
+    assertThat(EIP_8252_REORG_RETENTION_WINDOW).isEqualTo(8192L * 32L);
+    assertThat(EIP_8252_REORG_RETENTION_WINDOW).isEqualTo(262_144L);
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(dataStorageConfiguration.getExtraStorageConfiguration().getMaxLayersToLoad())
+                .isGreaterThanOrEqualTo(EIP_8252_REORG_RETENTION_WINDOW));
+  }
+
+  @Test
+  public void pruningWindowBelowDefaultRetentionStartsWithRaisedWindow() {
+    // Regression: raising the default retention to the EIP-8252 window must not break a node that
+    // only set --bonsai-trie-logs-pruning-window-size (relying on the old 512 default retention).
+    // With the retention left at its default, the effective window is raised above the retention so
+    // the node starts instead of failing validation, and still ends up greater than the retention.
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(
+                    (long)
+                        dataStorageConfiguration
+                            .getExtraStorageConfiguration()
+                            .getTrieLogPruningWindowSize())
+                .isGreaterThan(
+                    dataStorageConfiguration.getExtraStorageConfiguration().getMaxLayersToLoad()),
+        "--bonsai-limit-trie-logs-enabled",
+        "--bonsai-trie-logs-pruning-window-size",
+        "5000");
   }
 
   @Test

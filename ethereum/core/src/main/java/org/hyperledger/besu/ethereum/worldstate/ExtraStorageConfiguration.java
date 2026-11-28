@@ -30,10 +30,52 @@ public interface ExtraStorageConfiguration {
           .parallelStateRootComputationEnabled(false)
           .build();
 
-  long DEFAULT_MAX_LAYERS_TO_LOAD = 512;
+  /**
+   * EIP-8252 REORG_RETENTION_WINDOW: 8192 epochs * 32 slots = 2^18 = 262,144 blocks (~36.4 days),
+   * the inactivity-leak-bounded span over which the chain may stay non-final. EIP-8252 requires an
+   * EL to be able to reconstruct the post-state of every canonical block with number in [head -
+   * REORG_RETENTION_WINDOW, head] without re-syncing. For Bonsai that depth is bounded by the
+   * number of retained trie logs (see {@link #getMaxLayersToLoad()}), so the default retention is
+   * set to this window. See https://eips.ethereum.org/EIPS/eip-8252
+   */
+  long EIP_8252_REORG_RETENTION_WINDOW = 262_144;
+
+  /**
+   * Default number of historical trie-log layers retained, and therefore the depth from head across
+   * which Bonsai can reconstruct state without re-sync. Set to the EIP-8252 reorg retention window
+   * so a default node is EIP-8252 compliant out of the box. Overridable with {@code
+   * --bonsai-historical-block-limit}.
+   */
+  long DEFAULT_MAX_LAYERS_TO_LOAD = EIP_8252_REORG_RETENTION_WINDOW;
+
   boolean DEFAULT_LIMIT_TRIE_LOGS_ENABLED = true;
-  long MINIMUM_TRIE_LOG_RETENTION_LIMIT = DEFAULT_MAX_LAYERS_TO_LOAD;
-  int DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE = 5_000;
+
+  /**
+   * Lowest retention an operator may configure via {@code --bonsai-historical-block-limit}.
+   * Deliberately decoupled from (and far below) {@link #DEFAULT_MAX_LAYERS_TO_LOAD}: raising the
+   * EIP-8252 default must not raise this floor, so minimal / non-archive nodes can still trade
+   * reorg-reconstruction depth for disk by opting below the window (compare erigon's
+   * MinimalPruneDistance). This is the historical default retention value (512).
+   */
+  long MINIMUM_TRIE_LOG_RETENTION_LIMIT = 512;
+
+  /**
+   * Headroom kept between the trie-log retention and the startup pruning window. The window must be
+   * strictly greater than the retention (see {@link #DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE}); this
+   * is how far above it the default sits, and how far the effective window is raised when an
+   * operator leaves the retention at its default but sets a smaller window.
+   */
+  long TRIE_LOG_PRUNING_WINDOW_MARGIN = 30_000;
+
+  /**
+   * Startup trie-log pruning batch size. Must be strictly greater than the configured retention
+   * ({@link #getMaxLayersToLoad()}) or the pruner only loads still-retained layers and makes no
+   * progress; the CLI enforces this. Sized above the EIP-8252 default retention with headroom so
+   * the default configuration validates and catch-up pruning can reach beyond the window.
+   */
+  int DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE =
+      (int) (EIP_8252_REORG_RETENTION_WINDOW + TRIE_LOG_PRUNING_WINDOW_MARGIN);
+
   boolean DEFAULT_PARALLEL_TX_PROCESSING = true;
   boolean DEFAULT_PARALLEL_STATE_ROOT_COMPUTATION = true;
 
